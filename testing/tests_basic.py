@@ -135,7 +135,7 @@ def test_file_upload_download():
         local_temp_file.write(file_content)
         local_temp_file.close()
         local_temp_path = local_temp_file.name
-        print(f"Created local temp file: {local_temp_path} with content:\n{file_content}")
+        print(f"Created local temp file: {local_temp_path} with content:\n{file_content!r}") # Use !r for clarity
 
         # 2. Upload the file
         print(f"Uploading {local_temp_path} to {remote_path}")
@@ -150,8 +150,16 @@ def test_file_upload_download():
         cat_handle = client.run(f"cat {remote_path}")
         assert cat_handle.exit_code == 0, f"'cat {remote_path}' failed"
         remote_content = "".join(cat_handle.tail(10)) # Get all lines assuming it's short
-        print(f"Remote content via cat:\n{remote_content}")
-        assert file_content == remote_content, "Remote content doesn't match original content"
+        print(f"Remote content via cat:\n{remote_content!r}") # Use !r for clarity
+
+        # Normalize line endings for cross-platform compatibility before comparing cat output
+        normalized_original_content = file_content.replace('\r\n', '\n')
+        normalized_remote_content = remote_content.replace('\r\n', '\n')
+        assert normalized_original_content == normalized_remote_content, \
+            f"Remote content (from cat) doesn't match original content after normalizing line endings.\n" \
+            f"Original (normalized): {normalized_original_content!r}\n" \
+            f"Remote   (normalized): {normalized_remote_content!r}"
+        print("Remote content via cat matches original (after normalization).")
 
         # 4. Create a local path for download
         local_download_path = local_temp_path + ".downloaded"
@@ -163,11 +171,20 @@ def test_file_upload_download():
 
         # 6. Verify downloaded file content
         print(f"Reading downloaded file: {local_download_path}")
+        # Read the downloaded file in text mode, letting Python handle line endings
         with open(local_download_path, 'r', encoding='utf-8') as f:
             downloaded_content = f.read()
-        print(f"Downloaded content:\n{downloaded_content}")
-        assert file_content == downloaded_content, "Downloaded content doesn't match original content"
-        print("Downloaded content matches original.")
+        print(f"Downloaded content:\n{downloaded_content!r}") # Use !r for clarity
+
+        # Normalize line endings for cross-platform compatibility before comparing downloaded file
+        # The original content needs normalization. The downloaded content read with 'r'
+        # should already be normalized by Python on Windows, but normalize both to be safe.
+        normalized_downloaded_content = downloaded_content.replace('\r\n', '\n')
+        assert normalized_original_content == normalized_downloaded_content, \
+            f"Downloaded content doesn't match original content after normalizing line endings.\n" \
+            f"Original   (normalized): {normalized_original_content!r}\n" \
+            f"Downloaded (normalized): {normalized_downloaded_content!r}"
+        print("Downloaded content matches original (after normalization).")
 
         print("Assertions passed.")
 
@@ -252,4 +269,3 @@ if __name__ == "__main__":
     print("\n" + "=" * 30)
     print("All basic tests finished.")
     print("=" * 30)
-
