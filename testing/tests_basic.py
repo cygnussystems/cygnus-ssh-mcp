@@ -4,6 +4,7 @@ import time
 import tempfile
 import pytest # Using pytest features like raises
 import threading # Needed for busy test
+import shlex # Import shlex module
 
 # Add project root to path to import SshClient
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
