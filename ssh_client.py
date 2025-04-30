@@ -239,7 +239,11 @@ class SshClient:
                     killed = True
                     break # Exit loop if kill succeeded
                 else:
-                    stderr_output = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+                    # Attempt to read stderr even on failure
+                    try:
+                        stderr_output = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+                    except Exception:
+                        stderr_output = "(could not read stderr)"
                     self._logger.warning(f"Kill command (signal {signal}) for PID {pid} failed with exit code {exit_status}. Stderr: {stderr_output}")
                     # If signal 15 failed, loop will try signal 9. If 9 fails, loop ends.
             except Exception as e:
@@ -292,6 +296,7 @@ class SshClient:
                     # Use exec_command for a quick check, short timeout
                     stdin, stdout_t, stderr_t = self._client.exec_command(test_sudo_cmd, timeout=5)
                     sudo_n_stderr = stderr_t.read().decode('utf-8', errors='replace')
+                    # Ensure exit status is read *after* stderr/stdout
                     sudo_n_exit_code = stdout_t.channel.recv_exit_status()
                     stdin.close(); stdout_t.close(); stderr_t.close()
 
@@ -341,7 +346,11 @@ class SshClient:
             if use_sudo_password_flow:
                 self._logger.debug("Sending sudo password.")
                 try:
-                    chan.sendall(self.sudo_password + "\n")
+                    # Ensure channel is active before sending
+                    if chan.active:
+                        chan.sendall(self.sudo_password + "\n")
+                    else:
+                        raise SshError("Channel inactive before sending sudo password.")
                 except Exception as send_err:
                     # Handle error sending password (e.g., channel closed)
                     self._logger.error(f"Failed to send sudo password: {send_err}", exc_info=True)
@@ -365,6 +374,11 @@ class SshClient:
                         raise CommandRuntimeTimeout(handle, runtime_timeout)
 
                 # 2. Check for I/O readiness (non-blocking)
+                # Check exit status *before* blocking on select/readline
+                if chan.exit_status_ready():
+                    self._logger.debug(f"Command ID {handle.id} exit status ready, breaking read loop.")
+                    break
+
                 read_ready, _, _ = select.select([chan], [], [], 0.1) # Wait up to 100ms
 
                 if chan in read_ready:
@@ -403,13 +417,15 @@ class SshClient:
                                  # handle._buf.append(f"[STDERR] {stderr_line}")
                                  # handle.total_lines += 1 # If appending
 
-                        # If readline returned empty, check exit status
+                        # If readline returned empty, check exit status again
                         if not line and chan.exit_status_ready():
+                            self._logger.debug(f"Command ID {handle.id} readline empty and exit status ready.")
                             break # Command finished
 
                     except socket.timeout:
                         # readline timed out waiting for data. Check if command finished.
                         if chan.exit_status_ready():
+                            self._logger.debug(f"Command ID {handle.id} socket timeout but exit status ready.")
                             break # Command finished while we were waiting
                         else:
                             # I/O timeout occurred, but command still running and runtime timeout not hit.
@@ -417,14 +433,29 @@ class SshClient:
                             self._logger.warning(f"Command ID {handle.id} hit I/O timeout ({io_timeout}s inactivity).")
                             raise CommandTimeout(io_timeout) from None
 
-                # 4. Check if command finished externally (if no I/O occurred)
+                # 4. Check if command finished externally (if no I/O occurred in select)
                 elif chan.exit_status_ready():
+                    self._logger.debug(f"Command ID {handle.id} exit status ready after select timeout.")
                     break # Command finished
 
                 # 5. Small sleep if no I/O and not finished, prevent busy-wait
                 # time.sleep(0.01) # Already handled by select timeout
 
             # --- Command Finished ---
+            # Ensure PID is captured if it was the very last thing printed before exit
+            if not got_pid and remote_pid is None:
+                 # Check buffer in case PID was the only output
+                 buffered_lines = list(handle._buf)
+                 if len(buffered_lines) == 1 and buffered_lines[0].strip().isdigit():
+                     remote_pid = int(buffered_lines[0].strip())
+                     handle.pid = remote_pid
+                     handle._buf.clear() # Remove PID from output buffer
+                     handle.total_lines = 0
+                     self._logger.info(f"Captured remote PID {remote_pid} from buffer for command ID {handle.id}")
+                 else:
+                     self._logger.warning(f"Command ID {handle.id} finished without capturing PID.")
+
+
             handle.exit_code = chan.recv_exit_status()
             handle.end_ts = datetime.utcnow()
             handle.running = False
@@ -440,7 +471,7 @@ class SshClient:
                 # Combine stdout buffer and final stderr for the exception
                 stdout_all = ''.join(handle.tail(handle.total_lines))
                 # If sudo password failed, provide a clearer error
-                if sudo_pwd_attempted and handle.exit_code == 1 and "incorrect password attempt" in stderr_output.lower():
+                if sudo_pwd_attempted and handle.exit_code == 1 and ("incorrect password attempt" in stderr_output.lower() or "try again" in stderr_output.lower()):
                      raise SudoRequired(f"{cmd} (Incorrect sudo password provided or required)")
                 raise CommandFailed(handle.exit_code, stdout_all, stderr_output)
 
@@ -449,11 +480,14 @@ class SshClient:
         except (CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, SshError) as e:
              # Log known exceptions before re-raising
              if isinstance(e, CommandRuntimeTimeout):
-                 self._logger.error(f"Command ID {e.handle.id} failed: {e}", exc_info=False) # Already logged kill attempt
+                 self._logger.error(f"Command ID {e.handle.id if e.handle else 'N/A'} failed: {e}", exc_info=False) # Already logged kill attempt
              elif isinstance(e, CommandFailed):
-                  self._logger.error(f"Command ID {handle.id if handle else 'N/A'} failed with exit code {e.exit_code}. Stderr: {e.stderr}", exc_info=False)
+                  # Ensure handle exists before accessing id
+                  handle_id_log = handle.id if handle else 'N/A'
+                  self._logger.error(f"Command ID {handle_id_log} failed with exit code {e.exit_code}. Stderr: {e.stderr}", exc_info=False)
              else:
-                 self._logger.error(f"Command ID {handle.id if handle else 'N/A'} encountered error: {e}", exc_info=False)
+                 handle_id_log = handle.id if handle else 'N/A'
+                 self._logger.error(f"Command ID {handle_id_log} encountered error: {e}", exc_info=False)
 
              # Ensure handle state is updated on error if possible
              if handle and handle.running:
@@ -462,7 +496,8 @@ class SshClient:
              raise # Re-raise the caught exception
         except Exception as e:
             # Catch unexpected errors
-            self._logger.error(f"Unexpected error during run (ID: {handle.id if handle else 'N/A'}): {e}", exc_info=True)
+            handle_id_log = handle.id if handle else 'N/A'
+            self._logger.error(f"Unexpected error during run (ID: {handle_id_log}): {e}", exc_info=True)
             if handle and handle.running:
                  handle.running = False
                  handle.end_ts = datetime.utcnow()
@@ -514,9 +549,21 @@ class SshClient:
                     bg_cmd_part += f" 2>{shlex.quote(effective_stderr_log)}"
 
             # Use subshell to ensure PID is captured correctly after nohup/&
+            # Ensure nohup runs in the background correctly within the subshell
             pid_cmd = f"( nohup {bg_cmd_part} & echo $! )"
 
-            full_cmd = self._build_cmd(pid_cmd, sudo)
+
+            # Need to handle sudo for launch correctly - build_cmd might not be enough
+            # If sudo is needed, the entire subshell needs to run under sudo
+            if sudo:
+                 # Check for sudo password requirement first? Or assume passwordless for launch?
+                 # For now, assume passwordless sudo for launch, using -n
+                 full_cmd = f"sudo -n bash -c {shlex.quote(pid_cmd)}"
+                 # If passworded sudo is needed for launch, it's much more complex and likely unreliable.
+            else:
+                 full_cmd = f"bash -c {shlex.quote(pid_cmd)}"
+
+
             self._logger.info(f"Launching command: {full_cmd}")
 
             # Use exec_command for simple background launch
@@ -525,9 +572,22 @@ class SshClient:
             pid_str = stdout.read().decode('utf-8', errors='replace').strip()
             stderr_output = stderr.read().decode('utf-8', errors='replace').strip()
 
+            # Must read exit status *after* stdout/stderr
+            exit_status = stdout.channel.recv_exit_status()
+
             stdin.close()
             stdout.close()
             stderr.close()
+
+            # Check if the launch command itself failed (e.g., sudo -n failed)
+            if exit_status != 0:
+                 err_msg = f"Launch command execution failed with exit code {exit_status}. stdout: '{pid_str}', stderr: '{stderr_output}'"
+                 self._logger.error(err_msg)
+                 handle_id = self._next_id; self._next_id += 1
+                 handle = CommandHandle(handle_id, cmd, pid=None); handle.running = False; handle.exit_code = exit_status; handle.end_ts = datetime.utcnow()
+                 self._add_to_history(handle)
+                 raise SshError(err_msg)
+
 
             if not pid_str.isdigit():
                 err_msg = f"Failed to launch command or parse PID. stdout: '{pid_str}', stderr: '{stderr_output}'"
@@ -537,7 +597,7 @@ class SshClient:
                 self._next_id += 1
                 handle = CommandHandle(handle_id, cmd, pid=None)
                 handle.running = False
-                handle.exit_code = -1 # Indicate launch failure
+                handle.exit_code = -1 # Indicate launch failure (PID parse)
                 handle.end_ts = datetime.utcnow()
                 self._add_to_history(handle)
                 raise SshError(err_msg)
@@ -551,14 +611,16 @@ class SshClient:
                 try:
                     # Use run to rename the log file, short timeout
                     rename_cmd = f"mv {shlex.quote(default_log_path)} {shlex.quote(final_log_path)}"
-                    self.run(rename_cmd, io_timeout=5, sudo=sudo) # Use sudo if launch used sudo
+                    # Use sudo for rename if launch used sudo
+                    self.run(rename_cmd, io_timeout=5, runtime_timeout=10, sudo=sudo)
                     self._logger.info(f"Renamed default log to {final_log_path}")
                     effective_stdout_log = final_log_path # Update effective path
                     if effective_stderr_log == default_log_path:
                         effective_stderr_log = final_log_path
                 except Exception as rename_err:
+                    # Log rename failure but proceed, log file will have placeholder name
                     self._logger.warning(f"Failed to rename default log file {default_log_path} to {final_log_path}: {rename_err}")
-                    # Log path remains the placeholder name, which might be confusing
+
 
             handle_id = self._next_id
             self._next_id += 1
@@ -569,17 +631,23 @@ class SshClient:
             return handle
 
         except Exception as e:
-            self._logger.error(f"Failed to launch command '{cmd}': {e}", exc_info=True)
-            # Ensure failed handle is created if not already
-            if not handle and pid is None: # Check if handle creation failed before SshError was raised
-                 handle_id = self._next_id
-                 self._next_id += 1
-                 fail_handle = CommandHandle(handle_id, cmd, pid=None)
-                 fail_handle.running = False
-                 fail_handle.exit_code = -1
-                 fail_handle.end_ts = datetime.utcnow()
-                 self._add_to_history(fail_handle)
-            raise SshError(f"Failed to launch command: {e}") from e
+            # Catch BusyError specifically if run() was called during rename
+            if isinstance(e, BusyError):
+                 self._logger.error(f"Failed to launch command '{cmd}' due to busy client during log rename.", exc_info=True)
+                 # Create a failed handle if PID was obtained but rename failed due to busy
+                 if pid and not handle:
+                     handle_id = self._next_id; self._next_id += 1
+                     fail_handle = CommandHandle(handle_id, cmd, pid=pid); fail_handle.running = False; fail_handle.exit_code = -1; fail_handle.end_ts = datetime.utcnow()
+                     self._add_to_history(fail_handle)
+                 raise # Re-raise BusyError
+            else:
+                 self._logger.error(f"Failed to launch command '{cmd}': {e}", exc_info=True)
+                 # Ensure failed handle is created if not already
+                 if not handle and pid is None: # Check if handle creation failed before SshError was raised
+                      handle_id = self._next_id; self._next_id += 1
+                      fail_handle = CommandHandle(handle_id, cmd, pid=None); fail_handle.running = False; fail_handle.exit_code = -1; fail_handle.end_ts = datetime.utcnow()
+                      self._add_to_history(fail_handle)
+                 raise SshError(f"Failed to launch command: {e}") from e
 
     def task_status(self, pid):
         """
@@ -600,7 +668,7 @@ class SshClient:
             chan = self._client.get_transport().open_session()
             chan.settimeout(5.0) # Short timeout
             chan.exec_command(cmd)
-            # Read stderr for context on failure
+            # Read stderr for context on failure *before* getting exit status
             stderr_output = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
             exit_status = chan.recv_exit_status() # Wait for command to finish
             chan.close()
@@ -650,11 +718,13 @@ class SshClient:
 
         # 2. Try initial signal
         cmd = f"kill -{signal} {pid}"
+        kill_cmd_succeeded = False
         try:
             # Use run() for the kill command itself, as it handles sudo and errors
-            handle = self.run(cmd, io_timeout=10, sudo=sudo)
+            handle = self.run(cmd, io_timeout=10, runtime_timeout=15, sudo=sudo)
             if handle.exit_code == 0:
                 self._logger.info(f"Successfully sent signal {signal} to PID {pid}.")
+                kill_cmd_succeeded = True
             else:
                 # kill command failed, but maybe process died anyway? Or permissions?
                  self._logger.warning(f"Command 'kill -{signal} {pid}' failed with exit code {handle.exit_code}. Checking status.")
@@ -667,18 +737,22 @@ class SshClient:
         except BusyError:
              self._logger.error("Cannot execute task_kill: client is busy with another run() command.")
              raise # Re-raise busy error
+        except (CommandTimeout, CommandRuntimeTimeout) as e:
+             self._logger.error(f"Timeout executing kill command 'kill -{signal} {pid}': {e}")
+             return "error" # Error during the kill command itself
         except Exception as e:
             self._logger.error(f"Error sending signal {signal} to PID {pid}: {e}", exc_info=True)
             return "error" # Error during the kill command itself
 
-        # 3. Wait and Check Status
+        # 3. Wait and Check Status (only if kill command didn't obviously fail due to non-existence)
+        # If kill_cmd_succeeded is False, it might be because the process was already gone.
         if wait_seconds > 0:
-            self._logger.debug(f"Waiting {wait_seconds}s after signal {signal}...")
+            self._logger.debug(f"Waiting {wait_seconds}s after signal {signal} attempt...")
             time.sleep(wait_seconds)
 
         current_status = self.task_status(pid)
         if current_status == "exited":
-            self._logger.info(f"PID {pid} confirmed exited after signal {signal}.")
+            self._logger.info(f"PID {pid} confirmed exited after signal {signal} attempt.")
             return "killed"
         if current_status == "error":
             self._logger.warning(f"Could not determine status for PID {pid} after signal {signal}. Assuming it might still be running.")
@@ -689,7 +763,7 @@ class SshClient:
             self._logger.warning(f"PID {pid} still running after signal {signal}. Attempting force kill with signal {force_kill_signal}.")
             cmd_force = f"kill -{force_kill_signal} {pid}"
             try:
-                handle_force = self.run(cmd_force, io_timeout=10, sudo=sudo)
+                handle_force = self.run(cmd_force, io_timeout=10, runtime_timeout=15, sudo=sudo)
                 if handle_force.exit_code == 0:
                     self._logger.info(f"Successfully sent force signal {force_kill_signal} to PID {pid}.")
                     # Check status one last time after short delay
@@ -703,6 +777,8 @@ class SshClient:
                          return "failed_to_kill"
                 else:
                     self._logger.error(f"Force kill command 'kill -{force_kill_signal} {pid}' failed with exit code {handle_force.exit_code}.")
+                    # Check status again - maybe it died just before?
+                    if self.task_status(pid) == "exited": return "killed"
                     return "failed_to_kill"
             except CommandFailed as e_force:
                  self._logger.error(f"Force kill command 'kill -{force_kill_signal} {pid}' failed: {e_force}.")
@@ -712,6 +788,9 @@ class SshClient:
             except BusyError:
                  self._logger.error("Cannot execute force kill: client is busy with another run() command.")
                  raise # Re-raise busy error
+            except (CommandTimeout, CommandRuntimeTimeout) as e_force:
+                 self._logger.error(f"Timeout executing force kill command 'kill -{force_kill_signal} {pid}': {e_force}")
+                 return "error" # Error during the force kill command itself
             except Exception as e_force:
                 self._logger.error(f"Error sending force signal {force_kill_signal} to PID {pid}: {e_force}", exc_info=True)
                 return "error"
@@ -907,7 +986,8 @@ class SshClient:
             if original_text is not None: # Only try stat if we could potentially read the original
                 stat_cmd = f"stat -c '%a %u %g' {shlex.quote(remote_file)}"
                 try:
-                    stat_handle = self.run(stat_cmd, io_timeout=10) # Use run() for stat
+                    # Use run() for stat, ensure sudo is False for stat command itself
+                    stat_handle = self.run(stat_cmd, io_timeout=10, sudo=False)
                     stat_output = stat_handle.tail(1)[0].strip()
                     parts = stat_output.split()
                     if len(parts) == 3:
@@ -923,7 +1003,7 @@ class SshClient:
             chown_cmd = f"chown {owner}:{group} {shlex.quote(remote_file)}" if owner and group else None
             chmod_cmd = f"chmod {perms} {shlex.quote(remote_file)}" if perms else None
 
-            # Execute commands with sudo
+            # Execute commands with sudo (original sudo flag for the replace operation)
             self._logger.info(f"Executing sudo mv: {mv_cmd}")
             self.run(mv_cmd, sudo=True) # run() handles potential sudo errors
             if chown_cmd:
@@ -949,8 +1029,8 @@ class SshClient:
             # Try removing remote temp file, ignore errors, use run()
             try:
                 self._logger.debug(f"Cleaning up remote temp file: {remote_temp_path}")
-                # Use run with short timeout, ignore BusyError if it happens during cleanup
-                self.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, sudo=sudo) # Use sudo if needed for /tmp cleanup? Maybe not.
+                # Use run with short timeout, ignore BusyError. Don't use sudo for /tmp cleanup.
+                self.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=False)
             except BusyError:
                  self._logger.warning(f"Client busy, could not cleanup remote temp file {remote_temp_path}")
             except Exception as cleanup_err:
@@ -1032,8 +1112,8 @@ class SshClient:
 
     def status(self):
         """Return a snapshot of system state using a combined command."""
-        # Combined command for efficiency
-        cmd = """
+        # Combined command for efficiency - use raw string literal
+        cmd = r"""
         bash -c '
           echo "USER:$(whoami)"
           echo "CWD:$(pwd)"
@@ -1041,12 +1121,13 @@ class SshClient:
           echo "HOST:$(hostname)"
           echo "UP:$(uptime -p 2>/dev/null || uptime)"
           echo "LOAD:$(cut -d" " -f1-3 /proc/loadavg 2>/dev/null || echo n/a)"
-          echo "DISK:$(df -h / 2>/dev/null | awk "NR==2{print \$4}" || echo n/a)"
-          echo "MEM:$(free -m 2>/dev/null | awk "/^Mem:/{print \$4\\" MB\\"}" || echo n/a)"
-          if [ -f /etc/os-release ]; then . /etc/os-release; echo "OS:\${NAME} \${VERSION_ID}"; else uname -srm; fi
+          echo "DISK:$(df -h / 2>/dev/null | awk "NR==2{print $4}" || echo n/a)"
+          echo "MEM:$(free -m 2>/dev/null | awk "/^Mem:/{print $4\" MB\"}" || echo n/a)"
+          if [ -f /etc/os-release ]; then . /etc/os-release; echo "OS:${NAME} ${VERSION_ID}"; else uname -srm; fi
         '
         """
-        # Note: Escaped $4 in awk commands for Python f-string/triple quotes
+        # Note: $4 in awk commands no longer needs escaping due to raw string
+        # Escaped quote for " MB" still needed: \"
         status_info = {}
         try:
             # Use run with short timeouts
@@ -1086,7 +1167,9 @@ class SshClient:
         # This helper is now less critical as sudo logic is partly in run()
         # Keep it for basic wrapping. force_sudo_n is for the initial check.
         if sudo:
+            # Determine sudo command based on context (force_sudo_n for check)
             sudo_cmd = "sudo -n" if force_sudo_n else "sudo -n" # Default to -n for this helper
+            # Note: run() method handles the sudo -S logic separately
             # Using bash -c ensures complex commands with pipes/redirects work
             return f"{sudo_cmd} bash -c {shlex.quote(cmd)}"
         return cmd
