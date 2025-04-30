@@ -6,6 +6,14 @@ import os
 import shlex
 from collections import deque
 from datetime import datetime
+import logging # Added
+import threading # Added
+import select # Added for non-blocking reads
+
+# Configure basic logging for the library
+log = logging.getLogger(__name__)
+# Example basic config (users of the library should configure logging themselves)
+# logging.basicConfig(level=logging.INFO)
 
 
 class SshError(Exception):
@@ -13,14 +21,24 @@ class SshError(Exception):
 
 
 class CommandTimeout(SshError):
+    """Raised for I/O timeouts during command execution."""
     def __init__(self, seconds):
-        super().__init__(f"Command timed out after {seconds} seconds")
+        super().__init__(f"Command I/O timed out after {seconds} seconds of inactivity")
+        self.seconds = seconds
+
+class CommandRuntimeTimeout(SshError):
+    """Raised when a command exceeds its total allowed runtime_timeout."""
+    def __init__(self, handle, seconds):
+        super().__init__(f"Command exceeded runtime timeout of {seconds}s (PID: {handle.pid}, ID: {handle.id})")
+        self.handle = handle
         self.seconds = seconds
 
 
 class CommandFailed(SshError):
     def __init__(self, exit_code, stdout, stderr):
-        super().__init__(f"Command failed with exit code {exit_code}")
+        # Ensure stderr is string for consistent error message
+        stderr_str = stderr if isinstance(stderr, str) else stderr.decode('utf-8', errors='replace')
+        super().__init__(f"Command failed with exit code {exit_code}. Stderr: {stderr_str[:200]}") # Limit stderr in message
         self.exit_code = exit_code
         self.stdout = stdout
         self.stderr = stderr
@@ -28,13 +46,13 @@ class CommandFailed(SshError):
 
 class SudoRequired(SshError):
     def __init__(self, cmd):
-        super().__init__(f"Password-less sudo required for: {cmd}")
+        super().__init__(f"Password-less sudo required, or sudo password not provided for: {cmd}")
         self.cmd = cmd
 
 
 class BusyError(SshError):
     def __init__(self):
-        super().__init__("Another command is currently running")
+        super().__init__("Another synchronous command (run) is currently executing")
 
 
 class OutputPurged(SshError):
@@ -65,48 +83,61 @@ class CommandHandle:
         self.total_lines = 0  # Only relevant for run()
         self.truncated = False # Only relevant for run()
         self._buf = deque(maxlen=tail_keep) # Only relevant for run()
-        self.pid = pid # Store the PID for launched commands
+        self.pid = pid # Store the PID for launched commands and run() commands
 
     def tail(self, n=50):
         """Return the last n lines of output captured by run()."""
-        if self.pid is not None:
-            # Output is not captured directly for launched commands
-            return ["Output not captured directly for launched commands (PID: {}). Check logs if redirected.".format(self.pid)]
+        if self.pid is not None and self.exit_code is None and self.end_ts is None:
+             # Check if it looks like a launched command handle (has PID, no exit code/end time yet)
+             # This is imperfect, run() commands now also have PIDs.
+             # A better check might be needed, or rely on the caller knowing how the handle was created.
+             # For now, assume if PID exists and not finished, it *might* be launched.
+             # Let's refine this: run() commands *will* have exit_code/end_ts when finished.
+             # So, if pid exists AND running is True AND exit_code is None, it's either running via run() or launch()
+             # If pid exists AND running is False, it finished via run()
+             # Let's remove the warning for now, as run() also has PID.
+             pass
+
+        # Always return the buffer content if accessed via tail/chunk
         return list(self._buf)[-n:]
 
     def chunk(self, start, length=50):
         """Return `length` lines starting at zero-based index `start` from run()."""
-        if self.pid is not None:
-            raise ValueError("Output chunking not available for launched commands (PID: {}).".format(self.pid))
+        # See comment in tail() - PID doesn't distinguish run() from launch() anymore.
+        # Output chunking should work fine for run() commands even with PID.
 
-        if start < 0 or start >= self.total_lines:
-            raise ValueError(f"Start {start} out of range (total {self.total_lines})")
+        if start < 0: # Allow start=0 even if total_lines is 0
+             raise ValueError(f"Start index {start} cannot be negative")
+        # Allow requesting chunk even if total_lines is 0 (will return empty list)
+        # if start >= self.total_lines and self.total_lines > 0:
+        #     raise ValueError(f"Start {start} out of range (total {self.total_lines})")
 
         buf_list = list(self._buf)
-        buf_start = max(0, self.total_lines - len(buf_list))
-        if start < buf_start:
+        # Calculate the absolute index of the first element currently in the deque buffer
+        buf_start_abs_index = max(0, self.total_lines - len(buf_list))
+
+        if start < buf_start_abs_index:
+            # Requested start index is before the first line currently stored
             raise OutputPurged(self.id)
-        idx = start - buf_start
-        return buf_list[idx:idx+length]
+
+        # Calculate the index relative to the start of the current buffer
+        relative_start_idx = start - buf_start_abs_index
+        return buf_list[relative_start_idx : relative_start_idx + length]
 
     def info(self):
         """Return metadata about the command."""
         info_dict = {
             "id": self.id,
             "cmd": self.cmd,
+            "pid": self.pid, # Include PID for both run() and launch()
             "start_ts": self.start_ts.isoformat() + 'Z',
             "end_ts": self.end_ts.isoformat() + 'Z' if self.end_ts else None,
             "exit_code": self.exit_code,
             "running": self.running,
+            # Output details are primarily for run() commands, but might have partial data on timeout
+            "total_lines": self.total_lines,
+            "truncated": self.truncated,
         }
-        if self.pid is not None:
-            info_dict["pid"] = self.pid
-            # For launched tasks, running status needs external check (task_status)
-            # The handle's running status reflects launch time state.
-        else:
-            # Only include output details for run() commands
-            info_dict["total_lines"] = self.total_lines
-            info_dict["truncated"] = self.truncated
         return info_dict
 
 
@@ -114,20 +145,24 @@ class SshClient:
     """
     SSH manager for running commands, transferring files, and tracking history.
     Includes support for launching background tasks and monitoring them.
+    Uses logging for output. Implements wall-clock timeouts for run().
     """
-    def __init__(self, host, user, port=22, keyfile=None, password=None, connect_timeout=10, history_limit=50, tail_keep=100):
+    def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None, # Added sudo_password
+                 connect_timeout=10, history_limit=50, tail_keep=100):
         self.host = host
         self.user = user
         self.port = port
         self.keyfile = keyfile
         self.password = password
+        self.sudo_password = sudo_password # Store sudo password
         self.connect_timeout = connect_timeout
-        self._busy = False # Protects synchronous run() calls
+        self._busy_lock = threading.Lock() # Use a lock instead of boolean
         self._history = {} # Stores CommandHandle objects
         self._history_order = deque() # Tracks order for trimming
         self._history_limit = history_limit # Max handles to keep
         self._tail_keep = tail_keep # Default lines to keep per handle buffer
         self._next_id = 1
+        self._logger = logging.getLogger(f"{__name__}.SshClient") # Get logger instance
 
         # Setup Paramiko client
         self._client = paramiko.SSHClient()
@@ -137,6 +172,7 @@ class SshClient:
 
     def _connect(self):
         """Establish SSH connection."""
+        self._logger.info(f"Connecting to {self.user}@{self.host}:{self.port}...")
         kwargs = dict(
             hostname=self.host,
             port=self.port,
@@ -145,16 +181,23 @@ class SshClient:
         )
         if self.keyfile:
             kwargs['key_filename'] = self.keyfile
+            self._logger.info(f"Using keyfile: {self.keyfile}")
         if self.password:
             kwargs['password'] = self.password
+            # Avoid logging password itself
+            self._logger.info("Using password authentication.")
+
         try:
             self._client.connect(**kwargs)
+            self._logger.info("Connection successful.")
         except Exception as e:
+            self._logger.error(f"Connection failed: {e}", exc_info=True)
             raise SshError(f"Connection failed: {e}") from e
 
     def close(self):
         """Close the SSH connection."""
         if self._client:
+            self._logger.info("Closing SSH connection.")
             self._client.close()
 
     def __enter__(self):
@@ -169,148 +212,313 @@ class SshClient:
             oldest_id = self._history_order.popleft()
             if oldest_id in self._history:
                 del self._history[oldest_id]
-                # print(f"DEBUG: Trimmed history, removed handle {oldest_id}") # Optional debug
+                self._logger.debug(f"Trimmed history, removed handle {oldest_id}")
 
         self._history[handle.id] = handle
         self._history_order.append(handle.id)
 
-    def run(self, cmd, timeout=None, sudo=False):
+    def _kill_remote_process(self, pid, sudo=False):
+        """Internal helper to attempt killing a remote PID. Avoids self.run()."""
+        if not pid:
+            return False
+        self._logger.warning(f"Attempting to kill remote process PID {pid} (sudo={sudo}).")
+        killed = False
+        for signal in [15, 9]: # Try TERM then KILL
+            cmd = f"kill -{signal} {pid}"
+            full_cmd = self._build_cmd(cmd, sudo) # Use sudo if original command used it
+            self._logger.info(f"Executing kill command: {full_cmd}")
+            try:
+                # Use a separate channel to avoid busy lock
+                chan = self._client.get_transport().open_session()
+                chan.settimeout(5.0) # Short timeout for kill command
+                chan.exec_command(full_cmd)
+                exit_status = chan.recv_exit_status() # Wait for kill command to finish
+                chan.close()
+                if exit_status == 0:
+                    self._logger.info(f"Kill command (signal {signal}) for PID {pid} succeeded.")
+                    killed = True
+                    break # Exit loop if kill succeeded
+                else:
+                    stderr_output = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+                    self._logger.warning(f"Kill command (signal {signal}) for PID {pid} failed with exit code {exit_status}. Stderr: {stderr_output}")
+                    # If signal 15 failed, loop will try signal 9. If 9 fails, loop ends.
+            except Exception as e:
+                self._logger.error(f"Error executing kill command for PID {pid}: {e}", exc_info=True)
+                # Stop trying if the kill command itself errors out
+                break
+            # Check if process is gone after kill attempt (optional, adds delay)
+            # status = self.task_status(pid)
+            # if status == 'exited': killed = True; break
+            # time.sleep(0.2) # Brief pause before trying next signal or exiting
+
+        if killed:
+            self._logger.info(f"Successfully sent kill signal to PID {pid}.")
+        else:
+            self._logger.warning(f"Failed to kill PID {pid} or confirm termination.")
+        return killed
+
+
+    def run(self, cmd, io_timeout=60.0, runtime_timeout=None, sudo=False):
         """
         Execute a command synchronously, streaming output into a CommandHandle.
-        Returns the CommandHandle upon completion or raises CommandFailed/CommandTimeout.
+        Supports I/O inactivity timeout (io_timeout) and total runtime timeout (runtime_timeout).
+        Returns the CommandHandle upon completion or raises CommandFailed, CommandTimeout, CommandRuntimeTimeout, SudoRequired.
         """
-        if self._busy:
+        if not self._busy_lock.acquire(blocking=False):
             raise BusyError()
-        self._busy = True
-        handle = None # Ensure handle is defined for finally block
+
+        handle = None
+        chan = None
+        stdout = None
+        stderr = None
+        remote_pid = None
+        start_time = time.monotonic()
+        sudo_pwd_attempted = False
 
         try:
-            full_cmd = self._build_cmd(cmd, sudo)
-            chan = self._client.get_transport().open_session()
-            # Set environment variables if needed (e.g., DEBIAN_FRONTEND=noninteractive)
-            # chan.set_environment_variable('MYVAR', 'value')
+            handle_id = self._next_id
+            self._next_id += 1
+            # Create handle early for potential timeout exceptions
+            handle = CommandHandle(handle_id, cmd, tail_keep=self._tail_keep)
+            self._add_to_history(handle) # Add to history immediately
 
-            # PTY allocation might be needed for some commands, but can have side effects
-            # chan.get_pty()
+            # --- Sudo Handling ---
+            use_sudo_password_flow = False
+            if sudo:
+                # Try passwordless sudo first
+                self._logger.info(f"Attempting passwordless sudo for: {cmd}")
+                test_sudo_cmd = self._build_cmd(cmd, sudo=True, force_sudo_n=True)
+                try:
+                    # Use exec_command for a quick check, short timeout
+                    stdin, stdout_t, stderr_t = self._client.exec_command(test_sudo_cmd, timeout=5)
+                    sudo_n_stderr = stderr_t.read().decode('utf-8', errors='replace')
+                    sudo_n_exit_code = stdout_t.channel.recv_exit_status()
+                    stdin.close(); stdout_t.close(); stderr_t.close()
+
+                    if sudo_n_exit_code == 0:
+                        self._logger.info("Passwordless sudo successful.")
+                        # Proceed using sudo -n in the main execution
+                    elif sudo_n_exit_code == 1 and ("sudo:" in sudo_n_stderr or "password is required" in sudo_n_stderr.lower()):
+                        self._logger.warning("Passwordless sudo failed. Checking for sudo password.")
+                        if self.sudo_password:
+                            self._logger.info("Sudo password provided. Will attempt interactive sudo.")
+                            use_sudo_password_flow = True
+                            sudo_pwd_attempted = True # Mark that we are using the password flow
+                        else:
+                            raise SudoRequired(cmd)
+                    else:
+                        # sudo -n failed for other reasons
+                        raise CommandFailed(sudo_n_exit_code, "", sudo_n_stderr)
+                except Exception as sudo_check_err:
+                     # Handle timeouts or other errors during the check
+                     self._logger.error(f"Error during sudo check: {sudo_check_err}", exc_info=True)
+                     raise SshError(f"Failed during sudo pre-check: {sudo_check_err}") from sudo_check_err
+
+            # --- Command Execution ---
+            # Prepend command to get PID, handle sudo variations
+            pid_capture_cmd = f"echo $$; exec {cmd}" # Basic command
+            if use_sudo_password_flow:
+                # Need PTY, use sudo -S -p ''
+                full_cmd = f"sudo -S -p '' bash -c {shlex.quote(pid_capture_cmd)}"
+            elif sudo: # Passwordless sudo worked
+                full_cmd = f"sudo -n bash -c {shlex.quote(pid_capture_cmd)}"
+            else: # No sudo
+                full_cmd = f"bash -c {shlex.quote(pid_capture_cmd)}"
+
+            self._logger.info(f"Executing command (ID: {handle.id}): {full_cmd}")
+            chan = self._client.get_transport().open_session()
+
+            if use_sudo_password_flow:
+                self._logger.debug("Requesting PTY for sudo password.")
+                chan.get_pty()
+
+            # Set I/O timeout for channel operations
+            chan.settimeout(io_timeout)
 
             chan.exec_command(full_cmd)
 
-            # Set timeout for the channel operations (read/recv_exit_status)
-            # Note: This is an I/O timeout, not a total command execution timeout.
-            # Paramiko doesn't directly support a total wall-clock timeout for exec_command.
-            if timeout:
-                chan.settimeout(timeout)
+            # Send sudo password if using that flow
+            if use_sudo_password_flow:
+                self._logger.debug("Sending sudo password.")
+                try:
+                    chan.sendall(self.sudo_password + "\n")
+                except Exception as send_err:
+                    # Handle error sending password (e.g., channel closed)
+                    self._logger.error(f"Failed to send sudo password: {send_err}", exc_info=True)
+                    raise SshError(f"Failed to send sudo password: {send_err}") from send_err
 
+            # --- Output Reading Loop ---
             stdout = chan.makefile('r', encoding='utf-8', errors='replace')
             stderr = chan.makefile_stderr('r', encoding='utf-8', errors='replace')
+            got_pid = False
 
-            handle_id = self._next_id
-            self._next_id += 1
-            handle = CommandHandle(handle_id, cmd, tail_keep=self._tail_keep)
-            self._add_to_history(handle)
-
-            # Read output line by line
             while True:
-                try:
-                    # Use readline which respects the channel timeout
-                    line = stdout.readline()
-                    if not line:
-                        # Check if the command finished *after* readline returned empty
+                # 1. Check Runtime Timeout
+                if runtime_timeout is not None:
+                    elapsed = time.monotonic() - start_time
+                    if elapsed > runtime_timeout:
+                        self._logger.warning(f"Command ID {handle.id} (PID: {remote_pid}) exceeded runtime timeout of {runtime_timeout}s.")
+                        handle.running = False # Mark as not running due to timeout
+                        handle.end_ts = datetime.utcnow()
+                        # Attempt to kill the process
+                        self._kill_remote_process(remote_pid, sudo=sudo) # Use original sudo flag
+                        raise CommandRuntimeTimeout(handle, runtime_timeout)
+
+                # 2. Check for I/O readiness (non-blocking)
+                read_ready, _, _ = select.select([chan], [], [], 0.1) # Wait up to 100ms
+
+                if chan in read_ready:
+                    # 3. Read available stdout/stderr
+                    try:
+                        # Read stdout line by line (respects io_timeout)
+                        line = stdout.readline()
+                        if line:
+                            if not got_pid:
+                                # First line should be the PID
+                                pid_str = line.strip()
+                                if pid_str.isdigit():
+                                    remote_pid = int(pid_str)
+                                    handle.pid = remote_pid # Store PID in handle
+                                    got_pid = True
+                                    self._logger.info(f"Captured remote PID {remote_pid} for command ID {handle.id}")
+                                    continue # Don't store PID line as output
+                                else:
+                                    # First line wasn't PID, log warning and treat as output
+                                    self._logger.warning(f"Failed to capture PID. First line: '{pid_str}'")
+                                    got_pid = True # Stop checking for PID
+
+                            # Store actual output
+                            handle.total_lines += 1
+                            if handle.total_lines > handle._buf.maxlen:
+                                handle.truncated = True
+                            handle._buf.append(line)
+
+                        # Check for stderr without blocking (less critical than stdout loop)
+                        if chan.recv_stderr_ready():
+                             stderr_line = stderr.readline()
+                             if stderr_line:
+                                 # Log stderr or add to handle buffer? For now, log.
+                                 self._logger.warning(f"[STDERR] ID {handle.id}: {stderr_line.strip()}")
+                                 # Optionally append to handle._buf as well:
+                                 # handle._buf.append(f"[STDERR] {stderr_line}")
+                                 # handle.total_lines += 1 # If appending
+
+                        # If readline returned empty, check exit status
+                        if not line and chan.exit_status_ready():
+                            break # Command finished
+
+                    except socket.timeout:
+                        # readline timed out waiting for data. Check if command finished.
                         if chan.exit_status_ready():
-                            break
-                        # If not finished, it might just be waiting for more output or timeout expired
-                        # If timeout expired on readline, socket.timeout would be raised
-                        # If no timeout set, this could block indefinitely if command hangs without closing stdout
-                        # Let's add a check here to prevent potential infinite loop if no timeout is set
-                        if not timeout and not chan.exit_status_ready():
-                             # Maybe sleep briefly? Or rely on external monitoring if no timeout?
-                             # For now, assume commands eventually finish or timeout is used.
-                             pass
+                            break # Command finished while we were waiting
+                        else:
+                            # I/O timeout occurred, but command still running and runtime timeout not hit.
+                            # This indicates inactivity. Raise the specific I/O timeout exception.
+                            self._logger.warning(f"Command ID {handle.id} hit I/O timeout ({io_timeout}s inactivity).")
+                            raise CommandTimeout(io_timeout) from None
 
-                    if line: # Only process if line is not empty
-                        handle.total_lines += 1
-                        if handle.total_lines > handle._buf.maxlen:
-                            handle.truncated = True
-                        handle._buf.append(line)
+                # 4. Check if command finished externally (if no I/O occurred)
+                elif chan.exit_status_ready():
+                    break # Command finished
 
-                except socket.timeout:
-                    # readline timed out waiting for data. Check if command finished.
-                    if chan.exit_status_ready():
-                        break # Command finished while we were waiting
-                    else:
-                        # Command still running, readline timed out.
-                        # This indicates I/O inactivity timeout, not necessarily command timeout.
-                        # Re-raise as a more specific timeout? For now, let CommandTimeout handle it.
-                        stderr_output = stderr.read() # Try to get stderr context
-                        raise CommandTimeout(timeout) from None # Raise our specific timeout
+                # 5. Small sleep if no I/O and not finished, prevent busy-wait
+                # time.sleep(0.01) # Already handled by select timeout
 
-            # Command finished or loop broken
+            # --- Command Finished ---
             handle.exit_code = chan.recv_exit_status()
             handle.end_ts = datetime.utcnow()
             handle.running = False
+            self._logger.info(f"Command ID {handle.id} (PID: {remote_pid}) finished with exit code {handle.exit_code}.")
 
             # Read any remaining stderr *after* command completion
             stderr_output = stderr.read()
+            if stderr_output:
+                 self._logger.warning(f"[FINAL STDERR] ID {handle.id}: {stderr_output.strip()}")
 
-            # Close channel and streams
-            stdout.close()
-            stderr.close()
-            chan.close()
 
             if handle.exit_code != 0:
-                # Combine stdout buffer and any final stderr for the exception
+                # Combine stdout buffer and final stderr for the exception
                 stdout_all = ''.join(handle.tail(handle.total_lines))
+                # If sudo password failed, provide a clearer error
+                if sudo_pwd_attempted and handle.exit_code == 1 and "incorrect password attempt" in stderr_output.lower():
+                     raise SudoRequired(f"{cmd} (Incorrect sudo password provided or required)")
                 raise CommandFailed(handle.exit_code, stdout_all, stderr_output)
 
             return handle
 
-        except socket.timeout as e:
-             # Catch timeout specifically if it wasn't handled inside loop correctly
-             if handle:
-                 handle.running = False # Mark as finished on timeout error
-                 handle.end_ts = datetime.utcnow()
-             raise CommandTimeout(timeout) from e
-        except paramiko.SSHException as e:
-            # Catch SSH specific errors (e.g., channel closed unexpectedly)
-            if handle:
-                 handle.running = False
-                 handle.end_ts = datetime.utcnow()
-            raise SshError(f"SSH Error during command execution: {e}") from e
-        except Exception as e:
-            # Catch other unexpected errors
-            if handle:
-                 handle.running = False
-                 handle.end_ts = datetime.utcnow()
-            # Re-raise other exceptions
-            raise
-        finally:
-            self._busy = False # Ensure client is marked not busy
+        except (CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, SshError) as e:
+             # Log known exceptions before re-raising
+             if isinstance(e, CommandRuntimeTimeout):
+                 self._logger.error(f"Command ID {e.handle.id} failed: {e}", exc_info=False) # Already logged kill attempt
+             elif isinstance(e, CommandFailed):
+                  self._logger.error(f"Command ID {handle.id if handle else 'N/A'} failed with exit code {e.exit_code}. Stderr: {e.stderr}", exc_info=False)
+             else:
+                 self._logger.error(f"Command ID {handle.id if handle else 'N/A'} encountered error: {e}", exc_info=False)
 
-    def launch(self, cmd, sudo=False, stdout_log=None, stderr_log=None):
+             # Ensure handle state is updated on error if possible
+             if handle and handle.running:
+                 handle.running = False
+                 handle.end_ts = datetime.utcnow()
+             raise # Re-raise the caught exception
+        except Exception as e:
+            # Catch unexpected errors
+            self._logger.error(f"Unexpected error during run (ID: {handle.id if handle else 'N/A'}): {e}", exc_info=True)
+            if handle and handle.running:
+                 handle.running = False
+                 handle.end_ts = datetime.utcnow()
+            raise SshError(f"Unexpected error during command execution: {e}") from e
+        finally:
+            # Cleanup: Close streams and channel
+            if stdout: stdout.close()
+            if stderr: stderr.close()
+            if chan: chan.close()
+            # Release the lock
+            self._busy_lock.release()
+            self._logger.debug(f"Released busy lock for command ID {handle.id if handle else 'N/A'}.")
+
+
+    def launch(self, cmd, sudo=False, stdout_log=None, stderr_log=None, log_output=True):
         """
         Launch a command in the background and return a CommandHandle with the PID.
-        Optionally redirects stdout and stderr to specified remote files.
+        If log_output=True (default) and stdout_log/stderr_log are None, redirects
+        output to /tmp/task-<pid>.log.
         WARNING: Does not work for interactive commands.
         """
-        # Build the command with backgrounding and PID echo
-        pid_cmd = f"{cmd}"
-
-        # Add redirection if specified
-        if stdout_log:
-            pid_cmd += f" >{shlex.quote(stdout_log)}"
-        if stderr_log:
-            # Redirect stderr (2) to the same file as stdout (1) if they are the same
-            if stderr_log == stdout_log:
-                pid_cmd += " 2>&1"
-            else:
-                pid_cmd += f" 2>{shlex.quote(stderr_log)}"
-
-        # Run in background and echo PID
-        pid_cmd = f"nohup {pid_cmd} & echo $!"
-
-        full_cmd = self._build_cmd(pid_cmd, sudo)
+        pid = None # Ensure pid is defined for cleanup/logging
+        handle = None # Ensure handle is defined
 
         try:
+            # Determine log paths
+            effective_stdout_log = stdout_log
+            effective_stderr_log = stderr_log
+            pid_placeholder = f"pid_{int(time.time())}" # Placeholder for log name before PID is known
+            default_log_path = f"/tmp/task-{pid_placeholder}.log"
+
+            if log_output and stdout_log is None and stderr_log is None:
+                effective_stdout_log = default_log_path
+                effective_stderr_log = default_log_path # Redirect both to same default file
+                self._logger.info(f"Defaulting log output to {default_log_path} (placeholder)")
+            elif log_output and stdout_log is None:
+                 effective_stdout_log = "/dev/null" # Redirect stdout if only stderr is specified
+            elif log_output and stderr_log is None:
+                 effective_stderr_log = "/dev/null" # Redirect stderr if only stdout is specified
+
+            # Build the command with backgrounding and PID echo
+            bg_cmd_part = f"{cmd}"
+            if effective_stdout_log:
+                bg_cmd_part += f" >{shlex.quote(effective_stdout_log)}"
+            if effective_stderr_log:
+                if effective_stderr_log == effective_stdout_log:
+                    bg_cmd_part += " 2>&1"
+                else:
+                    bg_cmd_part += f" 2>{shlex.quote(effective_stderr_log)}"
+
+            # Use subshell to ensure PID is captured correctly after nohup/&
+            pid_cmd = f"( nohup {bg_cmd_part} & echo $! )"
+
+            full_cmd = self._build_cmd(pid_cmd, sudo)
+            self._logger.info(f"Launching command: {full_cmd}")
+
             # Use exec_command for simple background launch
             stdin, stdout, stderr = self._client.exec_command(full_cmd, timeout=10) # Short timeout for getting PID
 
@@ -323,6 +531,7 @@ class SshClient:
 
             if not pid_str.isdigit():
                 err_msg = f"Failed to launch command or parse PID. stdout: '{pid_str}', stderr: '{stderr_output}'"
+                self._logger.error(err_msg)
                 # Create a failed handle for history
                 handle_id = self._next_id
                 self._next_id += 1
@@ -334,19 +543,47 @@ class SshClient:
                 raise SshError(err_msg)
 
             pid = int(pid_str)
+            self._logger.info(f"Command launched successfully with PID: {pid}")
+
+            # Rename default log file if used
+            if effective_stdout_log == default_log_path:
+                final_log_path = f"/tmp/task-{pid}.log"
+                try:
+                    # Use run to rename the log file, short timeout
+                    rename_cmd = f"mv {shlex.quote(default_log_path)} {shlex.quote(final_log_path)}"
+                    self.run(rename_cmd, io_timeout=5, sudo=sudo) # Use sudo if launch used sudo
+                    self._logger.info(f"Renamed default log to {final_log_path}")
+                    effective_stdout_log = final_log_path # Update effective path
+                    if effective_stderr_log == default_log_path:
+                        effective_stderr_log = final_log_path
+                except Exception as rename_err:
+                    self._logger.warning(f"Failed to rename default log file {default_log_path} to {final_log_path}: {rename_err}")
+                    # Log path remains the placeholder name, which might be confusing
+
             handle_id = self._next_id
             self._next_id += 1
             # Create handle, mark as running=True initially (process launched)
             handle = CommandHandle(handle_id, cmd, pid=pid)
+            # Store actual log paths used in handle? Maybe not necessary.
             self._add_to_history(handle)
             return handle
 
         except Exception as e:
+            self._logger.error(f"Failed to launch command '{cmd}': {e}", exc_info=True)
+            # Ensure failed handle is created if not already
+            if not handle and pid is None: # Check if handle creation failed before SshError was raised
+                 handle_id = self._next_id
+                 self._next_id += 1
+                 fail_handle = CommandHandle(handle_id, cmd, pid=None)
+                 fail_handle.running = False
+                 fail_handle.exit_code = -1
+                 fail_handle.end_ts = datetime.utcnow()
+                 self._add_to_history(fail_handle)
             raise SshError(f"Failed to launch command: {e}") from e
 
     def task_status(self, pid):
         """
-        Check the status of a process with the given PID on the remote host.
+        Check the status of a process with the given PID on the remote host using a direct channel.
         Returns:
             'running': Process exists.
             'exited': Process does not exist (assumed completed or killed).
@@ -355,59 +592,137 @@ class SshClient:
         if not isinstance(pid, int) or pid <= 0:
             raise ValueError("Invalid PID provided.")
 
-        # Use kill -0 PID. Exit code 0 means process exists, non-zero means it doesn't.
         cmd = f"kill -0 {pid}"
+        self._logger.debug(f"Checking status for PID {pid} using command: {cmd}")
+        chan = None
         try:
-            # Use run with a short timeout. We don't care about output, just exit code.
-            # Run without sudo first.
-            handle = self.run(cmd, timeout=5)
-            if handle.exit_code == 0:
+            # Use a direct channel to avoid run()'s busy lock
+            chan = self._client.get_transport().open_session()
+            chan.settimeout(5.0) # Short timeout
+            chan.exec_command(cmd)
+            # Read stderr for context on failure
+            stderr_output = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+            exit_status = chan.recv_exit_status() # Wait for command to finish
+            chan.close()
+
+            if exit_status == 0:
+                self._logger.debug(f"Status check for PID {pid}: running (kill -0 exited 0)")
                 return "running"
             else:
-                # This shouldn't happen if kill -0 fails gracefully, but handle defensively
+                # Non-zero exit usually means process doesn't exist
+                self._logger.debug(f"Status check for PID {pid}: exited (kill -0 exited {exit_status}, stderr: {stderr_output.strip()})")
                 return "exited"
-        except CommandFailed as e:
-            # Expected failure if process doesn't exist (kill returns non-zero)
-            # stderr might contain "kill: (...) No such process"
-            if e.exit_code != 0:
-                return "exited"
-            else:
-                # Unexpected CommandFailed with exit code 0?
-                return "error"
-        except BusyError:
-             # Re-raise busy error, status check cannot proceed
-             raise
+
         except Exception as e:
-            # Other errors (timeout, connection issue)
-            print(f"Error checking status for PID {pid}: {e}")
+            # Errors during the check itself (timeout, connection issue)
+            self._logger.error(f"Error checking status for PID {pid}: {e}", exc_info=True)
+            if chan: chan.close() # Ensure channel is closed on error
             return "error"
 
-    def task_kill(self, pid, signal=15, sudo=False):
+
+    def task_kill(self, pid, signal=15, sudo=False, force_kill_signal=9, wait_seconds=1.0):
         """
         Send a signal to a process with the given PID on the remote host.
-        Returns True if the kill command executed successfully (exit code 0),
-        False otherwise. Does not guarantee the process actually terminated.
+        Tries the specified signal, waits, checks status, then tries force_kill_signal (default SIGKILL) if needed.
+        Returns:
+            'killed': Process was successfully terminated (by signal or force_kill_signal).
+            'already_exited': Process was already gone before signaling.
+            'failed_to_kill': Signaling attempts failed or process remained running.
+            'error': An error occurred during the kill attempt.
         """
         if not isinstance(pid, int) or pid <= 0:
             raise ValueError("Invalid PID provided.")
         if not isinstance(signal, int):
-            # Could also support signal names like 'SIGTERM', 'SIGKILL'
             raise ValueError("Signal must be an integer.")
+        if force_kill_signal is not None and not isinstance(force_kill_signal, int):
+            raise ValueError("force_kill_signal must be an integer or None.")
 
+        self._logger.info(f"Attempting to kill PID {pid} with signal {signal} (sudo={sudo}). Fallback signal: {force_kill_signal}.")
+
+        # 1. Check initial status
+        initial_status = self.task_status(pid)
+        if initial_status == "exited":
+            self._logger.info(f"PID {pid} was already exited before sending signal.")
+            return "already_exited"
+        if initial_status == "error":
+            self._logger.warning(f"Could not determine initial status for PID {pid}. Proceeding with kill attempt.")
+            # Continue, maybe kill will work anyway
+
+        # 2. Try initial signal
         cmd = f"kill -{signal} {pid}"
         try:
-            handle = self.run(cmd, timeout=10, sudo=sudo)
-            return handle.exit_code == 0
+            # Use run() for the kill command itself, as it handles sudo and errors
+            handle = self.run(cmd, io_timeout=10, sudo=sudo)
+            if handle.exit_code == 0:
+                self._logger.info(f"Successfully sent signal {signal} to PID {pid}.")
+            else:
+                # kill command failed, but maybe process died anyway? Or permissions?
+                 self._logger.warning(f"Command 'kill -{signal} {pid}' failed with exit code {handle.exit_code}. Checking status.")
+                 # Proceed to status check
+
         except CommandFailed as e:
             # kill returns non-zero if process doesn't exist or permission denied
-            print(f"Command 'kill -{signal} {pid}' failed with exit code {e.exit_code}. Process might already be gone or permissions insufficient.")
-            return False
+            self._logger.warning(f"Command 'kill -{signal} {pid}' failed: {e}. Process might be gone or permissions insufficient.")
+            # Check status to be sure
         except BusyError:
-             # Re-raise busy error, kill command cannot proceed
-             raise
+             self._logger.error("Cannot execute task_kill: client is busy with another run() command.")
+             raise # Re-raise busy error
         except Exception as e:
-            print(f"Error sending signal {signal} to PID {pid}: {e}")
-            return False
+            self._logger.error(f"Error sending signal {signal} to PID {pid}: {e}", exc_info=True)
+            return "error" # Error during the kill command itself
+
+        # 3. Wait and Check Status
+        if wait_seconds > 0:
+            self._logger.debug(f"Waiting {wait_seconds}s after signal {signal}...")
+            time.sleep(wait_seconds)
+
+        current_status = self.task_status(pid)
+        if current_status == "exited":
+            self._logger.info(f"PID {pid} confirmed exited after signal {signal}.")
+            return "killed"
+        if current_status == "error":
+            self._logger.warning(f"Could not determine status for PID {pid} after signal {signal}. Assuming it might still be running.")
+            # Proceed to force kill if configured
+
+        # 4. Try Force Kill Signal (if needed and configured)
+        if force_kill_signal is not None and current_status == "running":
+            self._logger.warning(f"PID {pid} still running after signal {signal}. Attempting force kill with signal {force_kill_signal}.")
+            cmd_force = f"kill -{force_kill_signal} {pid}"
+            try:
+                handle_force = self.run(cmd_force, io_timeout=10, sudo=sudo)
+                if handle_force.exit_code == 0:
+                    self._logger.info(f"Successfully sent force signal {force_kill_signal} to PID {pid}.")
+                    # Check status one last time after short delay
+                    time.sleep(0.5)
+                    final_status = self.task_status(pid)
+                    if final_status == "exited":
+                        self._logger.info(f"PID {pid} confirmed exited after force signal {force_kill_signal}.")
+                        return "killed"
+                    else:
+                         self._logger.error(f"PID {pid} still not exited after force signal {force_kill_signal} (status: {final_status}).")
+                         return "failed_to_kill"
+                else:
+                    self._logger.error(f"Force kill command 'kill -{force_kill_signal} {pid}' failed with exit code {handle_force.exit_code}.")
+                    return "failed_to_kill"
+            except CommandFailed as e_force:
+                 self._logger.error(f"Force kill command 'kill -{force_kill_signal} {pid}' failed: {e_force}.")
+                 # Check status - maybe it died just before force kill?
+                 if self.task_status(pid) == "exited": return "killed"
+                 return "failed_to_kill"
+            except BusyError:
+                 self._logger.error("Cannot execute force kill: client is busy with another run() command.")
+                 raise # Re-raise busy error
+            except Exception as e_force:
+                self._logger.error(f"Error sending force signal {force_kill_signal} to PID {pid}: {e_force}", exc_info=True)
+                return "error"
+        elif current_status == "running":
+             # Still running, but no force kill configured or attempted
+             self._logger.warning(f"PID {pid} still running after signal {signal}, no force kill attempted.")
+             return "failed_to_kill"
+
+        # Should not be reached if logic is correct, but as fallback:
+        return "failed_to_kill"
+
 
     def output(self, handle_id, mode='tail', n=50, start=None):
         """Retrieve output from a previous CommandHandle created by run()."""
@@ -415,9 +730,8 @@ class SshClient:
         if not handle:
             raise TaskNotFound(handle_id)
 
-        # Check if it was a launched command
-        if handle.pid is not None:
-             raise ValueError(f"Direct output retrieval not available for launched command (ID: {handle_id}, PID: {handle.pid}). Check logs if redirected.")
+        # Output retrieval works for run() handles, even if they have PIDs now.
+        # No check needed here based on PID.
 
         if mode == 'tail':
             return handle.tail(n)
@@ -435,71 +749,94 @@ class SshClient:
 
     def get(self, remote_path, local_path):
         """Download a file from remote to local."""
+        sftp = None
         try:
+            self._logger.info(f"Downloading {remote_path} to {local_path}")
             sftp = self._client.open_sftp()
             sftp.get(remote_path, local_path)
-            sftp.close()
+            self._logger.info("Download complete.")
         except Exception as e:
+            self._logger.error(f"SFTP get failed for {remote_path}: {e}", exc_info=True)
             raise SshError(f"SFTP get failed: {e}") from e
+        finally:
+            if sftp: sftp.close()
 
     def put(self, local_path, remote_path):
         """Upload a file from local to remote."""
+        sftp = None
         try:
+            self._logger.info(f"Uploading {local_path} to {remote_path}")
             sftp = self._client.open_sftp()
             sftp.put(local_path, remote_path)
-            sftp.close()
+            self._logger.info("Upload complete.")
         except Exception as e:
+            self._logger.error(f"SFTP put failed for {local_path} to {remote_path}: {e}", exc_info=True)
             raise SshError(f"SFTP put failed: {e}") from e
+        finally:
+            if sftp: sftp.close()
 
-    def replace_line(self, remote_file, old_line, new_line, count=1, sudo=False):
+    def replace_line(self, remote_file, old_line, new_line, count=1, sudo=False, force=False):
         """
         Replace occurrences of a line in a remote text file.
         Uses temporary local file. Requires write permissions on remote dir/file.
         If sudo=True, attempts to use sudo for the final 'mv' command.
+        If force=True, proceeds even if original file cannot be read (sudo only).
         """
+        self._logger.info(f"Replacing line in {remote_file} (sudo={sudo}, force={force})")
         if sudo:
-            # If sudo is needed, direct SFTP put won't work for privileged files.
-            # We need to upload to a temp location and then use `sudo mv`.
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
-            self._replace_content_sudo(remote_file, remote_temp_path, lambda text: self._perform_replace_line(text, old_line, new_line, count))
+            self._replace_content_sudo(remote_file, remote_temp_path,
+                                       lambda text: self._perform_replace_line(text, old_line, new_line, count),
+                                       force=force)
         else:
-            # Standard SFTP approach
-            self._replace_content_sftp(remote_file, lambda text: self._perform_replace_line(text, old_line, new_line, count))
+            if force:
+                 self._logger.warning("force=True has no effect when sudo=False for replace_line.")
+            self._replace_content_sftp(remote_file,
+                                       lambda text: self._perform_replace_line(text, old_line, new_line, count))
 
     def _perform_replace_line(self, text, old_line, new_line, count):
         """Helper function containing the actual line replacement logic."""
         lines = text.splitlines(keepends=True)
-        replaced = 0
+        replaced_count = 0
         modified = False
-        for i, line in enumerate(lines):
-            # Check if old_line is a substring of the current line
-            if old_line in line and replaced < count:
-                lines[i] = line.replace(old_line, new_line)
-                replaced += 1
+        new_lines = []
+        for line in lines:
+            if old_line in line and replaced_count < count:
+                new_lines.append(line.replace(old_line, new_line))
+                replaced_count += 1
                 modified = True
-                # No break here, replace up to 'count' occurrences if found in different lines
-        return "".join(lines) if modified else text # Return original text if no changes
+            else:
+                new_lines.append(line)
+        # Return original text if no changes were made
+        return "".join(new_lines) if modified else text
 
-    def replace_block(self, remote_file, old_block, new_block, sudo=False):
+    def replace_block(self, remote_file, old_block, new_block, sudo=False, force=False):
         """
         Replace a block of text in a remote text file.
         Uses temporary local file. Requires write permissions on remote dir/file.
         If sudo=True, attempts to use sudo for the final 'mv' command.
+        If force=True, proceeds even if original file cannot be read (sudo only).
         """
+        self._logger.info(f"Replacing block in {remote_file} (sudo={sudo}, force={force})")
         # Ensure blocks are strings
         old_block_str = "".join(old_block) if isinstance(old_block, (list, tuple)) else str(old_block)
         new_block_str = "".join(new_block) if isinstance(new_block, (list, tuple)) else str(new_block)
 
+        modify_func = lambda text: text.replace(old_block_str, new_block_str)
+
         if sudo:
             remote_temp_path = f"/tmp/replace_block_{os.path.basename(remote_file)}_{int(time.time())}"
-            self._replace_content_sudo(remote_file, remote_temp_path, lambda text: text.replace(old_block_str, new_block_str))
+            self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
         else:
-            self._replace_content_sftp(remote_file, lambda text: text.replace(old_block_str, new_block_str))
+            if force:
+                 self._logger.warning("force=True has no effect when sudo=False for replace_block.")
+            self._replace_content_sftp(remote_file, modify_func)
 
     def _replace_content_sftp(self, remote_file, modify_func):
         """Internal helper for SFTP-based file modification."""
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd) # Close handle, we just need the name
+        self._logger.debug(f"Created local temp file: {local_temp_path}")
 
         try:
             # 1. Download
@@ -512,23 +849,26 @@ class SshClient:
 
             # Only upload if content changed
             if modified_text != original_text:
+                self._logger.info(f"Content modified for {remote_file}. Uploading changes.")
                 with open(local_temp_path, 'w', encoding='utf-8') as f:
                     f.write(modified_text)
-
                 # 3. Upload back
                 self.put(local_temp_path, remote_file)
             else:
-                print(f"Content for {remote_file} not modified, skipping upload.")
+                self._logger.info(f"Content for {remote_file} not modified, skipping upload.")
 
         finally:
             # 4. Cleanup local temp file
             if os.path.exists(local_temp_path):
+                self._logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
 
-    def _replace_content_sudo(self, remote_file, remote_temp_path, modify_func):
+    def _replace_content_sudo(self, remote_file, remote_temp_path, modify_func, force=False):
         """Internal helper for sudo-based file modification."""
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd)
+        self._logger.debug(f"Created local temp file: {local_temp_path}")
+        original_text = None # Initialize
 
         try:
             # 1. Download original file (best effort, might fail if no read permission)
@@ -536,33 +876,47 @@ class SshClient:
                  self.get(remote_file, local_temp_path)
                  with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
                      original_text = f.read()
+                 self._logger.debug(f"Successfully downloaded original file {remote_file}")
             except Exception as e:
-                 # If we can't read the original, we can't modify based on content.
-                 # This approach might need rethinking if read isn't possible.
-                 # For now, assume read is possible, or modification doesn't depend on original content.
-                 print(f"Warning: Could not download original {remote_file}: {e}. Modification might be incorrect if based on original content.")
-                 original_text = "" # Proceed with empty content? Or fail? Let's assume modify_func handles this.
+                 self._logger.warning(f"Could not download original {remote_file}: {e}. Checking force flag.")
+                 if not force:
+                     raise SshError(f"Cannot read original file {remote_file} and force=False. Aborting replacement.") from e
+                 else:
+                     self._logger.warning("force=True specified. Proceeding with modification assuming empty or irrelevant original content.")
+                     original_text = "" # Proceed with empty content if forced
 
             # 2. Modify content
             modified_text = modify_func(original_text)
 
-            # 3. Write modified content to local temp
+            # 3. Check if content actually changed (important!)
+            if modified_text == original_text:
+                 self._logger.info(f"Content for {remote_file} not modified, skipping sudo replacement.")
+                 return # Exit early, no need to upload or move
+
+            # 4. Write modified content to local temp
+            self._logger.info(f"Content modified for {remote_file}. Proceeding with sudo replacement.")
             with open(local_temp_path, 'w', encoding='utf-8') as f:
                 f.write(modified_text)
 
-            # 4. Upload modified content to REMOTE temp path
+            # 5. Upload modified content to REMOTE temp path
             self.put(local_temp_path, remote_temp_path)
 
-            # 5. Use `sudo mv` to replace the original file atomically
+            # 6. Use `sudo mv` to replace the original file atomically
             #    Also copy permissions and ownership from original if possible
-            #    Get original permissions/owner first
-            stat_cmd = f"stat -c '%a %u %g' {shlex.quote(remote_file)}"
             perms = owner = group = None
-            try:
-                stat_handle = self.run(stat_cmd, timeout=10)
-                perms, owner, group = stat_handle.tail(1)[0].strip().split()
-            except Exception as stat_err:
-                print(f"Warning: Could not get permissions/owner for {remote_file}: {stat_err}. Using defaults.")
+            if original_text is not None: # Only try stat if we could potentially read the original
+                stat_cmd = f"stat -c '%a %u %g' {shlex.quote(remote_file)}"
+                try:
+                    stat_handle = self.run(stat_cmd, io_timeout=10) # Use run() for stat
+                    stat_output = stat_handle.tail(1)[0].strip()
+                    parts = stat_output.split()
+                    if len(parts) == 3:
+                        perms, owner, group = parts
+                        self._logger.debug(f"Got permissions for {remote_file}: {perms} {owner}:{group}")
+                    else:
+                        self._logger.warning(f"Unexpected output from stat command: '{stat_output}'. Cannot restore permissions.")
+                except Exception as stat_err:
+                    self._logger.warning(f"Could not get permissions/owner for {remote_file}: {stat_err}. Using defaults.")
 
             # Build the move and permission commands
             mv_cmd = f"mv {shlex.quote(remote_temp_path)} {shlex.quote(remote_file)}"
@@ -570,75 +924,110 @@ class SshClient:
             chmod_cmd = f"chmod {perms} {shlex.quote(remote_file)}" if perms else None
 
             # Execute commands with sudo
-            self.run(mv_cmd, sudo=True)
+            self._logger.info(f"Executing sudo mv: {mv_cmd}")
+            self.run(mv_cmd, sudo=True) # run() handles potential sudo errors
             if chown_cmd:
                 try:
+                    self._logger.info(f"Executing sudo chown: {chown_cmd}")
                     self.run(chown_cmd, sudo=True)
                 except Exception as chown_err:
-                    print(f"Warning: Failed to sudo chown {remote_file}: {chown_err}")
+                    self._logger.warning(f"Failed to sudo chown {remote_file}: {chown_err}")
             if chmod_cmd:
                  try:
+                     self._logger.info(f"Executing sudo chmod: {chmod_cmd}")
                      self.run(chmod_cmd, sudo=True)
                  except Exception as chmod_err:
-                     print(f"Warning: Failed to sudo chmod {remote_file}: {chmod_err}")
+                     self._logger.warning(f"Failed to sudo chmod {remote_file}: {chmod_err}")
+
+            self._logger.info(f"Successfully replaced {remote_file} using sudo.")
 
         finally:
-            # 6. Cleanup local and remote temp files
+            # 7. Cleanup local and remote temp files
             if os.path.exists(local_temp_path):
+                self._logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
-            # Try removing remote temp file, ignore errors
+            # Try removing remote temp file, ignore errors, use run()
             try:
-                self.run(f"rm -f {shlex.quote(remote_temp_path)}", timeout=10)
-            except Exception:
-                pass # Ignore cleanup errors
+                self._logger.debug(f"Cleaning up remote temp file: {remote_temp_path}")
+                # Use run with short timeout, ignore BusyError if it happens during cleanup
+                self.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, sudo=sudo) # Use sudo if needed for /tmp cleanup? Maybe not.
+            except BusyError:
+                 self._logger.warning(f"Client busy, could not cleanup remote temp file {remote_temp_path}")
+            except Exception as cleanup_err:
+                 self._logger.warning(f"Failed to cleanup remote temp file {remote_temp_path}: {cleanup_err}")
+
 
     def reboot(self, wait=True, timeout=300):
         """Reboot the remote host and optionally wait until it comes back."""
-        print("Attempting reboot...")
+        self._logger.warning("Attempting reboot...")
+        reboot_cmd_sent = False
         try:
             # Send reboot command, don't wait for output as connection will drop
-            self.run('reboot', sudo=True) # Assuming passwordless sudo for reboot
+            # Use a short runtime_timeout for the reboot command itself
+            self.run('reboot', sudo=True, runtime_timeout=10)
+            reboot_cmd_sent = True
+            self._logger.info("Reboot command executed successfully (connection likely dropping).")
         except CommandFailed as e:
             # Handle cases where reboot command itself fails immediately
-            print(f"Reboot command failed: {e}")
-            # Decide if we should still proceed with close/wait logic
-            # For now, let's assume failure means no reboot happened.
-            return
+            self._logger.error(f"Reboot command failed: {e}", exc_info=True)
+            return # Do not proceed with wait/close if command failed
+        except CommandRuntimeTimeout:
+             # Reboot command itself timed out - unusual, but assume it might be proceeding
+             self._logger.warning("Reboot command timed out, assuming reboot is proceeding.")
+             reboot_cmd_sent = True
         except SshError as e:
              # Catch potential connection errors during the run call itself
-             print(f"SSH error during reboot command: {e}. Assuming connection lost.")
-             # Proceed to close/wait logic as reboot might have started
+             self._logger.warning(f"SSH error during reboot command: {e}. Assuming connection lost and reboot proceeding.")
+             reboot_cmd_sent = True # Assume it might have worked
+        except Exception as e:
+             self._logger.error(f"Unexpected error sending reboot command: {e}", exc_info=True)
+             # Don't proceed if we couldn't even send the command
+             return
         finally:
-            # Always close the connection after sending reboot
-             print("Closing connection post-reboot command.")
+            # Always close the connection after sending reboot attempt
+             self._logger.info("Closing connection post-reboot command attempt.")
              self.close()
+
+        # Only proceed with waiting if command was likely sent
+        if not reboot_cmd_sent:
+             return
 
         start = time.time()
         if not wait:
-            print("Reboot initiated, not waiting for reconnect.")
+            self._logger.info("Reboot initiated, not waiting for reconnect.")
             return
 
-        print(f"Waiting up to {timeout} seconds for host {self.host} to come back online...")
+        self._logger.info(f"Waiting up to {timeout} seconds for host {self.host} to come back online...")
         while True:
-            if time.time() - start > timeout:
-                raise CommandTimeout(timeout)
+            elapsed = time.time() - start
+            if elapsed > timeout:
+                self._logger.error(f"Host did not come back online within {timeout} seconds.")
+                raise CommandTimeout(timeout) # Re-use CommandTimeout for this wait failure
             try:
-                print(f"Attempting to reconnect ({int(time.time() - start)}s elapsed)...")
+                self._logger.info(f"Attempting to reconnect ({int(elapsed)}s elapsed)...")
                 # Create a fresh client instance for reconnect attempt
-                self._client = paramiko.SSHClient()
-                self._client.load_system_host_keys()
-                self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                self._connect() # Use internal connect method
-                print("Reconnect successful.")
+                # Re-initialize self instead of creating a new instance? Risky state.
+                # Let's stick to requiring the caller to create a new instance after reboot.
+                # This method should just wait and confirm reachability.
+                # Re-use internal _connect logic on a new client object.
+                temp_client = paramiko.SSHClient()
+                temp_client.load_system_host_keys()
+                temp_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                kwargs = dict(hostname=self.host, port=self.port, username=self.user, timeout=5) # Short timeout for check
+                if self.keyfile: kwargs['key_filename'] = self.keyfile
+                if self.password: kwargs['password'] = self.password
+                temp_client.connect(**kwargs)
+                temp_client.close() # Close immediately after successful connect
+
+                # Re-establish connection for the current instance
+                self._logger.info("Reconnect successful. Re-establishing client state.")
+                self._connect()
                 return # Host is back
-            except SshError as e:
-                # Expected connection errors while host is down
-                # print(f"Reconnect attempt failed: {e}") # Verbose logging
-                time.sleep(5) # Wait before retrying
+
             except Exception as e:
-                 # Unexpected errors during reconnect attempt
-                 print(f"Unexpected error during reconnect attempt: {e}")
-                 time.sleep(5)
+                # Expected connection errors while host is down
+                self._logger.debug(f"Reconnect attempt failed: {e}")
+                time.sleep(5) # Wait before retrying
 
 
     def status(self):
@@ -652,19 +1041,20 @@ class SshClient:
           echo "HOST:$(hostname)"
           echo "UP:$(uptime -p 2>/dev/null || uptime)"
           echo "LOAD:$(cut -d" " -f1-3 /proc/loadavg 2>/dev/null || echo n/a)"
-          echo "DISK:$(df -h / 2>/dev/null | awk "NR==2{print $4}" || echo n/a)"
-          echo "MEM:$(free -m 2>/dev/null | awk "/^Mem:/{print $4\\" MB\\"}" || echo n/a)"
-          if [ -f /etc/os-release ]; then . /etc/os-release; echo "OS:${NAME} ${VERSION_ID}"; else uname -srm; fi
+          echo "DISK:$(df -h / 2>/dev/null | awk "NR==2{print \$4}" || echo n/a)"
+          echo "MEM:$(free -m 2>/dev/null | awk "/^Mem:/{print \$4\\" MB\\"}" || echo n/a)"
+          if [ -f /etc/os-release ]; then . /etc/os-release; echo "OS:\${NAME} \${VERSION_ID}"; else uname -srm; fi
         '
         """
+        # Note: Escaped $4 in awk commands for Python f-string/triple quotes
         status_info = {}
         try:
-            handle = self.run(cmd.strip(), timeout=5) # Use short timeout
+            # Use run with short timeouts
+            handle = self.run(cmd.strip(), io_timeout=5, runtime_timeout=10)
             output = "".join(handle.tail(20)) # Get all lines
             for line in output.splitlines():
                 if ':' in line:
-                    key, value = line.split(':', 1)
-                    # Basic key mapping/cleaning if needed
+                    key, value = line.split(':', 1) # Split only on the first colon
                     key_map = {
                         'USER': 'user', 'CWD': 'cwd', 'TIME': 'time', 'HOST': 'host',
                         'UP': 'uptime', 'LOAD': 'load_avg', 'DISK': 'free_disk',
@@ -672,11 +1062,11 @@ class SshClient:
                     }
                     status_info[key_map.get(key.strip(), key.strip().lower())] = value.strip()
         except BusyError:
+            self._logger.warning("Cannot get status: client is busy.")
             raise # Propagate busy error
         except Exception as e:
-            print(f"Warning: Failed to get full status: {e}")
-            # Return partial or default status? For now, return empty dict on error.
-            return {'error': str(e)}
+            self._logger.warning(f"Failed to get full status: {e}", exc_info=True)
+            return {'error': str(e)} # Return error dict
 
         # Ensure all expected keys are present, even if 'n/a'
         expected_keys = ['user', 'cwd', 'time', 'os', 'host', 'uptime', 'load_avg', 'free_disk', 'mem_free']
@@ -691,12 +1081,13 @@ class SshClient:
         """Return metadata for recent CommandHandles, respecting history order."""
         return [self._history[handle_id].info() for handle_id in self._history_order if handle_id in self._history]
 
-    def _build_cmd(self, cmd, sudo):
+    def _build_cmd(self, cmd, sudo, force_sudo_n=False):
         """Internal: wrap command with sudo if requested."""
+        # This helper is now less critical as sudo logic is partly in run()
+        # Keep it for basic wrapping. force_sudo_n is for the initial check.
         if sudo:
-            # Use -n for non-interactive sudo. Assumes passwordless setup.
-            # Consider adding -S and password handling if needed later.
+            sudo_cmd = "sudo -n" if force_sudo_n else "sudo -n" # Default to -n for this helper
             # Using bash -c ensures complex commands with pipes/redirects work
-            return f"sudo -n bash -c {shlex.quote(cmd)}"
+            return f"{sudo_cmd} bash -c {shlex.quote(cmd)}"
         return cmd
 
