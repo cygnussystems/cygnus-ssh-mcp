@@ -1,0 +1,113 @@
+from __future__ import annotations
+from collections import deque
+from datetime import datetime
+from typing import Optional, Deque, Any
+
+class SshError(Exception):
+    """Base exception for SSH manager errors."""
+
+
+class CommandTimeout(SshError):
+    """Raised for I/O timeouts during command execution."""
+    def __init__(self, seconds):
+        super().__init__(f"Command I/O timed out after {seconds} seconds of inactivity")
+        self.seconds = seconds
+
+
+class CommandRuntimeTimeout(SshError):
+    """Raised when a command exceeds its total allowed runtime_timeout."""
+    def __init__(self, handle, seconds):
+        super().__init__(f"Command exceeded runtime timeout of {seconds}s (PID: {handle.pid}, ID: {handle.id})")
+        self.handle = handle
+        self.seconds = seconds
+
+
+class CommandFailed(SshError):
+    def __init__(self, exit_code, stdout, stderr):
+        # Ensure stderr is string for consistent error message
+        stderr_str = stderr if isinstance(stderr, str) else stderr.decode('utf-8', errors='replace')
+        super().__init__(f"Command failed with exit code {exit_code}. Stderr: {stderr_str[:200]}") # Limit stderr in message
+        self.exit_code = exit_code
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+class SudoRequired(SshError):
+    def __init__(self, cmd):
+        super().__init__(f"Password-less sudo required, or sudo password not provided for: {cmd}")
+        self.cmd = cmd
+
+
+class BusyError(SshError):
+    def __init__(self):
+        super().__init__("Another synchronous command (run) is currently executing")
+
+
+class OutputPurged(SshError):
+    def __init__(self, handle_id):
+        super().__init__(f"Output for handle {handle_id} has been purged")
+        self.handle_id = handle_id
+
+
+class TaskNotFound(SshError):
+    # Can be raised by output(), task_status(), task_kill()
+    def __init__(self, identifier):
+        super().__init__(f"No command handle or task found with identifier: {identifier}")
+        self.identifier = identifier
+
+
+class CommandHandle:
+    """
+    Tracks the state and output of a single SSH command execution.
+    For launched commands, tracks the PID.
+    """
+    def __init__(self, handle_id, cmd, tail_keep=100, pid=None): # Added pid
+        self.id = handle_id
+        self.cmd = cmd
+        self.start_ts = datetime.utcnow()
+        self.end_ts = None
+        self.exit_code = None # None means not finished or not applicable (launched)
+        self.running = True   # True for run() until finished, True for launch() initially
+        self.total_lines = 0  # Only relevant for run()
+        self.truncated = False # Only relevant for run()
+        self._buf = deque(maxlen=tail_keep) # Only relevant for run()
+        self.pid = pid # Store the PID for launched commands and run() commands
+
+    def tail(self, n=50):
+        """Return the last n lines of output captured by run()."""
+        # Output buffer is primarily populated by run()
+        return list(self._buf)[-n:]
+
+    def chunk(self, start, length=50):
+        """Return `length` lines starting at zero-based index `start` from run()."""
+        # Output chunking works for run() commands.
+        if start < 0: # Allow start=0 even if total_lines is 0
+             raise ValueError(f"Start index {start} cannot be negative")
+
+        buf_list = list(self._buf)
+        # Calculate the absolute index of the first element currently in the deque buffer
+        buf_start_abs_index = max(0, self.total_lines - len(buf_list))
+
+        if start < buf_start_abs_index:
+            # Requested start index is before the first line currently stored
+            raise OutputPurged(self.id)
+
+        # Calculate the index relative to the start of the current buffer
+        relative_start_idx = start - buf_start_abs_index
+        return buf_list[relative_start_idx : relative_start_idx + length]
+
+    def info(self):
+        """Return metadata about the command."""
+        info_dict = {
+            "id": self.id,
+            "cmd": self.cmd,
+            "pid": self.pid, # Include PID for both run() and launch()
+            "start_ts": self.start_ts.isoformat() + 'Z',
+            "end_ts": self.end_ts.isoformat() + 'Z' if self.end_ts else None,
+            "exit_code": self.exit_code,
+            "running": self.running,
+            # Output details are primarily for run() commands, but might have partial data on timeout
+            "total_lines": self.total_lines,
+            "truncated": self.truncated,
+        }
+        return info_dict
