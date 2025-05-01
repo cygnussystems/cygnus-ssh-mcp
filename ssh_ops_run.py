@@ -165,6 +165,11 @@ class SshRunOperations:
                             last_data_time = time.monotonic()
                             if handle.total_lines > handle._buf.maxlen:
                                 handle.truncated = True
+                            # Ensure line ends with newline and decode if needed
+                            if isinstance(line, bytes):
+                                line = line.decode('utf-8', errors='replace')
+                            if not line.endswith('\n'):
+                                line += '\n'
                             handle._buf.append(line)
 
                     if chan.recv_stderr_ready():
