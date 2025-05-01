@@ -103,40 +103,6 @@ class SshClient:
         self._history[handle.id] = handle
         self._history_order.append(handle.id)
 
-    def _kill_remote_process(self):
-        pass
-
-    # def _kill_remote_process(self, pid, sudo=False):
-    #     """Internal helper to attempt killing a remote PID. Avoids self.run()."""
-    #     if not pid:
-    #         return False
-    #
-    #     self._logger.warning(f"Attempting to kill remote process PID {pid} (sudo={sudo}).")
-    #     killed = False
-    #
-    #     for signal in [15, 9]: # Try TERM then KILL
-    #         cmd = f"kill -{signal} {pid}"
-    #         full_cmd = f"sudo -n bash -c {shlex.quote(cmd)}" if sudo else cmd
-    #
-    #         with self._client.get_transport().open_session() as chan:
-    #             chan.settimeout(5.0)
-    #             try:
-    #                 chan.exec_command(full_cmd)
-    #                 # Read stderr before checking exit status
-    #                 stderr = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
-    #                 exit_status = chan.recv_exit_status()
-    #
-    #                 if exit_status == 0:
-    #                     self._logger.info(f"Kill command (signal {signal}) for PID {pid} succeeded.")
-    #                     killed = True
-    #                     break
-    #                 else:
-    #                     self._logger.warning(f"Kill command failed with exit code {exit_status}. Stderr: {stderr.strip()}")
-    #             except Exception as e:
-    #                 self._logger.error(f"Error executing kill command: {e}", exc_info=True)
-    #                 break
-    #
-    #     return killed
 
 
     def run(self, cmd, io_timeout=60.0, runtime_timeout=None, sudo=False):
