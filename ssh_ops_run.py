@@ -132,6 +132,10 @@ class SshRunOperations:
                     self.logger.info(f"Captured remote PID {handle.pid}")
                 else:
                     self.logger.warning(f"Failed to capture PID. First line: '{pid_str}'")
+                    # If the first line wasn't a PID, it's probably command output
+                    # Add it to the buffer so it's not lost
+                    handle._buf.append(pid_str + '\n')
+                    handle.total_lines += 1
         finally:
             if 'stdout' in locals():
                 stdout.close()
