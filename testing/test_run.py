@@ -18,10 +18,8 @@ def test_simple_run(ssh_client):
     print_test_header("test_simple_run")
     client = ssh_client
     try:
-        # Use a command that produces multiple lines of output to ensure we capture something
         # Use a simple command that works across different shells
-        # Use a single echo with literal newlines to ensure consistent output
-        cmd = "echo $'Hello SSH World!\\nSecond line\\nThird line'"
+        cmd = "echo Hello SSH World! && echo Second line && echo Third line"
         print(f"Running command: {cmd}")
         handle = client.run(cmd)
 

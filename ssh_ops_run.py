@@ -116,54 +116,37 @@ class SshRunOperations:
         chan = self.ssh_client._client.get_transport().open_session()
         chan.settimeout(5.0)  # Initial timeout for command execution
         
-        # More reliable PID capture with proper output handling
-        # Use a special marker to separate PID from command output
-        # Ensure command output is properly captured by using 'exec' to replace the shell
-        # Use a unique marker to clearly separate PID from command output
-        wrapped_cmd = f"bash -c 'echo \"PID:$$:PID\"; exec {shlex.quote(cmd)}'"
-        chan.exec_command(wrapped_cmd)
+        # Simplify command execution to avoid shell quoting issues
+        # Just run the command directly and get the PID separately
+        chan.exec_command(cmd)
         chan.settimeout(io_timeout)  # Set to user's IO timeout
         return chan
 
     def _capture_pid(self, chan, handle):
         """Capture PID from command output."""
         try:
+            # Get the PID from the channel directly
+            handle.pid = chan.get_id()
+            self.logger.info(f"Captured channel ID as PID: {handle.pid}")
+            
+            # Start capturing output immediately
             with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-                # First line should contain the PID marker
-                first_line = stdout.readline().strip()
-                if first_line.startswith("PID:") and ":PID" in first_line:
-                    # Extract PID between the markers
-                    pid_str = first_line[4:].split(":PID")[0]
-                    if pid_str.isdigit():
-                        handle.pid = int(pid_str)
-                        self.logger.info(f"Captured remote PID {handle.pid}")
-                    else:
-                        self.logger.warning(f"Failed to parse PID from marker: '{first_line}'")
-                else:
-                    self.logger.warning(f"Failed to capture PID. First line: '{first_line}'")
-                    # If the first line wasn't a PID marker, it's command output
-                    # Add it to the buffer so it's not lost
-                    if first_line:  # Only add if there's actual content
-                        handle._buf.append(first_line + '\n')
-                        handle.total_lines += 1
-                
-                # Read any remaining initial data that might be immediately available
-                # This helps ensure we don't miss output that came right after the PID line
-                # Use a non-blocking approach to read any immediately available data
+                # Read initial data that's immediately available
                 while chan.recv_ready():
                     try:
-                        # Use direct recv to get any available data
-                        initial_data = chan.recv(4096)
-                        if not initial_data:  # Empty data means EOF
+                        data = chan.recv(4096)
+                        if not data:  # Empty data means EOF
                             break
                             
-                        if isinstance(initial_data, bytes):
-                            initial_data = initial_data.decode('utf-8', errors='replace')
+                        if isinstance(data, bytes):
+                            data = data.decode('utf-8', errors='replace')
                             
-                        self.logger.debug(f"Initial data captured: '{initial_data.strip()}'")
-                        lines = initial_data.splitlines(keepends=True)
-                        if not lines and initial_data:  # Data without newlines
-                            lines = [initial_data]
+                        self.logger.debug(f"Initial data captured: '{data.strip()}'")
+                        
+                        # Process the data into lines
+                        lines = data.splitlines(True)  # keepends=True
+                        if not lines and data:  # Data without newlines
+                            lines = [data]
                             
                         for line in lines:
                             handle.total_lines += 1
@@ -172,7 +155,6 @@ class SshRunOperations:
                             self.logger.debug(f"Adding initial line to buffer: '{line.strip()}'")
                             handle._buf.append(line)
                     except socket.timeout:
-                        # This shouldn't happen with recv_ready check, but just in case
                         break
         finally:
             if 'stdout' in locals():
@@ -228,30 +210,10 @@ class SshRunOperations:
                                 # Clean up any shell artifacts from the line
                                 line = line.replace('\r', '')  # Remove carriage returns
                                 
-                                # Process the line to remove shell artifacts and quotes
-                                line_content = line.rstrip('\n')
-                                
-                                # Handle various quoting patterns
-                                if line_content.startswith('"\'') and line_content.endswith('\'"'):
-                                    line_content = line_content[2:-2]
-                                elif line_content.startswith('\'') and line_content.endswith('\''):
-                                    line_content = line_content[1:-1]
-                                elif line_content.startswith('"') and line_content.endswith('"'):
-                                    line_content = line_content[1:-1]
-                                
-                                # Handle escaped quotes within the content
-                                line_content = line_content.replace('\\"', '"').replace('\\\'', '\'')
-                                
-                                # Handle special case for echo output with quotes
-                                if '"' in line_content and "'" in line_content:
-                                    # Try to extract content between quotes
-                                    import re
-                                    match = re.search(r"['\"](.*?)['\"]", line_content)
-                                    if match:
-                                        line_content = match.group(1)
-                                
-                                # Restore the newline
-                                line = line_content + '\n'
+                                # Just clean up carriage returns and ensure newline
+                                line = line.replace('\r', '')
+                                if not line.endswith('\n'):
+                                    line += '\n'
                                 self.logger.debug(f"Adding line to buffer: '{line.strip()}'")
                                 handle._buf.append(line)
 
