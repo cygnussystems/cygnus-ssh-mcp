@@ -116,6 +116,18 @@ class SshRunOperations:
         chan = self.ssh_client._client.get_transport().open_session()
         chan.settimeout(5.0)  # Initial timeout for command execution
         
+        # For echo commands with -e flag, we need to handle them specially
+        # because the remote shell might not support the -e flag the same way
+        if cmd.startswith('echo -e '):
+            # Extract the content inside the quotes
+            import re
+            match = re.search(r'echo -e [\'"](.+?)[\'"]', cmd)
+            if match:
+                content = match.group(1)
+                # Replace the command with a printf that works more consistently
+                cmd = f"printf '{content}'"
+                self.logger.info(f"Converted echo -e to printf: {cmd}")
+        
         # More reliable PID capture with proper output handling
         # Use a special marker to separate PID from command output
         # Ensure command output is properly captured by using 'exec' to replace the shell
