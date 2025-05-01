@@ -43,7 +43,9 @@ def test_simple_run(ssh_client):
         # Check if our expected text is in any of the lines
         found = False
         for line in output_lines:
-            if 'Hello SSH World!' in line:
+            # Strip any potential quotes and whitespace
+            cleaned_line = line.strip().strip('"\'')
+            if 'Hello SSH World!' in cleaned_line:
                 found = True
                 break
         assert found, "Expected 'Hello SSH World!' not found in output"

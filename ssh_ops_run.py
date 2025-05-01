@@ -195,6 +195,13 @@ class SshRunOperations:
                                 # Ensure line ends with newline
                                 if not line.endswith('\n'):
                                     line += '\n'
+                                # Remove any extra quotes that might be wrapping the output
+                                if line.startswith('"\'') and line.rstrip('\n').endswith('\'"'):
+                                    line = line[2:-2] + '\n'
+                                elif line.startswith('\'') and line.rstrip('\n').endswith('\''):
+                                    line = line[1:-1] + '\n'
+                                elif line.startswith('"') and line.rstrip('\n').endswith('"'):
+                                    line = line[1:-1] + '\n'
                                 handle._buf.append(line)
 
                     if chan.recv_stderr_ready():
