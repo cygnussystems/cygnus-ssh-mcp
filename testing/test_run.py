@@ -19,8 +19,8 @@ def test_simple_run(ssh_client):
     client = ssh_client
     try:
         # Use a command that produces multiple lines of output to ensure we capture something
-        # Use printf instead of echo for more consistent output handling
-        cmd = "printf 'Hello SSH World!\\n' && printf 'Second line\\n' && printf 'Third line\\n'"
+        # Use echo for simplicity and reliability
+        cmd = "echo 'Hello SSH World!' && echo 'Second line' && echo 'Third line'"
         print(f"Running command: {cmd}")
         handle = client.run(cmd)
 

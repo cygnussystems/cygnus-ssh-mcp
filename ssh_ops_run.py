@@ -116,8 +116,8 @@ class SshRunOperations:
         chan = self.ssh_client._client.get_transport().open_session()
         chan.settimeout(5.0)  # Initial timeout for command execution
         # More reliable PID capture with proper output handling
-        # Use printf instead of echo to avoid extra newlines and ensure consistent output
-        wrapped_cmd = f"bash -c 'printf \"%d\\n\" $$; exec {shlex.quote(cmd)}'"
+        # Use echo instead of printf for simplicity and reliability
+        wrapped_cmd = f"bash -c 'echo $$; exec {shlex.quote(cmd)}'"
         chan.exec_command(wrapped_cmd)
         chan.settimeout(io_timeout)  # Set to user's IO timeout
         return chan
