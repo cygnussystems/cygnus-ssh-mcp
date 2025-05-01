@@ -116,8 +116,8 @@ class SshRunOperations:
         chan = self.ssh_client._client.get_transport().open_session()
         chan.settimeout(5.0)  # Initial timeout for command execution
         # More reliable PID capture with proper output handling
-        # Use echo instead of printf for simplicity and reliability
-        wrapped_cmd = f"bash -c 'echo $$; exec {shlex.quote(cmd)}'"
+        # Use a special marker to separate PID from command output
+        wrapped_cmd = f"bash -c 'echo \"PID:$$\"; exec {shlex.quote(cmd)}'"
         chan.exec_command(wrapped_cmd)
         chan.settimeout(io_timeout)  # Set to user's IO timeout
         return chan
@@ -126,17 +126,21 @@ class SshRunOperations:
         """Capture PID from command output."""
         try:
             with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-                # First line is PID
-                pid_str = stdout.readline().strip()
-                if pid_str.isdigit():
-                    handle.pid = int(pid_str)
-                    self.logger.info(f"Captured remote PID {handle.pid}")
+                # First line should contain the PID marker
+                first_line = stdout.readline().strip()
+                if first_line.startswith("PID:"):
+                    pid_str = first_line[4:]  # Extract PID after "PID:"
+                    if pid_str.isdigit():
+                        handle.pid = int(pid_str)
+                        self.logger.info(f"Captured remote PID {handle.pid}")
+                    else:
+                        self.logger.warning(f"Failed to parse PID from marker: '{first_line}'")
                 else:
-                    self.logger.warning(f"Failed to capture PID. First line: '{pid_str}'")
-                    # If the first line wasn't a PID, it's probably command output
+                    self.logger.warning(f"Failed to capture PID. First line: '{first_line}'")
+                    # If the first line wasn't a PID marker, it's command output
                     # Add it to the buffer so it's not lost
-                    if pid_str:  # Only add if there's actual content
-                        handle._buf.append(pid_str + '\n')
+                    if first_line:  # Only add if there's actual content
+                        handle._buf.append(first_line + '\n')
                         handle.total_lines += 1
                 
                 # Read any remaining initial data that might be immediately available
