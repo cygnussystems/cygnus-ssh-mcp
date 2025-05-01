@@ -33,7 +33,19 @@ def test_simple_run(ssh_client):
         assert handle.end_ts is not None, "End timestamp should be set"
         assert handle.total_lines > 0, "Should have captured at least one line"
         assert handle.pid is not None, "Handle should have captured a PID"
-        assert any('Hello SSH World!' in line for line in output_lines), "Expected output not found"
+        
+        # Print each line for debugging
+        print("Detailed output lines:")
+        for i, line in enumerate(output_lines):
+            print(f"  Line {i}: '{line.strip()}'")
+            
+        # Check if our expected text is in any of the lines
+        found = False
+        for line in output_lines:
+            if 'Hello SSH World!' in line:
+                found = True
+                break
+        assert found, "Expected 'Hello SSH World!' not found in output"
         print("Assertions passed.")
     finally:
         print_test_footer()
