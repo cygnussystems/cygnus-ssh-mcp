@@ -10,7 +10,6 @@ import logging
 import threading
 import select
 from typing import Optional, Callable, Dict, Deque, Any, Union
-from ssh_ops_file import SshFileOperations
 from ssh_history import CommandHistoryManager
 from ssh_models import (
     SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
@@ -32,6 +31,7 @@ class SshClient:
     """
     def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
+        from ssh_ops_file import SshFileOperations  # Import here to avoid circular import
         from ssh_ops_task import SshTaskOperations  # Import here to avoid circular import
         from ssh_ops_run import SshRunOperations  # Import here to avoid circular import
         self.host = host

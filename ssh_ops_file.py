@@ -4,7 +4,7 @@ import shlex
 import logging
 import time
 from typing import Optional, Callable
-from ssh_client import SshError
+from ssh_models import SshError
 
 class SshFileOperations:
     """Handles file transfers, directory operations, and file editing."""
