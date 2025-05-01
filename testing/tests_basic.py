@@ -1,7 +1,8 @@
 import os
 import tempfile
 import time
-from test_utils import get_client, cleanup_client, print_test_header, print_test_footer
+import shlex
+from test_utils import get_client, cleanup_client, print_test_header, print_test_footer, SSH_USER
 
 
 # --- Test Functions ---
