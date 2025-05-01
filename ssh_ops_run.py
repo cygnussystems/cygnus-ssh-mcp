@@ -159,18 +159,24 @@ class SshRunOperations:
 
                     # Check for data with direct Paramiko methods
                     if chan.recv_ready():
-                        line = stdout.readline()
-                        if line:
-                            handle.total_lines += 1
-                            last_data_time = time.monotonic()
-                            if handle.total_lines > handle._buf.maxlen:
-                                handle.truncated = True
-                            # Ensure line ends with newline and decode if needed
-                            if isinstance(line, bytes):
-                                line = line.decode('utf-8', errors='replace')
-                            if not line.endswith('\n'):
-                                line += '\n'
-                            handle._buf.append(line)
+                        # Read all available data
+                        data = stdout.read1(4096)  # Read up to 4KB at a time
+                        if data:
+                            # Decode if needed
+                            if isinstance(data, bytes):
+                                data = data.decode('utf-8', errors='replace')
+                            
+                            # Split into lines while preserving newlines
+                            lines = data.splitlines(keepends=True)
+                            for line in lines:
+                                handle.total_lines += 1
+                                last_data_time = time.monotonic()
+                                if handle.total_lines > handle._buf.maxlen:
+                                    handle.truncated = True
+                                # Ensure line ends with newline
+                                if not line.endswith('\n'):
+                                    line += '\n'
+                                handle._buf.append(line)
 
                     if chan.recv_stderr_ready():
                         stderr_line = stderr.readline()
