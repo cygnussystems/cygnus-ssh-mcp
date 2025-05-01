@@ -4,7 +4,11 @@ import tempfile
 import pytest
 import threading
 import shlex
-from test_utils import get_client, cleanup_client, print_test_header, print_test_footer, SSH_USER
+from test_utils import get_client, cleanup_client, print_test_header, print_test_footer, SSH_USER, TEST_SUDO_PASSWORD
+from ssh_client import (
+    CommandFailed, BusyError, CommandTimeout, CommandRuntimeTimeout,
+    TaskNotFound, OutputPurged, SudoRequired
+)
 
 
 # --- Test Functions ---
