@@ -159,8 +159,8 @@ class SshRunOperations:
 
                     # Check for data with direct Paramiko methods
                     if chan.recv_ready():
-                        # Read all available data
-                        data = stdout.read1(4096)  # Read up to 4KB at a time
+                        # Read available data in chunks
+                        data = stdout.read(4096)  # Read up to 4KB at a time
                         if data:
                             # Decode if needed
                             if isinstance(data, bytes):
