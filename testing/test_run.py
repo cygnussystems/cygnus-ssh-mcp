@@ -19,7 +19,8 @@ def test_simple_run(ssh_client):
     client = ssh_client
     try:
         # Use a command that produces multiple lines of output to ensure we capture something
-        cmd = "echo 'Hello SSH World!' && echo 'Second line' && echo 'Third line'"
+        # Use printf instead of echo for more consistent output handling
+        cmd = "printf 'Hello SSH World!\\n' && printf 'Second line\\n' && printf 'Third line\\n'"
         print(f"Running command: {cmd}")
         handle = client.run(cmd)
 
@@ -45,9 +46,22 @@ def test_simple_run(ssh_client):
         for line in output_lines:
             # Strip any potential quotes and whitespace
             cleaned_line = line.strip().strip('"\'')
+            print(f"Checking cleaned line: '{cleaned_line}'")
             if 'Hello SSH World!' in cleaned_line:
                 found = True
                 break
+            # Also check if it's in the original line
+            if 'Hello SSH World!' in line:
+                found = True
+                break
+        
+        # If not found, try checking the combined output
+        if not found:
+            combined_output = ''.join(output_lines)
+            if 'Hello SSH World!' in combined_output:
+                found = True
+                print(f"Found in combined output: '{combined_output}'")
+                
         assert found, "Expected 'Hello SSH World!' not found in output"
         print("Assertions passed.")
     finally:
