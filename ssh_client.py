@@ -207,66 +207,32 @@ class SshClient:
         """Internal helper to attempt killing a remote PID. Avoids self.run()."""
         if not pid:
             return False
+            
         self._logger.warning(f"Attempting to kill remote process PID {pid} (sudo={sudo}).")
         killed = False
+        
         for signal in [15, 9]: # Try TERM then KILL
             cmd = f"kill -{signal} {pid}"
-            # Inline sudo logic here, using sudo -n for non-interactive kill
             full_cmd = f"sudo -n bash -c {shlex.quote(cmd)}" if sudo else cmd
-            self._logger.info(f"Executing kill command: {full_cmd}")
-            try:
-                # Use a separate channel to avoid busy lock
-                chan = self._client.get_transport().open_session()
-                chan.settimeout(5.0) # Short timeout for kill command
-                chan.exec_command(full_cmd)
-                exit_status = chan.recv_exit_status() # Wait for kill command to finish
-                chan.close()
-                if exit_status == 0:
-                    self._logger.info(f"Kill command (signal {signal}) for PID {pid} succeeded.")
-                    killed = True
-                    break # Exit loop if kill succeeded
-                else:
-                    # Attempt to read stderr even on failure
-                    try:
-                        # Need a new channel to read stderr after close? No, read before close.
-                        # Let's re-open channel logic slightly
-                        chan_err = self._client.get_transport().open_session()
-                        chan_err.settimeout(5.0)
-                        chan_err.exec_command(full_cmd) # Re-execute to get stderr? No, that's wrong.
-                        # Paramiko channel stderr needs reading *before* recv_exit_status typically.
-                        # Let's restructure the kill command execution slightly.
+            
+            with self._client.get_transport().open_session() as chan:
+                chan.settimeout(5.0)
+                try:
+                    chan.exec_command(full_cmd)
+                    # Read stderr before checking exit status
+                    stderr = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+                    exit_status = chan.recv_exit_status()
+                    
+                    if exit_status == 0:
+                        self._logger.info(f"Kill command (signal {signal}) for PID {pid} succeeded.")
+                        killed = True
+                        break
+                    else:
+                        self._logger.warning(f"Kill command failed with exit code {exit_status}. Stderr: {stderr.strip()}")
+                except Exception as e:
+                    self._logger.error(f"Error executing kill command: {e}", exc_info=True)
+                    break
 
-                        chan_kill = self._client.get_transport().open_session()
-                        chan_kill.settimeout(5.0)
-                        chan_kill.exec_command(full_cmd)
-                        # Read stderr *before* waiting for exit status
-                        stderr_output = chan_kill.makefile_stderr('r', encoding='utf-8', errors='replace').read()
-                        exit_status_kill = chan_kill.recv_exit_status() # Now wait
-                        chan_kill.close()
-
-                        if exit_status_kill == 0:
-                             self._logger.info(f"Kill command (signal {signal}) for PID {pid} succeeded.")
-                             killed = True
-                             break
-                        else:
-                             self._logger.warning(f"Kill command (signal {signal}) for PID {pid} failed with exit code {exit_status_kill}. Stderr: {stderr_output.strip()}")
-                             # If signal 15 failed, loop will try signal 9. If 9 fails, loop ends.
-
-                    except Exception as e_inner:
-                        self._logger.error(f"Error executing kill command or reading its output for PID {pid}: {e_inner}", exc_info=True)
-                        # Ensure channel is closed if inner exception occurred
-                        if 'chan_kill' in locals() and chan_kill and not chan_kill.closed: chan_kill.close()
-                        break # Stop trying if the kill command itself errors out
-
-            except Exception as e:
-                self._logger.error(f"Error setting up kill command channel for PID {pid}: {e}", exc_info=True)
-                # Stop trying if the kill command itself errors out
-                break
-
-        if killed:
-            self._logger.info(f"Successfully sent kill signal to PID {pid}.")
-        else:
-            self._logger.warning(f"Failed to kill PID {pid} or confirm termination.")
         return killed
 
 
@@ -891,6 +857,36 @@ class SshClient:
             raise SshError(f"SFTP put failed: {e}") from e
         finally:
             if sftp: sftp.close()
+
+    def mkdir(self, path, sudo=False, mode=0o755):
+        """Create a remote directory with optional sudo."""
+        self._logger.info(f"Creating directory {path} (sudo={sudo}, mode={mode:o})")
+        if sudo:
+            self.run(f"mkdir -p -m {mode:o} {shlex.quote(path)}", sudo=True)
+        else:
+            with self._client.open_sftp() as sftp:
+                sftp.mkdir(path, mode)
+
+    def rmdir(self, path, sudo=False, recursive=False):
+        """Remove a remote directory with optional sudo."""
+        self._logger.info(f"Removing directory {path} (sudo={sudo}, recursive={recursive})")
+        if recursive:
+            cmd = f"rm -rf {shlex.quote(path)}"
+        else:
+            cmd = f"rmdir {shlex.quote(path)}"
+        self.run(cmd, sudo=sudo)
+
+    def listdir(self, path):
+        """List contents of a remote directory."""
+        self._logger.info(f"Listing directory {path}")
+        with self._client.open_sftp() as sftp:
+            return sftp.listdir(path)
+
+    def stat(self, path):
+        """Get file/directory status info."""
+        self._logger.debug(f"Getting stats for {path}")
+        with self._client.open_sftp() as sftp:
+            return sftp.stat(path)
 
     def replace_line(self, remote_file, old_line, new_line, count=1, sudo=False, force=False):
         """
