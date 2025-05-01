@@ -242,6 +242,14 @@ class SshRunOperations:
                                 # Handle escaped quotes within the content
                                 line_content = line_content.replace('\\"', '"').replace('\\\'', '\'')
                                 
+                                # Handle special case for echo output with quotes
+                                if '"' in line_content and "'" in line_content:
+                                    # Try to extract content between quotes
+                                    import re
+                                    match = re.search(r"['\"](.*?)['\"]", line_content)
+                                    if match:
+                                        line_content = match.group(1)
+                                
                                 # Restore the newline
                                 line = line_content + '\n'
                                 self.logger.debug(f"Adding line to buffer: '{line.strip()}'")
