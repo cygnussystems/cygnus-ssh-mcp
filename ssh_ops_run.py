@@ -6,7 +6,7 @@ import socket
 from datetime import datetime
 from typing import Optional, Self
 from datetime import UTC
-from ssh_client import (
+from ssh_models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
     CommandFailed, SudoRequired, SshError
 )
