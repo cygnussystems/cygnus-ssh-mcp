@@ -1,154 +1,64 @@
-import sys
 import os
 import time
 import tempfile
-import pytest # Using pytest features like raises
-import threading # Needed for busy test
-import shlex # Import shlex module
-import logging # Added for testing log output (optional)
-
-# Add project root to path to import SshClient
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
-
-# Ensure ssh_client module can be found
-try:
-    # Import necessary exceptions used in this file
-    from ssh_client import (
-        SshClient, CommandFailed, CommandTimeout, CommandRuntimeTimeout,
-        BusyError, OutputPurged, TaskNotFound, SshError, SudoRequired
-    )
-except ImportError as e:
-    print(f"Error importing SshClient: {e}")
-    print(f"Project root added to path: {project_root}")
-    print(f"Current sys.path: {sys.path}")
-    sys.exit(1)
-
-# Configure logging for tests (optional, useful for debugging)
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logging.getLogger('paramiko').setLevel(logging.WARNING) # Quieten paramiko's verbose logs
-
-# --- Configuration (Adjust as per your Docker setup) ---
-SSH_HOST = os.environ.get('SSH_TEST_HOST', 'localhost')
-SSH_PORT = int(os.environ.get('SSH_TEST_PORT', 2222)) # Example port mapping
-SSH_USER = os.environ.get('SSH_TEST_USER', 'testuser') # Assumed to have passwordless sudo in Dockerfile
-
-# --- Choose ONE authentication method ---
-
-# Option 1: Password Authentication
-SSH_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass') # Use environment variable or default
-SSH_KEYFILE = None
-# Option 1.1: Sudo Password (if testing passworded sudo)
-# Ensure the user in Docker needs a password for *some* sudo commands for this test
-TEST_SUDO_PASSWORD = os.environ.get('SSH_TEST_SUDO_PASSWORD', 'testpass') # Or specific sudo pass if different
-
-# Option 2: Keyfile Authentication (Recommended)
-# Comment out SSH_PASSWORD above if using this option
-# SSH_PASSWORD = None
-# SSH_KEYFILE = os.environ.get('SSH_TEST_KEYFILE', os.path.expanduser('~/.ssh/id_rsa_docker_test')) # Example key path
-# TEST_SUDO_PASSWORD = None # Typically no sudo password needed if key auth is primary
-
-# --- Helper to create client ---
-# Global client variable for potential reuse in some tests (use with caution)
-_client_cache = None
-
-def get_client(force_new=False, **kwargs):
-    """
-    Instantiates and returns a connected SshClient, allowing overrides.
-    Caches the client by default unless force_new=True.
-    """
-    global _client_cache
-    if not force_new and _client_cache:
-        # Basic check if connection is alive, might need improvement
-        try:
-             if _client_cache._client.is_active():
-                 print("Reusing cached client connection.")
-                 return _client_cache
-             else:
-                 print("Cached client connection inactive, creating new.")
-        except Exception:
-             print("Error checking cached client, creating new.")
-             _client_cache = None # Clear invalid cache
-
-    default_kwargs = dict(
-        host=SSH_HOST,
-        port=SSH_PORT,
-        user=SSH_USER,
-        password=SSH_PASSWORD,
-        keyfile=SSH_KEYFILE,
-        sudo_password=None, # Default to no sudo password
-        connect_timeout=15, # Slightly longer timeout for test environments
-        history_limit=50,   # Default history limit
-        tail_keep=100       # Default tail keep
-    )
-    default_kwargs.update(kwargs) # Apply overrides
-    print(f"Connecting to {default_kwargs['user']}@{default_kwargs['host']}:{default_kwargs['port']}...")
-    client = SshClient(**default_kwargs)
-    print("Connection successful.")
-    if not force_new:
-        _client_cache = client
-    return client
-
-# --- Fixture for client cleanup ---
-@pytest.fixture(scope="function") # Use "module" scope if client can be reused across tests
-def ssh_client(request):
-    """Pytest fixture to provide and cleanup an SshClient instance."""
-    # Check if the test function needs specific client args (e.g., history_limit)
-    marker = request.node.get_closest_marker("client_kwargs")
-    kwargs = marker.args[0] if marker else {}
-    client_instance = get_client(force_new=True, **kwargs) # Force new client for each test function
-    yield client_instance
-    # Teardown: close connection after test function finishes
-    print("\nClosing client connection (fixture teardown)...")
-    client_instance.close()
+import pytest
+import threading
+import shlex
+from test_utils import get_client, cleanup_client, print_test_header, print_test_footer, SSH_USER
 
 
 # --- Test Functions ---
 
 def test_simple_run(ssh_client):
     """Tests running a simple command successfully."""
-    print("\n--- test_simple_run ---")
+    print_test_header("test_simple_run")
     client = ssh_client
-    cmd = "echo 'Hello SSH World!'"
-    print(f"Running command: {cmd}")
-    handle = client.run(cmd)
+    try:
+        cmd = "echo 'Hello SSH World!'"
+        print(f"Running command: {cmd}")
+        handle = client.run(cmd)
 
-    print(f"Command finished. Handle ID: {handle.id}, PID: {handle.pid}, Exit code: {handle.exit_code}")
-    output_lines = handle.tail()
-    print("Output tail:")
-    for line in output_lines:
-        print(f"  {line.strip()}")
+        print(f"Command finished. Handle ID: {handle.id}, PID: {handle.pid}, Exit code: {handle.exit_code}")
+        output_lines = handle.tail()
+        print("Output tail:")
+        for line in output_lines:
+            print(f"  {line.strip()}")
 
-    assert handle.exit_code == 0, f"Expected exit code 0, got {handle.exit_code}"
-    assert not handle.running, "Handle should not be running"
-    assert handle.end_ts is not None, "End timestamp should be set"
-    assert handle.total_lines > 0, "Should have captured at least one line"
-    assert handle.pid is not None, "Handle should have captured a PID"
-    assert any('Hello SSH World!' in line for line in output_lines), "Expected output not found"
-    print("Assertions passed.")
+        assert handle.exit_code == 0, f"Expected exit code 0, got {handle.exit_code}"
+        assert not handle.running, "Handle should not be running"
+        assert handle.end_ts is not None, "End timestamp should be set"
+        assert handle.total_lines > 0, "Should have captured at least one line"
+        assert handle.pid is not None, "Handle should have captured a PID"
+        assert any('Hello SSH World!' in line for line in output_lines), "Expected output not found"
+        print("Assertions passed.")
+    finally:
+        print_test_footer()
 
 
 def test_run_failure(ssh_client):
     """Tests running a command that should fail."""
-    print("\n--- test_run_failure ---")
+    print_test_header("test_run_failure")
     client = ssh_client
-    cmd = "ls /nonexistent_directory_xyz_123 && exit 42" # Ensure specific exit code
-    print(f"Running command expected to fail: {cmd}")
-    with pytest.raises(CommandFailed) as excinfo:
-        client.run(cmd)
+    try:
+        cmd = "ls /nonexistent_directory_xyz_123 && exit 42" # Ensure specific exit code
+        print(f"Running command expected to fail: {cmd}")
+        with pytest.raises(CommandFailed) as excinfo:
+            client.run(cmd)
 
-    # Assertions on the caught exception
-    print(f"Caught expected CommandFailed exception.")
-    print(f"  Exit code: {excinfo.value.exit_code}")
-    stderr_str = excinfo.value.stderr
-    if isinstance(stderr_str, bytes):
-         stderr_str = stderr_str.decode('utf-8', errors='ignore')
-    print(f"  Stderr: {stderr_str.strip()}")
+        # Assertions on the caught exception
+        print(f"Caught expected CommandFailed exception.")
+        print(f"  Exit code: {excinfo.value.exit_code}")
+        stderr_str = excinfo.value.stderr
+        if isinstance(stderr_str, bytes):
+             stderr_str = stderr_str.decode('utf-8', errors='ignore')
+        print(f"  Stderr: {stderr_str.strip()}")
 
-    assert excinfo.value.exit_code == 42, f"Expected exit code 42, got {excinfo.value.exit_code}"
-    assert "No such file or directory" in stderr_str or "cannot access" in stderr_str, \
-           f"Expected error message not found in stderr: {stderr_str}"
-    print("Assertions passed.")
+        assert excinfo.value.exit_code == 42, f"Expected exit code 42, got {excinfo.value.exit_code}"
+        assert "No such file or directory" in stderr_str or "cannot access" in stderr_str, \
+               f"Expected error message not found in stderr: {stderr_str}"
+        print("Assertions passed.")
+    finally:
+        print_test_footer()
 
 
 # --- Threading Helper for Busy Test ---
@@ -481,40 +391,15 @@ def test_sudo_with_password_success(ssh_client):
     print("Assertions passed.")
 
 
-# --- Manual Execution ---
 if __name__ == "__main__":
-    print("Starting SSH client run command tests...")
-    print("Ensure your SSH test container is running and configured correctly.")
-    print(f"Target: {SSH_USER}@{SSH_HOST}:{SSH_PORT}")
-    if SSH_KEYFILE: print(f"Using Keyfile: {SSH_KEYFILE}")
-    else: print("Using Password authentication.")
-    if TEST_SUDO_PASSWORD: print("Sudo password configured for tests.")
-    print("-" * 30)
-
-    # It's better to use pytest runner: `pytest testing/test_run.py`
-    # Manual sequential execution (less ideal):
-    client = None
-    try:
-        client = get_client(force_new=True) # Get a client for manual runs
-
-        test_simple_run(client)
-        test_run_failure(client)
-        test_busy_error_on_concurrent_run(client) # Needs its own client handling internally
-        test_command_io_timeout(client)
-        test_command_runtime_timeout(client) # Needs its own client handling internally
-        test_history_trimming(get_client(force_new=True, history_limit=5)) # Needs specific client
-        test_output_tail_and_chunk(client)
-        test_output_purged(get_client(force_new=True, tail_keep=10)) # Needs specific client
-
-        # Sudo tests (may require specific environment setup)
-        test_sudo_passwordless_success(client)
-        # test_sudo_required_exception(client) # Requires modified env
-        # test_sudo_with_password_success(client) # Requires modified env & password
-
-    finally:
-        if client:
-             client.close() # Close the manually created client
-
-    print("\n" + "=" * 30)
-    print("Run command tests finished.")
-    print("=" * 30)
+    print("Running command execution tests...")
+    test_simple_run(get_client(force_new=True))
+    test_run_failure(get_client(force_new=True))
+    test_busy_error_on_concurrent_run(get_client(force_new=True))
+    test_command_io_timeout(get_client(force_new=True))
+    test_command_runtime_timeout(get_client(force_new=True))
+    test_history_trimming(get_client(force_new=True, history_limit=5))
+    test_output_tail_and_chunk(get_client(force_new=True))
+    test_output_purged(get_client(force_new=True, tail_keep=10))
+    test_sudo_passwordless_success(get_client(force_new=True))
+    print("All command execution tests completed.")
