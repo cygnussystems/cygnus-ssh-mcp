@@ -149,6 +149,11 @@ class SshClient:
         self._tail_keep = tail_keep
         self._next_id = 1
         self._logger = logging.getLogger(f"{__name__}.SshClient")
+
+        # Initialize operations classes
+        self.run_ops = SshRunOperations(self, tail_keep)
+        self.task_ops = SshTaskOperations(self)
+        self.file_ops = SshFileOperations(self)
         
         # Initialize operations classes
         self.run_ops = SshRunOperations(self, tail_keep)
