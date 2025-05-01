@@ -124,16 +124,18 @@ class SshRunOperations:
 
     def _capture_pid(self, chan, handle):
         """Capture PID from command output."""
-        with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-            # First line is PID
-            pid_str = stdout.readline().strip()
-            if pid_str.isdigit():
-                handle.pid = int(pid_str)
-                self.logger.info(f"Captured remote PID {handle.pid}")
-            else:
-                self.logger.warning(f"Failed to capture PID. First line: '{pid_str}'")
+        try:
+            with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
+                # First line is PID
+                pid_str = stdout.readline().strip()
+                if pid_str.isdigit():
+                    handle.pid = int(pid_str)
+                    self.logger.info(f"Captured remote PID {handle.pid}")
+                else:
+                    self.logger.warning(f"Failed to capture PID. First line: '{pid_str}'")
         finally:
-            stdout.close()
+            if 'stdout' in locals():
+                stdout.close()
 
     def _monitor_command(self, chan, handle, io_timeout, runtime_timeout, start_time):
         """Monitor command execution and handle timeouts."""
