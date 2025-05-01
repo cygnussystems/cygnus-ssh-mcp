@@ -674,6 +674,8 @@ if __name__ == "__main__":
 
         test_connection_and_simple_run(client)
         test_run_failure(client)
+
+
         test_file_upload_download(client)
         test_status_command(client)
         test_busy_error_on_concurrent_run(client) # Needs its own client handling internally
