@@ -4,7 +4,8 @@ import shlex
 import logging
 import socket
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Self
+from datetime import UTC
 from ssh_client import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
     CommandFailed, SudoRequired, SshError
@@ -23,7 +24,9 @@ class SshRunOperations:
         self.tail_keep = tail_keep
         self.logger = logging.getLogger(f"{__name__}.SshRunOperations")
         
-    def execute_command(self, cmd, io_timeout=60.0, runtime_timeout=None, sudo=False):
+    def execute_command(self, cmd: str, io_timeout: float = 60.0, 
+                      runtime_timeout: Optional[float] = None, 
+                      sudo: bool = False) -> Self:
         """
         Execute a command synchronously with timeout management.
         
@@ -113,13 +116,16 @@ class SshRunOperations:
         self.logger.info(f"Executing command: {cmd}")
         chan = self.ssh_client._client.get_transport().open_session()
         chan.settimeout(5.0)  # Initial timeout for command execution
-        chan.exec_command(cmd)
+        # More reliable PID capture
+        wrapped_cmd = f"bash -c 'echo $$; exec {shlex.quote(cmd)}'"
+        chan.exec_command(wrapped_cmd)
+        chan.settimeout(io_timeout)  # Set to user's IO timeout
         return chan
 
     def _capture_pid(self, chan, handle):
         """Capture PID from command output."""
-        stdout = chan.makefile('r')
-        try:
+        with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
+            # First line is PID
             pid_str = stdout.readline().strip()
             if pid_str.isdigit():
                 handle.pid = int(pid_str)
@@ -131,10 +137,9 @@ class SshRunOperations:
 
     def _monitor_command(self, chan, handle, io_timeout, runtime_timeout, start_time):
         """Monitor command execution and handle timeouts."""
-        stdout = chan.makefile('r')
-        stderr = chan.makefile_stderr('r')
+        last_data_time = time.monotonic()
         
-        try:
+        with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
             while True:
                 # Check runtime timeout
                 if runtime_timeout is not None:
@@ -150,19 +155,27 @@ class SshRunOperations:
                 if chan.exit_status_ready():
                     break
 
-                read_ready, _, _ = select.select([chan], [], [], 0.1)
-                if chan in read_ready:
+                # Check for data with direct Paramiko methods
+                if chan.recv_ready():
                     line = stdout.readline()
                     if line:
                         handle.total_lines += 1
+                        last_data_time = time.monotonic()
                         if handle.total_lines > handle._buf.maxlen:
                             handle.truncated = True
                         handle._buf.append(line)
 
-                    if chan.recv_stderr_ready():
-                        stderr_line = stderr.readline()
-                        if stderr_line:
-                            self.logger.warning(f"[STDERR]: {stderr_line.strip()}")
+                if chan.recv_stderr_ready():
+                    stderr_line = stderr.readline()
+                    if stderr_line:
+                        self.logger.warning(f"[STDERR]: {stderr_line.strip()}")
+                        if not hasattr(handle, '_stderr_buf'):
+                            handle._stderr_buf = []
+                        handle._stderr_buf.append(stderr_line)
+
+                # Check I/O timeout
+                if (time.monotonic() - last_data_time) > io_timeout:
+                    raise CommandTimeout(io_timeout)
 
                 elif chan.exit_status_ready():
                     break
@@ -179,13 +192,15 @@ class SshRunOperations:
     def _handle_command_completion(self, chan, handle, sudo_pwd_attempted):
         """Handle successful command completion."""
         handle.exit_code = chan.recv_exit_status()
-        handle.end_ts = datetime.utcnow()
+        handle.end_ts = datetime.now(UTC)
         handle.running = False
         self.logger.info(f"Command finished with exit code {handle.exit_code}")
 
         if handle.exit_code != 0:
             stdout_all = ''.join(handle.tail(handle.total_lines))
-            stderr_output = chan.makefile_stderr('r').read().decode('utf-8', errors='replace')
+            # Use collected stderr if available
+            stderr_output = getattr(handle, '_stderr_buf', [])
+            stderr_output = ''.join(stderr_output) if stderr_output else ''
             if sudo_pwd_attempted and handle.exit_code == 1 and ("incorrect password attempt" in stderr_output.lower()):
                 raise SudoRequired(f"{handle.cmd} (Incorrect sudo password provided or required)")
             raise CommandFailed(handle.exit_code, stdout_all, stderr_output)
