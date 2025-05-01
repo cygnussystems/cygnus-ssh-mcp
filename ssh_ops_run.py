@@ -142,54 +142,55 @@ class SshRunOperations:
         last_data_time = time.monotonic()
         
         with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-            while True:
-                # Check runtime timeout
-                if runtime_timeout is not None:
-                    elapsed = time.monotonic() - start_time
-                    if elapsed > runtime_timeout:
-                        self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
-                        handle.running = False
-                        handle.end_ts = datetime.utcnow()
-                        self.ssh_client.task_ops._kill_remote_process(handle.pid)
-                        raise CommandRuntimeTimeout(handle, runtime_timeout)
+            try:
+                while True:
+                    # Check runtime timeout
+                    if runtime_timeout is not None:
+                        elapsed = time.monotonic() - start_time
+                        if elapsed > runtime_timeout:
+                            self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
+                            handle.running = False
+                            handle.end_ts = datetime.utcnow()
+                            self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                            raise CommandRuntimeTimeout(handle, runtime_timeout)
 
-                # Check for I/O readiness
+                    # Check for I/O readiness
+                    if chan.exit_status_ready():
+                        break
+
+                    # Check for data with direct Paramiko methods
+                    if chan.recv_ready():
+                        line = stdout.readline()
+                        if line:
+                            handle.total_lines += 1
+                            last_data_time = time.monotonic()
+                            if handle.total_lines > handle._buf.maxlen:
+                                handle.truncated = True
+                            handle._buf.append(line)
+
+                    if chan.recv_stderr_ready():
+                        stderr_line = stderr.readline()
+                        if stderr_line:
+                            self.logger.warning(f"[STDERR]: {stderr_line.strip()}")
+                            if not hasattr(handle, '_stderr_buf'):
+                                handle._stderr_buf = []
+                            handle._stderr_buf.append(stderr_line)
+
+                    # Check I/O timeout
+                    if (time.monotonic() - last_data_time) > io_timeout:
+                        raise CommandTimeout(io_timeout)
+
+                    elif chan.exit_status_ready():
+                        break
+
+            except socket.timeout:
                 if chan.exit_status_ready():
-                    break
-
-                # Check for data with direct Paramiko methods
-                if chan.recv_ready():
-                    line = stdout.readline()
-                    if line:
-                        handle.total_lines += 1
-                        last_data_time = time.monotonic()
-                        if handle.total_lines > handle._buf.maxlen:
-                            handle.truncated = True
-                        handle._buf.append(line)
-
-                if chan.recv_stderr_ready():
-                    stderr_line = stderr.readline()
-                    if stderr_line:
-                        self.logger.warning(f"[STDERR]: {stderr_line.strip()}")
-                        if not hasattr(handle, '_stderr_buf'):
-                            handle._stderr_buf = []
-                        handle._stderr_buf.append(stderr_line)
-
-                # Check I/O timeout
-                if (time.monotonic() - last_data_time) > io_timeout:
+                    pass  # Command finished while we were waiting
+                else:
                     raise CommandTimeout(io_timeout)
-
-                elif chan.exit_status_ready():
-                    break
-
-        except socket.timeout:
-            if chan.exit_status_ready():
-                pass  # Command finished while we were waiting
-            else:
-                raise CommandTimeout(io_timeout)
-        finally:
-            stdout.close()
-            stderr.close()
+            finally:
+                stdout.close()
+                stderr.close()
 
     def _handle_command_completion(self, chan, handle, sudo_pwd_attempted):
         """Handle successful command completion."""
