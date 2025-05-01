@@ -133,22 +133,27 @@ class SshClient:
     Includes support for launching background tasks and monitoring them.
     Uses logging for output. Implements wall-clock timeouts for run().
     """
-    def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None, # Added sudo_password
+    def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
         self.host = host
         self.user = user
         self.port = port
         self.keyfile = keyfile
         self.password = password
-        self.sudo_password = sudo_password # Store sudo password
+        self.sudo_password = sudo_password
         self.connect_timeout = connect_timeout
-        self._busy_lock = threading.Lock() # Use a lock instead of boolean
-        self._history = {} # Stores CommandHandle objects
-        self._history_order = deque() # Tracks order for trimming
-        self._history_limit = history_limit # Max handles to keep
-        self._tail_keep = tail_keep # Default lines to keep per handle buffer
+        self._busy_lock = threading.Lock()
+        self._history = {}
+        self._history_order = deque()
+        self._history_limit = history_limit
+        self._tail_keep = tail_keep
         self._next_id = 1
-        self._logger = logging.getLogger(f"{__name__}.SshClient") # Get logger instance
+        self._logger = logging.getLogger(f"{__name__}.SshClient")
+        
+        # Initialize operations classes
+        self.run_ops = SshRunOperations(self, tail_keep)
+        self.task_ops = SshTaskOperations(self)
+        self.file_ops = SshFileOperations(self)
 
         # Setup Paramiko client
         self._client = paramiko.SSHClient()
@@ -519,140 +524,7 @@ class SshClient:
         output to /tmp/task-<pid>.log.
         WARNING: Does not work for interactive commands requiring input.
         """
-        pid = None # Ensure pid is defined for cleanup/logging
-        handle = None # Ensure handle is defined
-
-        try:
-            # Determine log paths
-            effective_stdout_log = stdout_log
-            effective_stderr_log = stderr_log
-            pid_placeholder = f"pid_{int(time.time())}" # Placeholder for log name before PID is known
-            default_log_path = f"/tmp/task-{pid_placeholder}.log"
-
-            if log_output and stdout_log is None and stderr_log is None:
-                effective_stdout_log = default_log_path
-                effective_stderr_log = default_log_path # Redirect both to same default file
-                self._logger.info(f"Defaulting log output to {default_log_path} (placeholder)")
-            elif log_output and stdout_log is None:
-                 effective_stdout_log = "/dev/null" # Redirect stdout if only stderr is specified
-            elif log_output and stderr_log is None:
-                 effective_stderr_log = "/dev/null" # Redirect stderr if only stdout is specified
-
-            # Build the command with backgrounding and PID echo
-            bg_cmd_part = f"{cmd}"
-            if effective_stdout_log:
-                bg_cmd_part += f" >{shlex.quote(effective_stdout_log)}"
-            if effective_stderr_log:
-                if effective_stderr_log == effective_stdout_log:
-                    bg_cmd_part += " 2>&1"
-                else:
-                    bg_cmd_part += f" 2>{shlex.quote(effective_stderr_log)}"
-
-            # Use subshell to ensure PID is captured correctly after nohup/&
-            # Ensure nohup runs in the background correctly within the subshell
-            pid_cmd = f"( nohup {bg_cmd_part} & echo $! )"
-
-
-            # Need to handle sudo for launch correctly
-            # If sudo is needed, the entire subshell needs to run under sudo
-            if sudo:
-                 # For launch, we generally assume passwordless sudo is required.
-                 # Passworded sudo for background tasks is unreliable. Use sudo -n.
-                 full_cmd = f"sudo -n bash -c {shlex.quote(pid_cmd)}"
-            else:
-                 full_cmd = f"bash -c {shlex.quote(pid_cmd)}"
-
-
-            self._logger.info(f"Launching command: {full_cmd}")
-
-            # Use exec_command for simple background launch
-            stdin, stdout, stderr = self._client.exec_command(full_cmd, timeout=10) # Short timeout for getting PID
-
-            pid_str = stdout.read().decode('utf-8', errors='replace').strip()
-            stderr_output = stderr.read().decode('utf-8', errors='replace').strip()
-
-            # Must read exit status *after* stdout/stderr
-            exit_status = stdout.channel.recv_exit_status()
-
-            stdin.close()
-            stdout.close()
-            stderr.close()
-
-            # Check if the launch command itself failed (e.g., sudo -n failed)
-            if exit_status != 0:
-                 err_msg = f"Launch command execution failed with exit code {exit_status}. stdout: '{pid_str}', stderr: '{stderr_output}'"
-                 self._logger.error(err_msg)
-                 handle_id = self._next_id; self._next_id += 1
-                 handle = CommandHandle(handle_id, cmd, pid=None); handle.running = False; handle.exit_code = exit_status; handle.end_ts = datetime.utcnow()
-                 self._add_to_history(handle)
-                 # Raise specific error if sudo -n likely failed
-                 if sudo and "password is required" in stderr_output:
-                      raise SudoRequired(cmd) from SshError(err_msg)
-                 raise SshError(err_msg)
-
-
-            if not pid_str.isdigit():
-                err_msg = f"Failed to launch command or parse PID. stdout: '{pid_str}', stderr: '{stderr_output}'"
-                self._logger.error(err_msg)
-                # Create a failed handle for history
-                handle_id = self._next_id
-                self._next_id += 1
-                handle = CommandHandle(handle_id, cmd, pid=None)
-                handle.running = False
-                handle.exit_code = -1 # Indicate launch failure (PID parse)
-                handle.end_ts = datetime.utcnow()
-                self._add_to_history(handle)
-                raise SshError(err_msg)
-
-            pid = int(pid_str)
-            self._logger.info(f"Command launched successfully with PID: {pid}")
-
-            # Rename default log file if used
-            if effective_stdout_log == default_log_path:
-                final_log_path = f"/tmp/task-{pid}.log"
-                try:
-                    # Use run to rename the log file, short timeout
-                    rename_cmd = f"mv {shlex.quote(default_log_path)} {shlex.quote(final_log_path)}"
-                    # Use sudo for rename if launch used sudo
-                    self.run(rename_cmd, io_timeout=5, runtime_timeout=10, sudo=sudo)
-                    self._logger.info(f"Renamed default log to {final_log_path}")
-                    effective_stdout_log = final_log_path # Update effective path
-                    if effective_stderr_log == default_log_path:
-                        effective_stderr_log = final_log_path
-                except Exception as rename_err:
-                    # Log rename failure but proceed, log file will have placeholder name
-                    self._logger.warning(f"Failed to rename default log file {default_log_path} to {final_log_path}: {rename_err}")
-
-
-            handle_id = self._next_id
-            self._next_id += 1
-            # Create handle, mark as running=True initially (process launched)
-            handle = CommandHandle(handle_id, cmd, pid=pid)
-            # Store actual log paths used in handle? Maybe not necessary.
-            self._add_to_history(handle)
-            return handle
-
-        except Exception as e:
-            # Catch BusyError specifically if run() was called during rename
-            if isinstance(e, BusyError):
-                 self._logger.error(f"Failed to launch command '{cmd}' due to busy client during log rename.", exc_info=True)
-                 # Create a failed handle if PID was obtained but rename failed due to busy
-                 if pid and not handle:
-                     handle_id = self._next_id; self._next_id += 1
-                     fail_handle = CommandHandle(handle_id, cmd, pid=pid); fail_handle.running = False; fail_handle.exit_code = -1; fail_handle.end_ts = datetime.utcnow()
-                     self._add_to_history(fail_handle)
-                 raise # Re-raise BusyError
-            else:
-                 self._logger.error(f"Failed to launch command '{cmd}': {e}", exc_info=True)
-                 # Ensure failed handle is created if not already
-                 if not handle and pid is None: # Check if handle creation failed before SshError was raised
-                      handle_id = self._next_id; self._next_id += 1
-                      fail_handle = CommandHandle(handle_id, cmd, pid=None); fail_handle.running = False; fail_handle.exit_code = -1; fail_handle.end_ts = datetime.utcnow()
-                      self._add_to_history(fail_handle)
-                 # Avoid re-wrapping SudoRequired
-                 if isinstance(e, SudoRequired):
-                     raise
-                 raise SshError(f"Failed to launch command: {e}") from e
+        return self.task_ops.launch_task(cmd, stdout_log, stderr_log, log_output, sudo)
 
     def task_status(self, pid):
         """
@@ -662,35 +534,7 @@ class SshClient:
             'exited': Process does not exist (assumed completed or killed).
             'error': Failed to check status.
         """
-        if not isinstance(pid, int) or pid <= 0:
-            raise ValueError("Invalid PID provided.")
-
-        cmd = f"kill -0 {pid}"
-        self._logger.debug(f"Checking status for PID {pid} using command: {cmd}")
-        chan = None
-        try:
-            # Use a direct channel to avoid run()'s busy lock
-            chan = self._client.get_transport().open_session()
-            chan.settimeout(5.0) # Short timeout
-            chan.exec_command(cmd)
-            # Read stderr for context on failure *before* getting exit status
-            stderr_output = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
-            exit_status = chan.recv_exit_status() # Wait for command to finish
-            chan.close()
-
-            if exit_status == 0:
-                self._logger.debug(f"Status check for PID {pid}: running (kill -0 exited 0)")
-                return "running"
-            else:
-                # Non-zero exit usually means process doesn't exist
-                self._logger.debug(f"Status check for PID {pid}: exited (kill -0 exited {exit_status}, stderr: {stderr_output.strip()})")
-                return "exited"
-
-        except Exception as e:
-            # Errors during the check itself (timeout, connection issue)
-            self._logger.error(f"Error checking status for PID {pid}: {e}", exc_info=True)
-            if chan and not chan.closed: chan.close() # Ensure channel is closed on error
-            return "error"
+        return self.task_ops.get_task_status(pid)
 
 
     def task_kill(self, pid, signal=15, sudo=False, force_kill_signal=9, wait_seconds=1.0):
@@ -832,61 +676,27 @@ class SshClient:
 
     def get(self, remote_path, local_path):
         """Download a file from remote to local."""
-        sftp = None
-        try:
-            self._logger.info(f"Downloading {remote_path} to {local_path}")
-            sftp = self._client.open_sftp()
-            sftp.get(remote_path, local_path)
-            self._logger.info("Download complete.")
-        except Exception as e:
-            self._logger.error(f"SFTP get failed for {remote_path}: {e}", exc_info=True)
-            raise SshError(f"SFTP get failed: {e}") from e
-        finally:
-            if sftp: sftp.close()
+        return self.file_ops.get(remote_path, local_path)
 
     def put(self, local_path, remote_path):
         """Upload a file from local to remote."""
-        sftp = None
-        try:
-            self._logger.info(f"Uploading {local_path} to {remote_path}")
-            sftp = self._client.open_sftp()
-            sftp.put(local_path, remote_path)
-            self._logger.info("Upload complete.")
-        except Exception as e:
-            self._logger.error(f"SFTP put failed for {local_path} to {remote_path}: {e}", exc_info=True)
-            raise SshError(f"SFTP put failed: {e}") from e
-        finally:
-            if sftp: sftp.close()
+        return self.file_ops.put(local_path, remote_path)
 
     def mkdir(self, path, sudo=False, mode=0o755):
         """Create a remote directory with optional sudo."""
-        self._logger.info(f"Creating directory {path} (sudo={sudo}, mode={mode:o})")
-        if sudo:
-            self.run(f"mkdir -p -m {mode:o} {shlex.quote(path)}", sudo=True)
-        else:
-            with self._client.open_sftp() as sftp:
-                sftp.mkdir(path, mode)
+        return self.file_ops.mkdir(path, sudo, mode)
 
     def rmdir(self, path, sudo=False, recursive=False):
         """Remove a remote directory with optional sudo."""
-        self._logger.info(f"Removing directory {path} (sudo={sudo}, recursive={recursive})")
-        if recursive:
-            cmd = f"rm -rf {shlex.quote(path)}"
-        else:
-            cmd = f"rmdir {shlex.quote(path)}"
-        self.run(cmd, sudo=sudo)
+        return self.file_ops.rmdir(path, sudo, recursive)
 
     def listdir(self, path):
         """List contents of a remote directory."""
-        self._logger.info(f"Listing directory {path}")
-        with self._client.open_sftp() as sftp:
-            return sftp.listdir(path)
+        return self.file_ops.listdir(path)
 
     def stat(self, path):
         """Get file/directory status info."""
-        self._logger.debug(f"Getting stats for {path}")
-        with self._client.open_sftp() as sftp:
-            return sftp.stat(path)
+        return self.file_ops.stat(path)
 
     def replace_line(self, remote_file, old_line, new_line, count=1, sudo=False, force=False):
         """
@@ -895,17 +705,7 @@ class SshClient:
         If sudo=True, attempts to use sudo for the final 'mv' command.
         If force=True, proceeds even if original file cannot be read (sudo only).
         """
-        self._logger.info(f"Replacing line in {remote_file} (sudo={sudo}, force={force})")
-        if sudo:
-            remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
-            self._replace_content_sudo(remote_file, remote_temp_path,
-                                       lambda text: self._perform_replace_line(text, old_line, new_line, count),
-                                       force=force)
-        else:
-            if force:
-                 self._logger.warning("force=True has no effect when sudo=False for replace_line.")
-            self._replace_content_sftp(remote_file,
-                                       lambda text: self._perform_replace_line(text, old_line, new_line, count))
+        return self.file_ops.replace_line(remote_file, old_line, new_line, count, sudo, force)
 
     def _perform_replace_line(self, text, old_line, new_line, count):
         """Helper function containing the actual line replacement logic."""
@@ -930,20 +730,7 @@ class SshClient:
         If sudo=True, attempts to use sudo for the final 'mv' command.
         If force=True, proceeds even if original file cannot be read (sudo only).
         """
-        self._logger.info(f"Replacing block in {remote_file} (sudo={sudo}, force={force})")
-        # Ensure blocks are strings
-        old_block_str = "".join(old_block) if isinstance(old_block, (list, tuple)) else str(old_block)
-        new_block_str = "".join(new_block) if isinstance(new_block, (list, tuple)) else str(new_block)
-
-        modify_func = lambda text: text.replace(old_block_str, new_block_str)
-
-        if sudo:
-            remote_temp_path = f"/tmp/replace_block_{os.path.basename(remote_file)}_{int(time.time())}"
-            self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
-        else:
-            if force:
-                 self._logger.warning("force=True has no effect when sudo=False for replace_block.")
-            self._replace_content_sftp(remote_file, modify_func)
+        return self.file_ops.replace_block(remote_file, old_block, new_block, sudo, force)
 
     def _replace_content_sftp(self, remote_file, modify_func):
         """Internal helper for SFTP-based file modification."""
