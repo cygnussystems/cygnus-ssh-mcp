@@ -19,8 +19,8 @@ def test_simple_run(ssh_client):
     client = ssh_client
     try:
         # Use a command that produces multiple lines of output to ensure we capture something
-        # Use printf for more consistent output across different shells
-        cmd = "printf 'Hello SSH World!\\nSecond line\\nThird line\\n'"
+        # Use echo with newlines for more consistent output across different shells
+        cmd = "echo 'Hello SSH World!' && echo 'Second line' && echo 'Third line'"
         print(f"Running command: {cmd}")
         handle = client.run(cmd)
 
@@ -45,11 +45,24 @@ def test_simple_run(ssh_client):
         combined_output = ''.join(output_lines)
         print(f"Combined output (length: {len(combined_output)}): '{combined_output}'")
         
-        # Check for each expected string in the combined output
+        # Check for each expected string in the combined output or individual lines
         expected_strings = ['Hello SSH World!', 'Second line', 'Third line']
         for expected in expected_strings:
-            found = expected in combined_output
-            print(f"Checking for '{expected}': {'FOUND' if found else 'NOT FOUND'}")
+            # Check in combined output first
+            found_in_combined = expected in combined_output
+            print(f"Checking for '{expected}' in combined output: {'FOUND' if found_in_combined else 'NOT FOUND'}")
+            
+            # If not found in combined, check each line individually
+            found_in_lines = False
+            if not found_in_combined:
+                for line in output_lines:
+                    cleaned_line = line.strip().strip("'\"")
+                    if expected in cleaned_line:
+                        found_in_lines = True
+                        print(f"Found '{expected}' in cleaned line: '{cleaned_line}'")
+                        break
+            
+            found = found_in_combined or found_in_lines
             assert found, f"Expected '{expected}' not found in output"
         
         print("All expected strings found in output.")
