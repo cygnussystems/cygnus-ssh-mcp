@@ -18,7 +18,8 @@ def test_simple_run(ssh_client):
     print_test_header("test_simple_run")
     client = ssh_client
     try:
-        cmd = "echo 'Hello SSH World!'"
+        # Use a command that produces multiple lines of output to ensure we capture something
+        cmd = "echo 'Hello SSH World!' && echo 'Second line' && echo 'Third line'"
         print(f"Running command: {cmd}")
         handle = client.run(cmd)
 
@@ -31,7 +32,7 @@ def test_simple_run(ssh_client):
         assert handle.exit_code == 0, f"Expected exit code 0, got {handle.exit_code}"
         assert not handle.running, "Handle should not be running"
         assert handle.end_ts is not None, "End timestamp should be set"
-        assert handle.total_lines > 0, "Should have captured at least one line"
+        assert handle.total_lines > 0, f"Should have captured at least one line, got {handle.total_lines}"
         assert handle.pid is not None, "Handle should have captured a PID"
         
         # Print each line for debugging

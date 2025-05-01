@@ -134,8 +134,23 @@ class SshRunOperations:
                     self.logger.warning(f"Failed to capture PID. First line: '{pid_str}'")
                     # If the first line wasn't a PID, it's probably command output
                     # Add it to the buffer so it's not lost
-                    handle._buf.append(pid_str + '\n')
-                    handle.total_lines += 1
+                    if pid_str:  # Only add if there's actual content
+                        handle._buf.append(pid_str + '\n')
+                        handle.total_lines += 1
+                
+                # Read any remaining initial data that might be immediately available
+                # This helps ensure we don't miss output that came right after the PID line
+                if chan.recv_ready():
+                    initial_data = stdout.read(4096)
+                    if initial_data:
+                        if isinstance(initial_data, bytes):
+                            initial_data = initial_data.decode('utf-8', errors='replace')
+                        lines = initial_data.splitlines(keepends=True)
+                        for line in lines:
+                            handle.total_lines += 1
+                            if not line.endswith('\n'):
+                                line += '\n'
+                            handle._buf.append(line)
         finally:
             if 'stdout' in locals():
                 stdout.close()
