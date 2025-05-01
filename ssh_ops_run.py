@@ -60,7 +60,7 @@ class SshRunOperations:
                 cmd, sudo_pwd_attempted = self._handle_sudo(cmd)
                 
             # Execute command and capture PID
-            chan = self._execute_command(cmd)
+            chan = self._execute_command(cmd, io_timeout)
             self._capture_pid(chan, handle)
             
             # Monitor command execution
@@ -111,7 +111,7 @@ class SshRunOperations:
         except Exception as e:
             raise SshError(f"Failed during sudo pre-check: {e}") from e
 
-    def _execute_command(self, cmd):
+    def _execute_command(self, cmd, io_timeout):
         """Execute the command and return the channel."""
         self.logger.info(f"Executing command: {cmd}")
         chan = self.ssh_client._client.get_transport().open_session()
