@@ -11,6 +11,9 @@ import logging
 import threading
 import select
 from typing import Optional, Callable, Dict, Deque, Any, Union
+from ssh_ops_run import SshRunOperations
+from ssh_ops_task import SshTaskOperations
+from ssh_ops_file import SshFileOperations
 
 # Configure basic logging for the library
 log = logging.getLogger(__name__)
@@ -150,11 +153,6 @@ class SshClient:
         self._next_id = 1
         self._logger = logging.getLogger(f"{__name__}.SshClient")
 
-        # Initialize operations classes
-        self.run_ops = SshRunOperations(self, tail_keep)
-        self.task_ops = SshTaskOperations(self)
-        self.file_ops = SshFileOperations(self)
-        
         # Initialize operations classes
         self.run_ops = SshRunOperations(self, tail_keep)
         self.task_ops = SshTaskOperations(self)
