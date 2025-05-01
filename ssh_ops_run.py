@@ -143,7 +143,7 @@ class SshRunOperations:
                         self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
                         handle.running = False
                         handle.end_ts = datetime.utcnow()
-                        self.ssh_client._kill_remote_process(handle.pid)
+                        self.ssh_client.task_ops._kill_remote_process(handle.pid)
                         raise CommandRuntimeTimeout(handle, runtime_timeout)
 
                 # Check for I/O readiness

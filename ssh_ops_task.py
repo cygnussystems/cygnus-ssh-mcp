@@ -156,6 +156,38 @@ class SshTaskOperations:
                 chan.close()
             return "error"
 
+    def _kill_remote_process(self, pid, sudo=False):
+        """Internal helper to attempt killing a remote PID. Avoids self.run()."""
+        if not pid:
+            return False
+            
+        self.logger.warning(f"Attempting to kill remote process PID {pid} (sudo={sudo}).")
+        killed = False
+        
+        for signal in [15, 9]: # Try TERM then KILL
+            cmd = f"kill -{signal} {pid}"
+            full_cmd = f"sudo -n bash -c {shlex.quote(cmd)}" if sudo else cmd
+            
+            with self.ssh_client._client.get_transport().open_session() as chan:
+                chan.settimeout(5.0)
+                try:
+                    chan.exec_command(full_cmd)
+                    # Read stderr before checking exit status
+                    stderr = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+                    exit_status = chan.recv_exit_status()
+                    
+                    if exit_status == 0:
+                        self.logger.info(f"Kill command (signal {signal}) for PID {pid} succeeded.")
+                        killed = True
+                        break
+                    else:
+                        self.logger.warning(f"Kill command failed with exit code {exit_status}. Stderr: {stderr.strip()}")
+                except Exception as e:
+                    self.logger.error(f"Error executing kill command: {e}", exc_info=True)
+                    break
+
+        return killed
+
     def kill_task(self, pid, signal=15, sudo=False, force_kill_signal=9, wait_seconds=1.0):
         """
         Kill a background task.
