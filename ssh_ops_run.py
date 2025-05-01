@@ -117,8 +117,8 @@ class SshRunOperations:
         chan.settimeout(5.0)  # Initial timeout for command execution
         # More reliable PID capture with proper output handling
         # Use a special marker to separate PID from command output
-        # Set -e ensures command errors are propagated
-        wrapped_cmd = f"bash -c 'echo \"PID:$$\"; {shlex.quote(cmd)}'"
+        # Ensure command output is properly captured by using 'exec' to replace the shell
+        wrapped_cmd = f"bash -c 'echo \"PID:$$\"; exec {shlex.quote(cmd)}'"
         chan.exec_command(wrapped_cmd)
         chan.settimeout(io_timeout)  # Set to user's IO timeout
         return chan
@@ -146,17 +146,31 @@ class SshRunOperations:
                 
                 # Read any remaining initial data that might be immediately available
                 # This helps ensure we don't miss output that came right after the PID line
-                if chan.recv_ready():
-                    initial_data = stdout.read(4096)
-                    if initial_data:
+                # Use a non-blocking approach to read any immediately available data
+                while chan.recv_ready():
+                    try:
+                        # Use direct recv to get any available data
+                        initial_data = chan.recv(4096)
+                        if not initial_data:  # Empty data means EOF
+                            break
+                            
                         if isinstance(initial_data, bytes):
                             initial_data = initial_data.decode('utf-8', errors='replace')
+                            
+                        self.logger.debug(f"Initial data captured: '{initial_data.strip()}'")
                         lines = initial_data.splitlines(keepends=True)
+                        if not lines and initial_data:  # Data without newlines
+                            lines = [initial_data]
+                            
                         for line in lines:
                             handle.total_lines += 1
                             if not line.endswith('\n'):
                                 line += '\n'
+                            self.logger.debug(f"Adding initial line to buffer: '{line.strip()}'")
                             handle._buf.append(line)
+                    except socket.timeout:
+                        # This shouldn't happen with recv_ready check, but just in case
+                        break
         finally:
             if 'stdout' in locals():
                 stdout.close()
@@ -184,15 +198,22 @@ class SshRunOperations:
 
                     # Check for data with direct Paramiko methods
                     if chan.recv_ready():
-                        # Read all available data
-                        data = stdout.read(4096)  # Read up to 4KB at a time
+                        # Read all available data directly from the channel
+                        # This is more reliable than using stdout.read() which can block
+                        data = chan.recv(4096)  # Read up to 4KB at a time
                         if data:
                             # Decode if needed
                             if isinstance(data, bytes):
                                 data = data.decode('utf-8', errors='replace')
                             
+                            self.logger.debug(f"Received data: '{data.strip()}'")
+                            
                             # Split into lines while preserving newlines
                             lines = data.splitlines(keepends=True)
+                            # If no newlines but we have data, treat as a single line
+                            if not lines and data:
+                                lines = [data]
+                                
                             for line in lines:
                                 handle.total_lines += 1
                                 last_data_time = time.monotonic()

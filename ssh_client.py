@@ -147,8 +147,9 @@ class SshClient:
 
     def output(self, handle_id, mode='tail', n=50, start=None):
         """Retrieve output from a previous CommandHandle created by run()."""
-        handle = self._history.get(handle_id)
-        if not handle:
+        try:
+            handle = self.history_manager.get_handle(handle_id)
+        except KeyError:
             raise TaskNotFound(handle_id)
 
         # Output retrieval works for run() handles.
