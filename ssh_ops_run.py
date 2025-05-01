@@ -80,10 +80,8 @@ class SshRunOperations:
 
     def _create_command_handle(self, cmd):
         """Create and track a new CommandHandle."""
-        handle_id = self.ssh_client._next_id
-        self.ssh_client._next_id += 1
-        handle = CommandHandle(handle_id, cmd, tail_keep=self.tail_keep)
-        self.ssh_client._add_to_history(handle)
+        handle = self.ssh_client.history_manager.add_command(cmd)
+        handle._buf = deque(maxlen=self.tail_keep)  # Set buffer size for this handle
         return handle
 
     def _handle_sudo(self, cmd):
