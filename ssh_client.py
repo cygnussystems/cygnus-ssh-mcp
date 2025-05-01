@@ -5,7 +5,6 @@ import time
 import tempfile
 import os
 import shlex
-from collections import deque
 from datetime import datetime
 import logging
 import threading
@@ -14,6 +13,7 @@ from typing import Optional, Callable, Dict, Deque, Any, Union
 from ssh_ops_run import SshRunOperations
 from ssh_ops_task import SshTaskOperations
 from ssh_ops_file import SshFileOperations
+from ssh_history import CommandHistoryManager
 
 # Configure basic logging for the library
 log = logging.getLogger(__name__)
@@ -38,11 +38,7 @@ class SshClient:
         self.sudo_password = sudo_password
         self.connect_timeout = connect_timeout
         self._busy_lock = threading.Lock()
-        self._history = {}
-        self._history_order = deque()
-        self._history_limit = history_limit
-        self._tail_keep = tail_keep
-        self._next_id = 1
+        self.history_manager = CommandHistoryManager(history_limit, tail_keep)
         self._logger = logging.getLogger(f"{__name__}.SshClient")
 
         # Initialize operations classes
@@ -93,15 +89,8 @@ class SshClient:
         self.close()
 
     def _add_to_history(self, handle):
-        """Adds a handle to history and trims if necessary."""
-        if len(self._history) >= self._history_limit:
-            oldest_id = self._history_order.popleft()
-            if oldest_id in self._history:
-                del self._history[oldest_id]
-                self._logger.debug(f"Trimmed history, removed handle {oldest_id}")
-
-        self._history[handle.id] = handle
-        self._history_order.append(handle.id)
+        """Adds a handle to history (delegates to history_manager)."""
+        self.history_manager.add_command(handle.cmd, handle.pid)
 
 
 
@@ -344,7 +333,7 @@ class SshClient:
 
 
     def history(self):
-        """Return metadata for recent CommandHandles, respecting history order."""
-        return [self._history[handle_id].info() for handle_id in self._history_order if handle_id in self._history]
+        """Return metadata for recent CommandHandles."""
+        return self.history_manager.get_history()
 
     # _build_cmd helper removed as logic is inlined or handled directly
