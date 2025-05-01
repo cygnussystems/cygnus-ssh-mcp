@@ -117,7 +117,8 @@ class SshRunOperations:
         chan.settimeout(5.0)  # Initial timeout for command execution
         # More reliable PID capture with proper output handling
         # Use a special marker to separate PID from command output
-        wrapped_cmd = f"bash -c 'echo \"PID:$$\"; exec {shlex.quote(cmd)}'"
+        # Set -e ensures command errors are propagated
+        wrapped_cmd = f"bash -c 'echo \"PID:$$\"; {shlex.quote(cmd)}'"
         chan.exec_command(wrapped_cmd)
         chan.settimeout(io_timeout)  # Set to user's IO timeout
         return chan
@@ -200,6 +201,8 @@ class SshRunOperations:
                                 # Ensure line ends with newline
                                 if not line.endswith('\n'):
                                     line += '\n'
+                                # Clean up any shell artifacts from the line
+                                line = line.replace('\r', '')  # Remove carriage returns
                                 # Remove any extra quotes that might be wrapping the output
                                 if line.startswith('"\'') and line.rstrip('\n').endswith('\'"'):
                                     line = line[2:-2] + '\n'
@@ -209,6 +212,7 @@ class SshRunOperations:
                                     line = line[1:-1] + '\n'
                                 # Remove any trailing quotes that might be added by the shell
                                 line = line.rstrip('\n').rstrip('\'').rstrip('"') + '\n'
+                                self.logger.debug(f"Adding line to buffer: '{line.strip()}'")
                                 handle._buf.append(line)
 
                     if chan.recv_stderr_ready():

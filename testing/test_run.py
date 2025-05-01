@@ -19,8 +19,8 @@ def test_simple_run(ssh_client):
     client = ssh_client
     try:
         # Use a command that produces multiple lines of output to ensure we capture something
-        # Use echo with -e to interpret backslash escapes for more consistent output
-        cmd = "echo -e 'Hello SSH World!\\nSecond line\\nThird line'"
+        # Use printf for more consistent output across different shells
+        cmd = "printf 'Hello SSH World!\\nSecond line\\nThird line\\n'"
         print(f"Running command: {cmd}")
         handle = client.run(cmd)
 
@@ -43,12 +43,14 @@ def test_simple_run(ssh_client):
             
         # Join all output lines and check for expected content
         combined_output = ''.join(output_lines)
-        print(f"Combined output: '{combined_output}'")
+        print(f"Combined output (length: {len(combined_output)}): '{combined_output}'")
         
         # Check for each expected string in the combined output
         expected_strings = ['Hello SSH World!', 'Second line', 'Third line']
         for expected in expected_strings:
-            assert expected in combined_output, f"Expected '{expected}' not found in output"
+            found = expected in combined_output
+            print(f"Checking for '{expected}': {'FOUND' if found else 'NOT FOUND'}")
+            assert found, f"Expected '{expected}' not found in output"
         
         print("All expected strings found in output.")
         print("Assertions passed.")
