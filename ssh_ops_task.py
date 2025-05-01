@@ -1,5 +1,6 @@
 import time
 import logging
+import shlex
 from typing import Optional
 from ssh_client import (
     CommandHandle, SshError, TaskNotFound, SudoRequired
