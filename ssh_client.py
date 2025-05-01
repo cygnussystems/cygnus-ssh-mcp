@@ -387,8 +387,8 @@ class SshClient:
                     raise SshError(f"Failed to send sudo password: {send_err}") from send_err
 
             # --- Output Reading Loop ---
-            stdout = chan.makefile('r', encoding='utf-8', errors='replace')
-            stderr = chan.makefile_stderr('r', encoding='utf-8', errors='replace')
+            stdout = chan.makefile('r')
+            stderr = chan.makefile_stderr('r')
             got_pid = False
 
             while True:
@@ -492,7 +492,7 @@ class SshClient:
             self._logger.info(f"Command ID {handle.id} (PID: {remote_pid}) finished with exit code {handle.exit_code}.")
 
             # Read any remaining stderr *after* command completion
-            stderr_output = stderr.read()
+            stderr_output = stderr.read().decode('utf-8', errors='replace')
             if stderr_output:
                  self._logger.warning(f"[FINAL STDERR] ID {handle.id}: {stderr_output.strip()}")
 
