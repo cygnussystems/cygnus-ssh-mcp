@@ -1,3 +1,4 @@
+from __future__ import annotations
 import paramiko
 import socket
 import time
@@ -6,9 +7,10 @@ import os
 import shlex
 from collections import deque
 from datetime import datetime
-import logging # Added
-import threading # Added
-import select # Added for non-blocking reads
+import logging
+import threading
+import select
+from typing import Optional, Callable, Dict, Deque, Any, Union
 
 # Configure basic logging for the library
 log = logging.getLogger(__name__)
