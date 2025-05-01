@@ -246,10 +246,14 @@ class SshClient:
         return killed
 
 
-    def run(self):
-        pass
-
-    # def run(self, cmd, io_timeout=60.0, runtime_timeout=None, sudo=False):
+    def run(self, cmd, io_timeout=60.0, runtime_timeout=None, sudo=False):
+        """
+        Execute a command synchronously, streaming output into a CommandHandle.
+        This method BLOCKS until the command finishes, fails, or times out.
+        Supports I/O inactivity timeout (io_timeout) and total runtime timeout (runtime_timeout).
+        Returns the CommandHandle upon completion or raises CommandFailed, CommandTimeout, CommandRuntimeTimeout, SudoRequired.
+        """
+        return self.run_ops.execute_command(cmd, io_timeout, runtime_timeout, sudo)
     #     """
     #     Execute a command synchronously, streaming output into a CommandHandle.
     #     This method BLOCKS until the command finishes, fails, or times out.
@@ -545,10 +549,18 @@ class SshClient:
         return self.task_ops.get_task_status(pid)
 
 
-    def task_kill(self, pid):
-        pass
-
-    # def task_kill(self, pid, signal=15, sudo=False, force_kill_signal=9, wait_seconds=1.0):
+    def task_kill(self, pid, signal=15, sudo=False, force_kill_signal=9, wait_seconds=1.0):
+        """
+        Send a signal to a process with the given PID on the remote host.
+        Uses self.run() internally, so it respects the busy lock and handles sudo.
+        Tries the specified signal, waits, checks status, then tries force_kill_signal (default SIGKILL) if needed.
+        Returns:
+            'killed': Process was successfully terminated (by signal or force_kill_signal).
+            'already_exited': Process was already gone before signaling.
+            'failed_to_kill': Signaling attempts failed or process remained running.
+            'error': An error occurred during the kill attempt.
+        """
+        return self.task_ops.kill_task(pid, signal, sudo, force_kill_signal, wait_seconds)
     #     """
     #     Send a signal to a process with the given PID on the remote host.
     #     Uses self.run() internally, so it respects the busy lock and handles sudo.
@@ -774,10 +786,11 @@ class SshClient:
                 self._logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
 
-    def _replace_content_sudo(self):
-        pass
-
-    # def _replace_content_sudo(self, remote_file, remote_temp_path, modify_func, force=False):
+    def _replace_content_sudo(self, remote_file, remote_temp_path, modify_func, force=False):
+        """
+        Internal helper for sudo-based file modification.
+        """
+        return self.file_ops._replace_content_sudo(remote_file, remote_temp_path, modify_func, force)
     #     """Internal helper for sudo-based file modification."""
     #     local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
     #     os.close(local_temp_fd)
@@ -871,10 +884,31 @@ class SshClient:
     #         except Exception as cleanup_err:
     #              self._logger.warning(f"Failed to cleanup remote temp file {remote_temp_path}: {cleanup_err}")
 
-    def reboot(self):
-        pass
+    def reboot(self, wait=True, timeout=300):
+        """Reboot the remote host and optionally wait until it comes back."""
+        # Note: This method needs to stay in SshClient since it handles connection state
+        self._logger.warning("Attempting reboot...")
+        try:
+            # Use run_ops to execute the reboot command
+            self.run_ops.execute_command('reboot', sudo=True, runtime_timeout=10)
+            self._logger.info("Reboot command executed successfully (connection likely dropping).")
+        except Exception as e:
+            self._logger.error(f"Reboot failed: {e}")
+            raise SshError(f"Reboot failed: {e}") from e
+        finally:
+            self.close()
 
-    # def reboot(self, wait=True, timeout=300):
+        if wait:
+            self._logger.info(f"Waiting up to {timeout} seconds for host {self.host} to come back online...")
+            start = time.time()
+            while time.time() - start < timeout:
+                try:
+                    self._connect()  # Try to reconnect
+                    self._logger.info("Reconnected successfully after reboot.")
+                    return
+                except Exception:
+                    time.sleep(5)
+            raise CommandTimeout(timeout)
     #     """Reboot the remote host and optionally wait until it comes back."""
     #     self._logger.warning("Attempting reboot...")
     #     reboot_cmd_sent = False
