@@ -14,6 +14,10 @@ from ssh_ops_run import SshRunOperations
 from ssh_ops_task import SshTaskOperations
 from ssh_ops_file import SshFileOperations
 from ssh_history import CommandHistoryManager
+from ssh_models import (
+    SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
+    SudoRequired, BusyError, OutputPurged, TaskNotFound, CommandHandle
+)
 
 # Configure basic logging for the library
 log = logging.getLogger(__name__)
