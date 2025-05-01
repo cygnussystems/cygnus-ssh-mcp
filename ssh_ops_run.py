@@ -115,10 +115,12 @@ class SshRunOperations:
         self.logger.info(f"Executing command: {cmd}")
         chan = self.ssh_client._client.get_transport().open_session()
         chan.settimeout(5.0)  # Initial timeout for command execution
+        
         # More reliable PID capture with proper output handling
         # Use a special marker to separate PID from command output
         # Ensure command output is properly captured by using 'exec' to replace the shell
-        wrapped_cmd = f"bash -c 'echo \"PID:$$\"; exec {shlex.quote(cmd)}'"
+        # Use a unique marker to clearly separate PID from command output
+        wrapped_cmd = f"bash -c 'echo \"PID:$$:PID\"; exec {shlex.quote(cmd)}'"
         chan.exec_command(wrapped_cmd)
         chan.settimeout(io_timeout)  # Set to user's IO timeout
         return chan
@@ -129,8 +131,9 @@ class SshRunOperations:
             with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
                 # First line should contain the PID marker
                 first_line = stdout.readline().strip()
-                if first_line.startswith("PID:"):
-                    pid_str = first_line[4:]  # Extract PID after "PID:"
+                if first_line.startswith("PID:") and ":PID" in first_line:
+                    # Extract PID between the markers
+                    pid_str = first_line[4:].split(":PID")[0]
                     if pid_str.isdigit():
                         handle.pid = int(pid_str)
                         self.logger.info(f"Captured remote PID {handle.pid}")
@@ -224,15 +227,23 @@ class SshRunOperations:
                                     line += '\n'
                                 # Clean up any shell artifacts from the line
                                 line = line.replace('\r', '')  # Remove carriage returns
-                                # Remove any extra quotes that might be wrapping the output
-                                if line.startswith('"\'') and line.rstrip('\n').endswith('\'"'):
-                                    line = line[2:-2] + '\n'
-                                elif line.startswith('\'') and line.rstrip('\n').endswith('\''):
-                                    line = line[1:-1] + '\n'
-                                elif line.startswith('"') and line.rstrip('\n').endswith('"'):
-                                    line = line[1:-1] + '\n'
-                                # Remove any trailing quotes that might be added by the shell
-                                line = line.rstrip('\n').rstrip('\'').rstrip('"') + '\n'
+                                
+                                # Process the line to remove shell artifacts and quotes
+                                line_content = line.rstrip('\n')
+                                
+                                # Handle various quoting patterns
+                                if line_content.startswith('"\'') and line_content.endswith('\'"'):
+                                    line_content = line_content[2:-2]
+                                elif line_content.startswith('\'') and line_content.endswith('\''):
+                                    line_content = line_content[1:-1]
+                                elif line_content.startswith('"') and line_content.endswith('"'):
+                                    line_content = line_content[1:-1]
+                                
+                                # Handle escaped quotes within the content
+                                line_content = line_content.replace('\\"', '"').replace('\\\'', '\'')
+                                
+                                # Restore the newline
+                                line = line_content + '\n'
                                 self.logger.debug(f"Adding line to buffer: '{line.strip()}'")
                                 handle._buf.append(line)
 
