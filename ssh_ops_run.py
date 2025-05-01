@@ -2,6 +2,7 @@ import time
 import select
 import shlex
 import logging
+import socket
 from datetime import datetime
 from typing import Optional
 from ssh_client import (
@@ -168,8 +169,9 @@ class SshRunOperations:
 
         except socket.timeout:
             if chan.exit_status_ready():
-                break
-            raise CommandTimeout(io_timeout)
+                pass  # Command finished while we were waiting
+            else:
+                raise CommandTimeout(io_timeout)
         finally:
             stdout.close()
             stderr.close()
