@@ -79,7 +79,7 @@ class SshTaskOperations:
             script_name = f"/tmp/launch_script_{int(time.time())}.sh"
             script_content = f"""#!/bin/bash
 # Launch command in background with redirection
-# Ensure command output goes to the specified files
+# Use explicit redirection to ensure output goes to the right files
 {bg_cmd_part} {redirect_part} &
 # Store PID
 pid=$!
