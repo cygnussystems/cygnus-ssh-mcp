@@ -85,7 +85,7 @@ def test_launch_with_redirection(ssh_client):
     local_err_log = None
 
     try:
-        cmd = "echo 'Standard Output Message'; >&2 echo 'Standard Error Message'; sleep 1"
+        cmd = "echo 'Standard Output Message' && sleep 0.5 && >&2 echo 'Standard Error Message' && sleep 0.5"
         print(f"Launching command with redirection: {cmd}")
         print(f"  stdout -> {remote_out_log}")
         print(f"  stderr -> {remote_err_log}")
@@ -95,7 +95,7 @@ def test_launch_with_redirection(ssh_client):
         print(f"Launched with PID: {pid}")
 
         print("Waiting for launched command to finish...")
-        time.sleep(2) # Give time for sleep 1 and file writes
+        time.sleep(3) # Give more time for sleep 1 and file writes to complete
         status = client.task_status(pid)
         assert status == "exited", f"Launched process {pid} should have exited, status: {status}"
 

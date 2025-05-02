@@ -80,6 +80,7 @@ class SshTaskOperations:
             script_content = f"""#!/bin/bash
 # Launch command in background with redirection
 # Use explicit redirection to ensure output goes to the right files
+# Execute command directly without subshell to ensure redirection works properly
 {bg_cmd_part} {redirect_part} &
 # Store PID
 pid=$!
