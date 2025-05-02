@@ -46,7 +46,12 @@ class SshRunOperations:
             CommandFailed: If command fails
             SudoRequired: If sudo password is required but not provided
             SshError: For other SSH-related errors
+            BusyError: If another command is currently executing
         """
+        # Check if another command is already running
+        if not self.ssh_client._busy_lock.acquire(blocking=False):
+            raise BusyError()
+            
         handle = None
         chan = None
         start_time = time.monotonic()
@@ -78,6 +83,8 @@ class SshRunOperations:
             raise SshError(f"Unexpected error during command execution: {e}") from e
         finally:
             self._cleanup_command(chan, handle)
+            # Always release the lock
+            self.ssh_client._busy_lock.release()
 
     def _create_command_handle(self, cmd):
         """Create and track a new CommandHandle."""
