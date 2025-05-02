@@ -106,11 +106,8 @@ class SshTaskOperations:
                 except Exception as rename_err:
                     self.logger.warning(f"Failed to rename default log file: {rename_err}")
 
-            # Create and return handle
-            handle_id = self.ssh_client._next_id
-            self.ssh_client._next_id += 1
-            handle = CommandHandle(handle_id, cmd, pid=pid)
-            self.ssh_client._add_to_history(handle)
+            # Create and return handle using the history manager
+            handle = self.ssh_client.history_manager.add_command(cmd, pid)
             return handle
 
         except Exception as e:
