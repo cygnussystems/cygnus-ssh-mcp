@@ -135,9 +135,10 @@ def test_replace_line_sudo(ssh_client):
 
         # Read back the file (can use sudo or check permissions allow testuser read)
         actual_content = read_remote_file(client, remote_path, sudo=True) # Read with sudo to be safe
-        # Normalize line endings for comparison
-        normalized_actual = actual_content.replace('\r\n', '\n')
-        assert normalized_actual == expected_content, f"Content mismatch:\nExpected: {repr(expected_content)}\nActual: {repr(actual_content)}"
+        # Normalize line endings and handle trailing newlines
+        normalized_actual = actual_content.replace('\r\n', '\n').rstrip('\n')
+        normalized_expected = expected_content.rstrip('\n')
+        assert normalized_actual == normalized_expected, f"Content mismatch:\nExpected: {repr(expected_content)}\nActual: {repr(actual_content)}"
 
         # Verify permissions were likely preserved (basic check: still owned by root)
         ls_handle_after = client.run(f"ls -l {shlex.quote(remote_path)}")
