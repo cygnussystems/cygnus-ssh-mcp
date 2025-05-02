@@ -174,19 +174,19 @@ class SshRunOperations:
         with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
             try:
                 while True:
-                    # Check runtime timeout
+                    # Check for I/O readiness first
+                    if chan.exit_status_ready():
+                        break
+
+                    # Check runtime timeout - this should take precedence over I/O timeout
                     if runtime_timeout is not None:
                         elapsed = time.monotonic() - start_time
                         if elapsed > runtime_timeout:
                             self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
                             handle.running = False
-                            handle.end_ts = datetime.utcnow()
+                            handle.end_ts = datetime.now(UTC)
                             self.ssh_client.task_ops._kill_remote_process(handle.pid)
                             raise CommandRuntimeTimeout(handle, runtime_timeout)
-
-                    # Check for I/O readiness
-                    if chan.exit_status_ready():
-                        break
 
                     # Check for data with direct Paramiko methods
                     if chan.recv_ready():
@@ -232,12 +232,23 @@ class SshRunOperations:
                                 handle._stderr_buf = []
                             handle._stderr_buf.append(stderr_line)
 
-                    # Check I/O timeout
-                    if (time.monotonic() - last_data_time) > io_timeout:
+                    # Check I/O timeout - only if we're not close to runtime timeout
+                    if io_timeout and (time.monotonic() - last_data_time) > io_timeout:
+                        # If we have a runtime timeout and we're close to it, prioritize that check
+                        if runtime_timeout is not None:
+                            elapsed = time.monotonic() - start_time
+                            if elapsed > (runtime_timeout * 0.9):  # Within 90% of runtime timeout
+                                # Skip I/O timeout and check runtime again on next iteration
+                                time.sleep(0.1)
+                                continue
+                        # Otherwise, raise the I/O timeout
                         raise CommandTimeout(io_timeout)
 
                     elif chan.exit_status_ready():
                         break
+                    
+                    # Short sleep to prevent CPU spinning
+                    time.sleep(0.1)
 
             except socket.timeout:
                 if chan.exit_status_ready():
@@ -270,7 +281,7 @@ class SshRunOperations:
         """Handle known execution errors."""
         if handle:
             handle.running = False
-            handle.end_ts = datetime.utcnow()
+            handle.end_ts = datetime.now(UTC)
         self.logger.error(f"Command execution error: {e}")
 
     def _handle_unexpected_error(self, e, handle):
