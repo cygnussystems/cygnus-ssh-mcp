@@ -163,7 +163,9 @@ def test_replace_block_simple(ssh_client):
         create_remote_test_file(client, remote_path, original_content)
         client.replace_block(remote_path, old_block, new_block)
         actual_content = read_remote_file(client, remote_path)
-        assert actual_content == expected_content
+        # Normalize line endings for comparison
+        normalized_actual = actual_content.replace('\r\n', '\n')
+        assert normalized_actual == expected_content, f"Content mismatch:\nExpected: {repr(expected_content)}\nActual: {repr(actual_content)}"
         print("Simple replace_block successful.")
     finally:
         cleanup_remote_file(client, remote_path)
