@@ -463,7 +463,7 @@ if __name__ == "__main__":
     #test_simple_run(get_client(force_new=True))
     #test_run_failure(get_client(force_new=True))
     #test_busy_error_on_concurrent_run(get_client(force_new=True))
-    test_command_io_timeout(get_client(force_new=True))
+    #test_command_io_timeout(get_client(force_new=True))
     test_command_runtime_timeout(get_client(force_new=True))
     test_history_trimming(get_client(force_new=True, history_limit=5))
     test_output_tail_and_chunk(get_client(force_new=True))
