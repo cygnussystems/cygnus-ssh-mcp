@@ -9,7 +9,7 @@ from datetime import datetime
 import logging
 import threading
 import select
-from typing import Optional, Callable, Dict, Deque, Any, Union
+from typing import Optional, Callable, Dict, Deque, Any, Union, List
 from ssh_history import CommandHistoryManager
 from ssh_models import (
     SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
@@ -34,6 +34,7 @@ class SshClient:
         from ssh_ops_file import SshFileOperations  # Import here to avoid circular import
         from ssh_ops_task import SshTaskOperations  # Import here to avoid circular import
         from ssh_ops_run import SshRunOperations  # Import here to avoid circular import
+        from ssh_ops_directory import SshDirectoryOperations  # Import here to avoid circular import
         self.host = host
         self.user = user
         self.port = port
@@ -49,6 +50,7 @@ class SshClient:
         self.run_ops = SshRunOperations(self, tail_keep)
         self.task_ops = SshTaskOperations(self)
         self.file_ops = SshFileOperations(self)
+        self.dir_ops = SshDirectoryOperations(self)
 
         # Setup Paramiko client
         self._client = paramiko.SSHClient()
@@ -352,5 +354,157 @@ class SshClient:
     def history(self):
         """Return metadata for recent CommandHandles."""
         return self.history_manager.get_history()
+
+    # Directory operations wrappers
+    def search_files_recursive(self, start_path, name_pattern, max_depth=None, include_dirs=False):
+        """
+        Recursively search for files or directories matching a name pattern.
+        
+        Args:
+            start_path: Base directory to search from
+            name_pattern: Filename glob pattern (e.g. *.log)
+            max_depth: How deep to search (None for unlimited)
+            include_dirs: Whether to include matching directories
+            
+        Returns:
+            List of dicts with 'path' and 'type' keys
+        """
+        return self.dir_ops.search_files_recursive(start_path, name_pattern, max_depth, include_dirs)
+    
+    def calculate_directory_size(self, path):
+        """
+        Compute total size of a directory recursively in bytes.
+        
+        Args:
+            path: Directory to measure
+            
+        Returns:
+            Total size in bytes
+        """
+        return self.dir_ops.calculate_directory_size(path)
+    
+    def delete_directory_recursive(self, path, dry_run=True, sudo=False):
+        """
+        Safely delete a directory and all of its contents, with dry-run support.
+        
+        Args:
+            path: Target directory
+            dry_run: If true, only preview deletions
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dict with status and list of deleted items
+        """
+        return self.dir_ops.delete_directory_recursive(path, dry_run, sudo)
+    
+    def batch_delete_by_pattern(self, path, pattern, dry_run=True, sudo=False):
+        """
+        Delete all files matching a pattern recursively under a directory.
+        
+        Args:
+            path: Directory to search
+            pattern: Glob pattern (e.g. *.tmp)
+            dry_run: Whether to only simulate deletion
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dict with status and list of deleted files
+        """
+        return self.dir_ops.batch_delete_by_pattern(path, pattern, dry_run, sudo)
+    
+    def safe_move_or_rename(self, source, destination, overwrite=False, sudo=False):
+        """
+        Move or rename a file or directory, with overwrite control.
+        
+        Args:
+            source: File or directory to move
+            destination: New path
+            overwrite: Whether to overwrite existing targets
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dict with status and message
+        """
+        return self.dir_ops.safe_move_or_rename(source, destination, overwrite, sudo)
+    
+    def list_directory_recursive(self, path, max_depth=None, sudo=False):
+        """
+        List all contents of a directory tree with rich metadata.
+        
+        Args:
+            path: Starting path
+            max_depth: Recursion depth limit
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            List of dicts with path, type, size_bytes, modified_time, permissions
+        """
+        return self.dir_ops.list_directory_recursive(path, max_depth, sudo)
+    
+    def create_archive_from_directory(self, source_path, archive_path, format="tar.gz", sudo=False):
+        """
+        Create a compressed archive (tar.gz or zip) from a directory.
+        
+        Args:
+            source_path: Directory to archive
+            archive_path: Where to write the archive
+            format: "tar.gz" or "zip"
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dict with status and archive path
+        """
+        return self.dir_ops.create_archive_from_directory(source_path, archive_path, format, sudo)
+    
+    def extract_archive_to_directory(self, archive_path, destination_path, overwrite=False, sudo=False):
+        """
+        Extract a zip or tar.gz archive to a directory.
+        
+        Args:
+            archive_path: Path to archive file
+            destination_path: Extract location
+            overwrite: Whether to overwrite existing files
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dict with status and list of extracted files
+        """
+        return self.dir_ops.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
+    
+    def search_file_contents(self, path, pattern, regex=False, case_sensitive=True, sudo=False):
+        """
+        Search for a string or regex inside files under a directory.
+        
+        Args:
+            path: Root directory
+            pattern: Text or regex to search
+            regex: Whether the pattern is a regex
+            case_sensitive: Case sensitivity toggle
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            List of dicts with file, line, content
+        """
+        return self.dir_ops.search_file_contents(path, pattern, regex, case_sensitive, sudo)
+    
+    def copy_directory_recursive(self, source_path, destination_path, overwrite=False, 
+                               preserve_symlinks=True, preserve_permissions=True, sudo=False):
+        """
+        Recursively copy one directory to another with robust handling.
+        
+        Args:
+            source_path: Path to copy from
+            destination_path: Path to copy to
+            overwrite: If true, overwrite existing content
+            preserve_symlinks: Copy symlinks as-is vs resolving
+            preserve_permissions: Retain original permissions
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dict with status, files_copied, bytes_copied, destination_path
+        """
+        return self.dir_ops.copy_directory_recursive(
+            source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, sudo
+        )
 
     # _build_cmd helper removed as logic is inlined or handled directly
