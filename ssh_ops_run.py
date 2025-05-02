@@ -141,7 +141,11 @@ class SshRunOperations:
                 # Read any initial data that's immediately available from stdout
                 initial_stdout = stdout.read(4096)
                 if initial_stdout:
-                    self.logger.debug(f"Initial stdout data captured: '{initial_stdout.strip()}'")
+                    self.logger.debug(f"Initial stdout data captured: '{initial_stdout}'")
+                    
+                    # Convert bytes to string if needed
+                    if isinstance(initial_stdout, bytes):
+                        initial_stdout = initial_stdout.decode('utf-8', errors='replace')
                     
                     # Process the data into lines
                     lines = initial_stdout.splitlines(True)  # keepends=True
@@ -162,6 +166,7 @@ class SshRunOperations:
                         if not data:  # Empty data means EOF
                             break
                             
+                        # Always decode bytes to string
                         if isinstance(data, bytes):
                             data = data.decode('utf-8', errors='replace')
                             
@@ -245,6 +250,10 @@ class SshRunOperations:
                     # Also check stdout file for any data
                     stdout_data = stdout.read(4096)
                     if stdout_data:
+                        # Convert bytes to string if needed
+                        if isinstance(stdout_data, bytes):
+                            stdout_data = stdout_data.decode('utf-8', errors='replace')
+                            
                         self.logger.debug(f"Received stdout data: '{stdout_data.strip()}'")
                         
                         # Process stdout data into lines
