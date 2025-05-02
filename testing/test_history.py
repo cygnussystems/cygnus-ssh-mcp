@@ -44,3 +44,22 @@ def test_update_nonexistent_handle():
     fake_handle = CommandHandle(999, "fake")
     with pytest.raises(KeyError):
         manager.update_handle(fake_handle)
+
+if __name__ == "__main__":
+    print("Running command history tests...")
+    test_add_and_retrieve_command()
+    test_update_handle()
+    test_history_order()
+    try:
+        test_get_nonexistent_handle()
+        print("test_get_nonexistent_handle passed")
+    except Exception as e:
+        print(f"test_get_nonexistent_handle failed: {e}")
+    
+    try:
+        test_update_nonexistent_handle()
+        print("test_update_nonexistent_handle passed")
+    except Exception as e:
+        print(f"test_update_nonexistent_handle failed: {e}")
+    
+    print("All command history tests completed.")
