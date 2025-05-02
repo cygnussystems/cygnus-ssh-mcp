@@ -270,7 +270,7 @@ def test_history_trimming(ssh_client):
     print("\n--- test_history_trimming ---")
     # Client is created by fixture with history_limit=5 due to marker
     client = ssh_client
-    history_limit = client._history_limit # Get actual limit from client
+    history_limit = client.history_manager.history_limit # Get actual limit from client
 
     num_commands = history_limit + 3
     print(f"Running {num_commands} commands with history limit {history_limit}...")
