@@ -77,7 +77,26 @@ class SshTaskOperations:
             # 3. Outputs ONLY the PID
             # 4. Removes itself
             script_name = f"/tmp/launch_script_{int(time.time())}.sh"
-            script_content = f"""#!/bin/bash
+            
+            # For sudo commands, we need to make sure the sudo is part of the command being backgrounded
+            # not just applied to the script itself
+            if sudo:
+                bg_cmd_with_sudo = f"sudo -n {bg_cmd_part}"
+                script_content = f"""#!/bin/bash
+# Launch command in background with proper redirection
+# Use explicit redirection to ensure output goes to the right files
+# Execute command directly without subshell to ensure redirection works properly
+{bg_cmd_with_sudo} {redirect_part} &
+# Store PID
+pid=$!
+# Output only the PID with marker
+echo "PID:$pid"
+# Clean up this script
+rm -f {script_name}
+exit 0
+"""
+            else:
+                script_content = f"""#!/bin/bash
 # Launch command in background with proper redirection
 # Use explicit redirection to ensure output goes to the right files
 # Execute command directly without subshell to ensure redirection works properly
@@ -100,13 +119,8 @@ exit 0
                 raise SshError(err_msg)
             
             # Then execute the script
-            pid_cmd = script_name
-
-            # Handle sudo if needed
-            if sudo:
-                full_cmd = f"sudo -n {pid_cmd}"
-            else:
-                full_cmd = pid_cmd
+            # We don't need to add sudo here if we've already included it in the script content
+            full_cmd = script_name
 
             self.logger.info(f"Launching background task using script: {full_cmd}")
             stdin, stdout, stderr = self.ssh_client._client.exec_command(full_cmd, timeout=10)
