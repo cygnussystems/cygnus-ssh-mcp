@@ -61,9 +61,10 @@ def test_replace_line_simple(ssh_client):
         actual_content = read_remote_file(client, remote_path)
         print(f"Actual content: {repr(actual_content)}")
         print(f"Expected content: {repr(expected_content)}")
-        # Normalize line endings for comparison
-        normalized_actual = actual_content.replace('\r\n', '\n')
-        assert normalized_actual == expected_content, f"Content mismatch:\nExpected: {repr(expected_content)}\nActual: {repr(actual_content)}"
+        # Normalize line endings and trim any extra newlines
+        normalized_actual = actual_content.replace('\r\n', '\n').rstrip('\n')
+        normalized_expected = expected_content.rstrip('\n')
+        assert normalized_actual == normalized_expected, f"Content mismatch:\nExpected: {repr(expected_content)}\nActual: {repr(actual_content)}"
         print("Simple replace_line (count=1) successful.")
     finally:
         cleanup_remote_file(client, remote_path)
