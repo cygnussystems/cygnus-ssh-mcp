@@ -52,19 +52,28 @@ class SshTaskOperations:
                 effective_stderr_log = "/dev/null"
 
             # Build the command with backgrounding and PID echo
-            # Redirect command output first, then echo PID to stdout
+            # Use a more robust approach to ensure command output doesn't interfere with PID
             bg_cmd_part = f"{cmd}"
+            
+            # Create a separate subshell for the command with its redirections
             if effective_stdout_log:
-                bg_cmd_part += f" >{shlex.quote(effective_stdout_log)}"
-            if effective_stderr_log:
-                if effective_stderr_log == effective_stdout_log:
-                    bg_cmd_part += " 2>&1"
+                if effective_stderr_log and effective_stderr_log != effective_stdout_log:
+                    # Different stdout and stderr destinations
+                    redirect_part = f">{shlex.quote(effective_stdout_log)} 2>{shlex.quote(effective_stderr_log)}"
                 else:
-                    bg_cmd_part += f" 2>{shlex.quote(effective_stderr_log)}"
-
-            # Use subshell to ensure PID is captured correctly
-            # Redirect all command output before echoing PID
-            pid_cmd = f"( nohup {bg_cmd_part} >/dev/null 2>/dev/null & echo $! )"
+                    # Same destination for both or stderr not specified
+                    redirect_part = f">{shlex.quote(effective_stdout_log)} 2>&1"
+            else:
+                # No stdout specified
+                if effective_stderr_log:
+                    redirect_part = f">/dev/null 2>{shlex.quote(effective_stderr_log)}"
+                else:
+                    redirect_part = ">/dev/null 2>/dev/null"
+            
+            # Use a more reliable approach to capture PID:
+            # 1. Run the command in background with proper redirection
+            # 2. Echo PID on a separate line with no possibility of interference
+            pid_cmd = f"bash -c 'nohup {bg_cmd_part} {redirect_part} & pid=$!; echo $pid'"
 
             # Handle sudo
             if sudo:
