@@ -164,6 +164,9 @@ class SshRunOperations:
                                 
                             for line in lines:
                                 handle.total_lines += 1
+                                # Set truncated flag if total lines exceed buffer capacity
+                                if handle.total_lines > handle._tail_keep:
+                                    handle.truncated = True
                                 if not line.endswith('\n'):
                                     line += '\n'
                                 self.logger.debug(f"Adding initial stdout line to buffer: '{line.strip()}'")
@@ -192,6 +195,9 @@ class SshRunOperations:
                                 
                             for line in lines:
                                 handle.total_lines += 1
+                                # Set truncated flag if total lines exceed buffer capacity
+                                if handle.total_lines > handle._tail_keep:
+                                    handle.truncated = True
                                 if not line.endswith('\n'):
                                     line += '\n'
                                 self.logger.debug(f"Adding initial channel line to buffer: '{line.strip()}'")
@@ -273,7 +279,8 @@ class SshRunOperations:
                             for line in lines:
                                 handle.total_lines += 1
                                 last_data_time = time.monotonic()
-                                if handle.total_lines > handle._buf.maxlen:
+                                # Set truncated flag if total lines exceed buffer capacity
+                                if handle.total_lines > handle._tail_keep:
                                     handle.truncated = True
                                 # Ensure line ends with newline
                                 if not line.endswith('\n'):
@@ -303,7 +310,8 @@ class SshRunOperations:
                                 for line in stdout_lines:
                                     handle.total_lines += 1
                                     last_data_time = time.monotonic()
-                                    if handle.total_lines > handle._buf.maxlen:
+                                    # Set truncated flag if total lines exceed buffer capacity
+                                    if handle.total_lines > handle._tail_keep:
                                         handle.truncated = True
                                     # Ensure line ends with newline
                                     if not line.endswith('\n'):

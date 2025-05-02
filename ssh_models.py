@@ -71,6 +71,7 @@ class CommandHandle:
         self.total_lines = 0  # Only relevant for run()
         self.truncated = False # Only relevant for run()
         self._buf = deque(maxlen=tail_keep) # Only relevant for run()
+        self._tail_keep = tail_keep  # Store the tail_keep value for reference
         self.pid = pid # Store the PID for launched commands and run() commands
 
     def tail(self, n=50):
