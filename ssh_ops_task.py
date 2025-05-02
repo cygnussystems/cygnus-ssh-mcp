@@ -137,7 +137,7 @@ class SshTaskOperations:
             chan = self.ssh_client._client.get_transport().open_session()
             chan.settimeout(5.0)
             chan.exec_command(cmd)
-            stderr_output = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+            stderr_output = chan.makefile_stderr('r').read().decode('utf-8', errors='replace')
             exit_status = chan.recv_exit_status()
             chan.close()
 
