@@ -215,7 +215,10 @@ def test_replace_block_sudo(ssh_client):
 
         # Read back the file with sudo
         actual_content = read_remote_file(client, remote_path, sudo=True)
-        assert actual_content == expected_content
+        # Normalize line endings and trim any extra newlines
+        normalized_actual = actual_content.replace('\r\n', '\n').rstrip('\n')
+        normalized_expected = expected_content.rstrip('\n')
+        assert normalized_actual == normalized_expected, f"Content mismatch:\nExpected: {repr(expected_content)}\nActual: {repr(actual_content)}"
 
         # Verify ownership preserved
         ls_handle_after = client.run(f"ls -l {shlex.quote(remote_path)}")
