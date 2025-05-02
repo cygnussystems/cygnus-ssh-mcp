@@ -207,8 +207,11 @@ class SshClient:
         modified = False
         new_lines = []
         for line in lines:
-            if old_line in line and replaced_count < count:
-                new_lines.append(line.replace(old_line, new_line))
+            # Check if the line exactly matches old_line (ignoring line endings)
+            if line.rstrip('\r\n') == old_line and replaced_count < count:
+                # Preserve the original line ending
+                ending = line[len(line.rstrip('\r\n')):]
+                new_lines.append(new_line + ending)
                 replaced_count += 1
                 modified = True
             else:
