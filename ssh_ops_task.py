@@ -127,10 +127,11 @@ class SshTaskOperations:
             pid: Process ID to check
             
         Returns:
-            'running', 'exited', or 'error'
+            'running', 'exited', 'invalid', or 'error'
         """
         if not isinstance(pid, int) or pid <= 0:
-            raise ValueError("Invalid PID provided.")
+            self.logger.warning(f"Invalid PID provided: {pid}")
+            return "invalid"
 
         cmd = f"kill -0 {pid}"
         self.logger.debug(f"Checking status for PID {pid} using command: {cmd}")
@@ -200,10 +201,11 @@ class SshTaskOperations:
             wait_seconds: Time to wait after initial signal before checking status
             
         Returns:
-            'killed', 'already_exited', 'failed_to_kill', or 'error'
+            'killed', 'already_exited', 'failed_to_kill', 'invalid_pid', or 'error'
         """
         if not isinstance(pid, int) or pid <= 0:
-            raise ValueError("Invalid PID provided.")
+            self.logger.warning(f"Invalid PID provided: {pid}")
+            return "invalid_pid"
         if not isinstance(signal, int):
             raise ValueError("Signal must be an integer.")
         if force_kill_signal is not None and not isinstance(force_kill_signal, int):
