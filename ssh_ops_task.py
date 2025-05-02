@@ -70,19 +70,43 @@ class SshTaskOperations:
                 else:
                     redirect_part = ">/dev/null 2>/dev/null"
             
-            # Use a completely separate approach to avoid any interference:
-            # 1. Run the command in background with proper redirection
-            # 2. Store PID in a variable
-            # 3. Echo ONLY the PID as the sole output of the command
-            pid_cmd = f"bash -c 'nohup {bg_cmd_part} {redirect_part} & pid=$!; echo \"PID:$pid\"'"
+            # Use a completely different approach to avoid any interference:
+            # Create a temporary script that:
+            # 1. Launches the command in background with proper redirection
+            # 2. Captures PID
+            # 3. Outputs ONLY the PID
+            # 4. Removes itself
+            script_name = f"/tmp/launch_script_{int(time.time())}.sh"
+            script_content = f"""#!/bin/bash
+# Launch command in background with redirection
+nohup {bg_cmd_part} {redirect_part} &
+# Store PID
+pid=$!
+# Output only the PID with marker
+echo "PID:$pid"
+# Clean up this script
+rm -f {script_name}
+exit 0
+"""
+            # First create the script
+            create_script_cmd = f"cat > {script_name} << 'EOFSCRIPT'\n{script_content}\nEOFSCRIPT\nchmod +x {script_name}"
+            stdin, stdout, stderr = self.ssh_client._client.exec_command(create_script_cmd, timeout=5)
+            exit_status = stdout.channel.recv_exit_status()
+            if exit_status != 0:
+                err_msg = f"Failed to create launch script: {stderr.read().decode('utf-8', errors='replace')}"
+                self.logger.error(err_msg)
+                raise SshError(err_msg)
+            
+            # Then execute the script
+            pid_cmd = script_name
 
-            # Handle sudo
+            # Handle sudo if needed
             if sudo:
-                full_cmd = f"sudo -n bash -c {shlex.quote(pid_cmd)}"
+                full_cmd = f"sudo -n {pid_cmd}"
             else:
-                full_cmd = f"bash -c {shlex.quote(pid_cmd)}"
+                full_cmd = pid_cmd
 
-            self.logger.info(f"Launching background task: {full_cmd}")
+            self.logger.info(f"Launching background task using script: {full_cmd}")
             stdin, stdout, stderr = self.ssh_client._client.exec_command(full_cmd, timeout=10)
 
             # Read all output
