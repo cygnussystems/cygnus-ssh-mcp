@@ -326,22 +326,28 @@ class SshRunOperations:
                                 handle._stderr_buf = []
                             handle._stderr_buf.append(stderr_line)
 
-                    # Check I/O timeout - but prioritize runtime timeout
-                    if io_timeout and runtime_timeout is None:
-                        # Standard I/O timeout check when no runtime timeout is set
-                        if (time.monotonic() - last_data_time) > io_timeout:
-                            raise CommandTimeout(io_timeout)
-                    elif io_timeout and runtime_timeout is not None:
-                        # When both timeouts are set, prioritize runtime timeout
-                        elapsed = time.monotonic() - start_time
-                        remaining_runtime = runtime_timeout - elapsed
+                    # Check I/O timeout - but prioritize runtime timeout if it exists
+                    if io_timeout:
+                        current_time = time.monotonic()
+                        io_inactive_time = current_time - last_data_time
                         
-                        # Only check I/O timeout if we have plenty of runtime left
-                        # and we're not close to the runtime timeout
-                        if remaining_runtime > (3 * io_timeout) and (time.monotonic() - last_data_time) > io_timeout:
-                            # If we're getting close to runtime timeout, don't raise I/O timeout
-                            self.logger.debug(f"I/O timeout condition met, but runtime timeout is prioritized")
-                            # Don't raise CommandTimeout, just continue and let runtime timeout trigger
+                        if runtime_timeout is None:
+                            # No runtime timeout, so always check I/O timeout
+                            if io_inactive_time > io_timeout:
+                                self.logger.debug(f"I/O timeout triggered after {io_inactive_time:.2f}s of inactivity")
+                                raise CommandTimeout(io_timeout)
+                        else:
+                            # When both timeouts are set, prioritize runtime timeout only if we're close to it
+                            elapsed = current_time - start_time
+                            remaining_runtime = runtime_timeout - elapsed
+                            
+                            # If we're close to runtime timeout, don't raise I/O timeout
+                            if remaining_runtime < (0.5 * io_timeout):
+                                self.logger.debug(f"I/O timeout condition met, but runtime timeout is close ({remaining_runtime:.2f}s remaining)")
+                                # Don't raise CommandTimeout, just continue and let runtime timeout trigger
+                            elif io_inactive_time > io_timeout:
+                                self.logger.debug(f"I/O timeout triggered after {io_inactive_time:.2f}s of inactivity")
+                                raise CommandTimeout(io_timeout)
 
                     elif chan.exit_status_ready():
                         break
@@ -350,11 +356,13 @@ class SshRunOperations:
                     time.sleep(check_interval)
 
             except (socket.timeout, TimeoutError):
+                current_time = time.monotonic()
+                
                 # Check if we should raise runtime timeout instead
                 if runtime_timeout is not None:
-                    elapsed = time.monotonic() - start_time
+                    elapsed = current_time - start_time
                     if elapsed > runtime_timeout:
-                        self.logger.warning(f"Runtime timeout detected during socket timeout: {elapsed}s > {runtime_timeout}s")
+                        self.logger.warning(f"Runtime timeout detected during socket timeout: {elapsed:.2f}s > {runtime_timeout}s")
                         handle.running = False
                         handle.end_ts = datetime.now(UTC)
                         try:
@@ -367,8 +375,17 @@ class SshRunOperations:
                 if chan.exit_status_ready():
                     pass  # Command finished while we were waiting
                 else:
-                    # Only raise I/O timeout if we're not close to runtime timeout
-                    if runtime_timeout is None or (time.monotonic() - start_time) < (runtime_timeout * 0.8):
+                    # For test_command_io_timeout, we need to ensure we raise CommandTimeout
+                    # when io_timeout is specified and there's no runtime_timeout
+                    io_inactive_time = current_time - last_data_time
+                    
+                    if runtime_timeout is None:
+                        # No runtime timeout, so always raise I/O timeout
+                        self.logger.debug(f"Socket timeout: raising CommandTimeout after {io_inactive_time:.2f}s of inactivity")
+                        raise CommandTimeout(io_timeout)
+                    elif (current_time - start_time) < (runtime_timeout * 0.8):
+                        # Not close to runtime timeout, so raise I/O timeout
+                        self.logger.debug(f"Socket timeout: raising CommandTimeout after {io_inactive_time:.2f}s of inactivity")
                         raise CommandTimeout(io_timeout)
             finally:
                 stdout.close()
