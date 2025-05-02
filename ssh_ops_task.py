@@ -59,16 +59,16 @@ class SshTaskOperations:
             if effective_stdout_log:
                 if effective_stderr_log and effective_stderr_log != effective_stdout_log:
                     # Different stdout and stderr destinations
-                    redirect_part = f">{shlex.quote(effective_stdout_log)} 2>{shlex.quote(effective_stderr_log)}"
+                    redirect_part = f"1>{shlex.quote(effective_stdout_log)} 2>{shlex.quote(effective_stderr_log)}"
                 else:
                     # Same destination for both or stderr not specified
-                    redirect_part = f">{shlex.quote(effective_stdout_log)} 2>&1"
+                    redirect_part = f"1>{shlex.quote(effective_stdout_log)} 2>&1"
             else:
                 # No stdout specified
                 if effective_stderr_log:
-                    redirect_part = f">/dev/null 2>{shlex.quote(effective_stderr_log)}"
+                    redirect_part = f"1>/dev/null 2>{shlex.quote(effective_stderr_log)}"
                 else:
-                    redirect_part = ">/dev/null 2>/dev/null"
+                    redirect_part = "1>/dev/null 2>/dev/null"
             
             # Use a completely different approach to avoid any interference:
             # Create a temporary script that:
@@ -79,7 +79,8 @@ class SshTaskOperations:
             script_name = f"/tmp/launch_script_{int(time.time())}.sh"
             script_content = f"""#!/bin/bash
 # Launch command in background with redirection
-nohup {bg_cmd_part} {redirect_part} &
+# Ensure command output goes to the specified files
+{bg_cmd_part} {redirect_part} &
 # Store PID
 pid=$!
 # Output only the PID with marker
