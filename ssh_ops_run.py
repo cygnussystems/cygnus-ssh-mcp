@@ -203,15 +203,23 @@ class SshRunOperations:
                 self.logger.warning(f"Error during initial output capture: {e}")
                 # Continue execution even if initial capture fails
         finally:
-            # Reset timeout to blocking mode for _monitor_command
-            chan.settimeout(None)
+            # Don't set to None as it disables timeout checks
+            # We'll set the proper timeout in _monitor_command
+            pass
 
     def _monitor_command(self, chan, handle, io_timeout, runtime_timeout, start_time):
         """Monitor command execution and handle timeouts."""
         last_data_time = time.monotonic()
         
-        # Set the proper IO timeout for the monitoring phase
-        chan.settimeout(io_timeout)
+        # Set the proper timeout for the monitoring phase
+        # For runtime timeout, we need a shorter timeout to check more frequently
+        if runtime_timeout is not None:
+            # Use a shorter timeout to check runtime more frequently
+            effective_timeout = min(1.0, runtime_timeout / 2)
+            chan.settimeout(effective_timeout)
+        else:
+            # Use the user's IO timeout
+            chan.settimeout(io_timeout)
         
         # If we have a runtime timeout, we'll check it more frequently
         check_interval = 0.1  # Default check interval
@@ -220,11 +228,29 @@ class SshRunOperations:
             check_interval = min(0.1, runtime_timeout / 10)
         
         with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
+            # Track when we last checked runtime timeout
+            last_runtime_check = time.monotonic()
+            
             try:
                 while True:
                     # Check for I/O readiness first
                     if chan.exit_status_ready():
                         break
+                    
+                    # Always check runtime timeout first, even if no data is available
+                    current_time = time.monotonic()
+                    if runtime_timeout is not None:
+                        elapsed = current_time - start_time
+                        if elapsed > runtime_timeout:
+                            self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
+                            handle.running = False
+                            handle.end_ts = datetime.now(UTC)
+                            # Kill the process
+                            try:
+                                self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                            except Exception as e:
+                                self.logger.warning(f"Error killing process {handle.pid}: {e}")
+                            raise CommandRuntimeTimeout(handle, runtime_timeout)
 
                     # Check runtime timeout - this should take precedence over I/O timeout
                     if runtime_timeout is not None:
@@ -233,7 +259,11 @@ class SshRunOperations:
                             self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
                             handle.running = False
                             handle.end_ts = datetime.now(UTC)
-                            self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                            # Kill the process
+                            try:
+                                self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                            except Exception as e:
+                                self.logger.warning(f"Error killing process {handle.pid}: {e}")
                             raise CommandRuntimeTimeout(handle, runtime_timeout)
 
                     # Check for data with direct Paramiko methods
