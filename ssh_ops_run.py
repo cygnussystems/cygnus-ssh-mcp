@@ -9,7 +9,7 @@ from typing import Optional, Self
 from datetime import UTC
 from ssh_models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
-    CommandFailed, SudoRequired, SshError
+    CommandFailed, SudoRequired, SshError, BusyError
 )
 
 class SshRunOperations:
