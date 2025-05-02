@@ -52,6 +52,7 @@ class SshTaskOperations:
                 effective_stderr_log = "/dev/null"
 
             # Build the command with backgrounding and PID echo
+            # Redirect command output first, then echo PID to stdout
             bg_cmd_part = f"{cmd}"
             if effective_stdout_log:
                 bg_cmd_part += f" >{shlex.quote(effective_stdout_log)}"
@@ -62,7 +63,8 @@ class SshTaskOperations:
                     bg_cmd_part += f" 2>{shlex.quote(effective_stderr_log)}"
 
             # Use subshell to ensure PID is captured correctly
-            pid_cmd = f"( nohup {bg_cmd_part} & echo $! )"
+            # Redirect all command output before echoing PID
+            pid_cmd = f"( nohup {bg_cmd_part} >/dev/null 2>/dev/null & echo $! )"
 
             # Handle sudo
             if sudo:
