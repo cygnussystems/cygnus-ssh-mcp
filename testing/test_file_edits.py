@@ -56,8 +56,11 @@ def test_replace_line_simple(ssh_client):
 
     try:
         create_remote_test_file(client, remote_path, original_content)
+        print(f"Original content: {repr(original_content)}")
         client.replace_line(remote_path, old_line, new_line) # Default count=1
         actual_content = read_remote_file(client, remote_path)
+        print(f"Actual content: {repr(actual_content)}")
+        print(f"Expected content: {repr(expected_content)}")
         assert actual_content == expected_content
         print("Simple replace_line (count=1) successful.")
     finally:

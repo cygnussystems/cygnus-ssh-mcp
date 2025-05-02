@@ -136,22 +136,31 @@ class SshFileOperations:
 
     def _perform_replace_line(self, text: str, old_line: str, new_line: str, count: int) -> str:
         """Helper function containing the actual line replacement logic."""
+        self.logger.debug(f"Replacing line: '{old_line}' with '{new_line}', count={count}")
+        self.logger.debug(f"Original text length: {len(text)}, lines: {len(text.splitlines())}")
+        
         lines = text.splitlines(keepends=True)
         replaced_count = 0
         modified = False
         new_lines = []
-        for line in lines:
-            # Check if the line exactly matches old_line (ignoring line endings)
-            if line.rstrip('\r\n') == old_line and replaced_count < count:
+        
+        for i, line in enumerate(lines):
+            stripped_line = line.rstrip('\r\n')
+            self.logger.debug(f"Line {i}: '{stripped_line}' (len={len(stripped_line)}), original: '{line!r}'")
+            
+            if stripped_line == old_line and replaced_count < count:
                 # Preserve the original line ending
-                ending = line[len(line.rstrip('\r\n')):]
+                ending = line[len(stripped_line):]
                 new_lines.append(new_line + ending)
+                self.logger.debug(f"  Replaced line {i}: '{new_line + ending!r}'")
                 replaced_count += 1
                 modified = True
             else:
                 new_lines.append(line)
-        # Return original text if no changes were made
-        return "".join(new_lines) if modified else text
+        
+        result = "".join(new_lines) if modified else text
+        self.logger.debug(f"Modified: {modified}, replaced: {replaced_count}, result length: {len(result)}")
+        return result
 
     def _replace_content_sftp(self, remote_file: str, modify_func: Callable[[str], str]) -> None:
         """Internal helper for SFTP-based file modification."""
