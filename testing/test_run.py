@@ -452,9 +452,9 @@ def test_sudo_with_password_success(ssh_client):
 
 if __name__ == "__main__":
     print("Running command execution tests...")
-    test_simple_run(get_client(force_new=True))
-    test_run_failure(get_client(force_new=True))
-    test_busy_error_on_concurrent_run(get_client(force_new=True))
+    #test_simple_run(get_client(force_new=True))
+    #test_run_failure(get_client(force_new=True))
+    #test_busy_error_on_concurrent_run(get_client(force_new=True))
     test_command_io_timeout(get_client(force_new=True))
     test_command_runtime_timeout(get_client(force_new=True))
     test_history_trimming(get_client(force_new=True, history_limit=5))
