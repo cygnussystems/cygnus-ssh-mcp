@@ -70,10 +70,11 @@ class SshTaskOperations:
                 else:
                     redirect_part = ">/dev/null 2>/dev/null"
             
-            # Use a more reliable approach to capture PID:
+            # Use a completely separate approach to avoid any interference:
             # 1. Run the command in background with proper redirection
-            # 2. Echo PID on a separate line with no possibility of interference
-            pid_cmd = f"bash -c 'nohup {bg_cmd_part} {redirect_part} & pid=$!; echo $pid'"
+            # 2. Store PID in a variable
+            # 3. Echo ONLY the PID as the sole output of the command
+            pid_cmd = f"bash -c 'nohup {bg_cmd_part} {redirect_part} & pid=$!; echo \"PID:$pid\"'"
 
             # Handle sudo
             if sudo:
@@ -84,7 +85,8 @@ class SshTaskOperations:
             self.logger.info(f"Launching background task: {full_cmd}")
             stdin, stdout, stderr = self.ssh_client._client.exec_command(full_cmd, timeout=10)
 
-            pid_str = stdout.read().decode('utf-8', errors='replace').strip()
+            # Read all output
+            stdout_data = stdout.read().decode('utf-8', errors='replace').strip()
             stderr_output = stderr.read().decode('utf-8', errors='replace').strip()
             exit_status = stdout.channel.recv_exit_status()
 
@@ -93,18 +95,25 @@ class SshTaskOperations:
             stderr.close()
 
             if exit_status != 0:
-                err_msg = f"Task launch failed with exit code {exit_status}. stdout: '{pid_str}', stderr: '{stderr_output}'"
+                err_msg = f"Task launch failed with exit code {exit_status}. stdout: '{stdout_data}', stderr: '{stderr_output}'"
                 self.logger.error(err_msg)
                 if sudo and "password is required" in stderr_output:
                     raise SudoRequired(cmd)
                 raise SshError(err_msg)
 
-            if not pid_str.isdigit():
-                err_msg = f"Failed to parse PID from task launch. stdout: '{pid_str}', stderr: '{stderr_output}'"
+            # Extract PID from the "PID:12345" format
+            pid_match = None
+            for line in stdout_data.splitlines():
+                if line.startswith("PID:"):
+                    pid_match = line[4:].strip()  # Remove "PID:" prefix
+                    break
+            
+            if not pid_match or not pid_match.isdigit():
+                err_msg = f"Failed to parse PID from task launch. stdout: '{stdout_data}', stderr: '{stderr_output}'"
                 self.logger.error(err_msg)
                 raise SshError(err_msg)
 
-            pid = int(pid_str)
+            pid = int(pid_match)
             self.logger.info(f"Task launched successfully with PID: {pid}")
 
             # Rename default log file if used
