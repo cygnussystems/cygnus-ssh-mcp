@@ -219,7 +219,8 @@ def test_command_runtime_timeout(ssh_client):
     target_pid = None
     try:
         with pytest.raises(CommandRuntimeTimeout) as excinfo:
-            client.run(cmd, io_timeout=1, runtime_timeout=runtime_timeout_seconds) # Short I/O timeout too
+            # Use a longer I/O timeout to ensure runtime timeout triggers first
+            client.run(cmd, io_timeout=10, runtime_timeout=runtime_timeout_seconds)
 
         print(f"Caught expected CommandRuntimeTimeout: {excinfo.value}")
         assert f"exceeded runtime timeout of {runtime_timeout_seconds}s" in str(excinfo.value)

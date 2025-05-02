@@ -171,6 +171,12 @@ class SshRunOperations:
         """Monitor command execution and handle timeouts."""
         last_data_time = time.monotonic()
         
+        # If we have a runtime timeout, we'll check it more frequently
+        check_interval = 0.1  # Default check interval
+        if runtime_timeout is not None:
+            # Use a shorter interval for runtime timeout checks
+            check_interval = min(0.1, runtime_timeout / 10)
+        
         with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
             try:
                 while True:
@@ -232,23 +238,27 @@ class SshRunOperations:
                                 handle._stderr_buf = []
                             handle._stderr_buf.append(stderr_line)
 
-                    # Check I/O timeout - only if we're not close to runtime timeout
-                    if io_timeout and (time.monotonic() - last_data_time) > io_timeout:
-                        # If we have a runtime timeout and we're close to it, prioritize that check
-                        if runtime_timeout is not None:
-                            elapsed = time.monotonic() - start_time
-                            if elapsed > (runtime_timeout * 0.9):  # Within 90% of runtime timeout
-                                # Skip I/O timeout and check runtime again on next iteration
-                                time.sleep(0.1)
-                                continue
-                        # Otherwise, raise the I/O timeout
-                        raise CommandTimeout(io_timeout)
+                    # Check I/O timeout - only if runtime_timeout is None or much larger than io_timeout
+                    if io_timeout and runtime_timeout is None:
+                        # Standard I/O timeout check when no runtime timeout is set
+                        if (time.monotonic() - last_data_time) > io_timeout:
+                            raise CommandTimeout(io_timeout)
+                    elif io_timeout and runtime_timeout is not None:
+                        # When both timeouts are set, only check I/O timeout if:
+                        # 1. We're not close to the runtime timeout
+                        # 2. The runtime timeout is significantly larger than I/O timeout
+                        elapsed = time.monotonic() - start_time
+                        remaining_runtime = runtime_timeout - elapsed
+                        
+                        # Only check I/O timeout if we have plenty of runtime left
+                        if remaining_runtime > (2 * io_timeout) and (time.monotonic() - last_data_time) > io_timeout:
+                            raise CommandTimeout(io_timeout)
 
                     elif chan.exit_status_ready():
                         break
                     
                     # Short sleep to prevent CPU spinning
-                    time.sleep(0.1)
+                    time.sleep(check_interval)
 
             except socket.timeout:
                 if chan.exit_status_ready():
