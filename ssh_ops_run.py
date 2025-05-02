@@ -252,20 +252,6 @@ class SshRunOperations:
                                 self.logger.warning(f"Error killing process {handle.pid}: {e}")
                             raise CommandRuntimeTimeout(handle, runtime_timeout)
 
-                    # Check runtime timeout - this should take precedence over I/O timeout
-                    if runtime_timeout is not None:
-                        elapsed = time.monotonic() - start_time
-                        if elapsed > runtime_timeout:
-                            self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
-                            handle.running = False
-                            handle.end_ts = datetime.now(UTC)
-                            # Kill the process
-                            try:
-                                self.ssh_client.task_ops._kill_remote_process(handle.pid)
-                            except Exception as e:
-                                self.logger.warning(f"Error killing process {handle.pid}: {e}")
-                            raise CommandRuntimeTimeout(handle, runtime_timeout)
-
                     # Check for data with direct Paramiko methods
                     if chan.recv_ready():
                         # Read all available data directly from the channel
@@ -297,32 +283,40 @@ class SshRunOperations:
                                 self.logger.debug(f"Adding line to buffer: '{line.strip()}'")
                                 handle._buf.append(line)
 
-                    # Also check stdout file for any data
-                    stdout_data = stdout.read(4096)
-                    if stdout_data:
-                        # Convert bytes to string if needed
-                        if isinstance(stdout_data, bytes):
-                            stdout_data = stdout_data.decode('utf-8', errors='replace')
-                            
-                        self.logger.debug(f"Received stdout data: '{stdout_data.strip()}'")
-                        
-                        # Process stdout data into lines
-                        stdout_lines = stdout_data.splitlines(keepends=True)
-                        if not stdout_lines and stdout_data:
-                            stdout_lines = [stdout_data]
-                            
-                        for line in stdout_lines:
-                            handle.total_lines += 1
-                            last_data_time = time.monotonic()
-                            if handle.total_lines > handle._buf.maxlen:
-                                handle.truncated = True
-                            # Ensure line ends with newline
-                            if not line.endswith('\n'):
-                                line += '\n'
-                            # Clean up any shell artifacts from the line
-                            line = line.replace('\r', '')  # Remove carriage returns
-                            self.logger.debug(f"Adding stdout line to buffer: '{line.strip()}'")
-                            handle._buf.append(line)
+                    # Also check stdout file for any data, but use non-blocking approach
+                    try:
+                        # Use select to check if stdout is ready to avoid blocking
+                        if select.select([stdout.channel], [], [], 0.1)[0]:
+                            stdout_data = stdout.read(4096)
+                            if stdout_data:
+                                # Convert bytes to string if needed
+                                if isinstance(stdout_data, bytes):
+                                    stdout_data = stdout_data.decode('utf-8', errors='replace')
+                                    
+                                self.logger.debug(f"Received stdout data: '{stdout_data.strip()}'")
+                                
+                                # Process stdout data into lines
+                                stdout_lines = stdout_data.splitlines(keepends=True)
+                                if not stdout_lines and stdout_data:
+                                    stdout_lines = [stdout_data]
+                                    
+                                for line in stdout_lines:
+                                    handle.total_lines += 1
+                                    last_data_time = time.monotonic()
+                                    if handle.total_lines > handle._buf.maxlen:
+                                        handle.truncated = True
+                                    # Ensure line ends with newline
+                                    if not line.endswith('\n'):
+                                        line += '\n'
+                                    # Clean up any shell artifacts from the line
+                                    line = line.replace('\r', '')  # Remove carriage returns
+                                    self.logger.debug(f"Adding stdout line to buffer: '{line.strip()}'")
+                                    handle._buf.append(line)
+                    except (socket.timeout, TimeoutError):
+                        # Ignore timeouts during stdout read - this is expected
+                        pass
+                    except Exception as e:
+                        self.logger.warning(f"Error reading stdout: {e}")
                     
                     if chan.recv_stderr_ready():
                         stderr_line = stderr.readline()
@@ -332,21 +326,22 @@ class SshRunOperations:
                                 handle._stderr_buf = []
                             handle._stderr_buf.append(stderr_line)
 
-                    # Check I/O timeout - only if runtime_timeout is None or much larger than io_timeout
+                    # Check I/O timeout - but prioritize runtime timeout
                     if io_timeout and runtime_timeout is None:
                         # Standard I/O timeout check when no runtime timeout is set
                         if (time.monotonic() - last_data_time) > io_timeout:
                             raise CommandTimeout(io_timeout)
                     elif io_timeout and runtime_timeout is not None:
-                        # When both timeouts are set, only check I/O timeout if:
-                        # 1. We're not close to the runtime timeout
-                        # 2. The runtime timeout is significantly larger than I/O timeout
+                        # When both timeouts are set, prioritize runtime timeout
                         elapsed = time.monotonic() - start_time
                         remaining_runtime = runtime_timeout - elapsed
                         
                         # Only check I/O timeout if we have plenty of runtime left
-                        if remaining_runtime > (2 * io_timeout) and (time.monotonic() - last_data_time) > io_timeout:
-                            raise CommandTimeout(io_timeout)
+                        # and we're not close to the runtime timeout
+                        if remaining_runtime > (3 * io_timeout) and (time.monotonic() - last_data_time) > io_timeout:
+                            # If we're getting close to runtime timeout, don't raise I/O timeout
+                            self.logger.debug(f"I/O timeout condition met, but runtime timeout is prioritized")
+                            # Don't raise CommandTimeout, just continue and let runtime timeout trigger
 
                     elif chan.exit_status_ready():
                         break
@@ -354,11 +349,27 @@ class SshRunOperations:
                     # Short sleep to prevent CPU spinning
                     time.sleep(check_interval)
 
-            except socket.timeout:
+            except (socket.timeout, TimeoutError):
+                # Check if we should raise runtime timeout instead
+                if runtime_timeout is not None:
+                    elapsed = time.monotonic() - start_time
+                    if elapsed > runtime_timeout:
+                        self.logger.warning(f"Runtime timeout detected during socket timeout: {elapsed}s > {runtime_timeout}s")
+                        handle.running = False
+                        handle.end_ts = datetime.now(UTC)
+                        try:
+                            self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                        except Exception as e:
+                            self.logger.warning(f"Error killing process {handle.pid}: {e}")
+                        raise CommandRuntimeTimeout(handle, runtime_timeout)
+                
+                # Otherwise, if the command has finished, don't raise a timeout
                 if chan.exit_status_ready():
                     pass  # Command finished while we were waiting
                 else:
-                    raise CommandTimeout(io_timeout)
+                    # Only raise I/O timeout if we're not close to runtime timeout
+                    if runtime_timeout is None or (time.monotonic() - start_time) < (runtime_timeout * 0.8):
+                        raise CommandTimeout(io_timeout)
             finally:
                 stdout.close()
                 stderr.close()
