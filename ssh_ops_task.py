@@ -78,10 +78,10 @@ class SshTaskOperations:
             # 4. Removes itself
             script_name = f"/tmp/launch_script_{int(time.time())}.sh"
             script_content = f"""#!/bin/bash
-# Launch command in background with redirection
+# Launch command in background with proper redirection
 # Use explicit redirection to ensure output goes to the right files
 # Execute command directly without subshell to ensure redirection works properly
-{bg_cmd_part} {redirect_part} &
+bash -c {shlex.quote(bg_cmd_part)} {redirect_part} &
 # Store PID
 pid=$!
 # Output only the PID with marker
