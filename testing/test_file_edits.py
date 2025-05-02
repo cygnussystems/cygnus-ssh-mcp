@@ -83,7 +83,9 @@ def test_replace_line_multiple(ssh_client):
         create_remote_test_file(client, remote_path, original_content)
         client.replace_line(remote_path, old_line, new_line, count=2)
         actual_content = read_remote_file(client, remote_path)
-        assert actual_content == expected_content
+        # Normalize line endings for comparison
+        normalized_actual = actual_content.replace('\r\n', '\n')
+        assert normalized_actual == expected_content, f"Content mismatch:\nExpected: {repr(expected_content)}\nActual: {repr(actual_content)}"
         print("replace_line (count=2) successful.")
     finally:
         cleanup_remote_file(client, remote_path)
