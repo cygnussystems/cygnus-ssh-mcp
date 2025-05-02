@@ -121,12 +121,17 @@ class SshRunOperations:
         """Execute the command and return the channel."""
         self.logger.info(f"Executing command: {cmd}")
         chan = self.ssh_client._client.get_transport().open_session()
+        
+        # Use a short timeout for initial command execution
         chan.settimeout(5.0)  # Initial timeout for command execution
         
         # Simplify command execution to avoid shell quoting issues
         # Just run the command directly and get the PID separately
         chan.exec_command(cmd)
-        chan.settimeout(io_timeout)  # Set to user's IO timeout
+        
+        # Don't set io_timeout here - we'll handle timeouts in _monitor_command
+        # This allows _capture_pid to use a short timeout
+        
         return chan
 
     def _capture_pid(self, chan, handle):
@@ -137,61 +142,76 @@ class SshRunOperations:
             self.logger.info(f"Captured channel ID as PID: {handle.pid}")
             
             # Start capturing output immediately
-            with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-                # Read any initial data that's immediately available from stdout
-                initial_stdout = stdout.read(4096)
-                if initial_stdout:
-                    self.logger.debug(f"Initial stdout data captured: '{initial_stdout}'")
+            try:
+                with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
+                    # Try to read initial data, but don't block for long
+                    chan.settimeout(0.5)  # Short timeout for initial data capture
                     
-                    # Convert bytes to string if needed
-                    if isinstance(initial_stdout, bytes):
-                        initial_stdout = initial_stdout.decode('utf-8', errors='replace')
-                    
-                    # Process the data into lines
-                    lines = initial_stdout.splitlines(True)  # keepends=True
-                    if not lines and initial_stdout:  # Data without newlines
-                        lines = [initial_stdout]
-                        
-                    for line in lines:
-                        handle.total_lines += 1
-                        if not line.endswith('\n'):
-                            line += '\n'
-                        self.logger.debug(f"Adding initial stdout line to buffer: '{line.strip()}'")
-                        handle._buf.append(line)
-                
-                # Also check direct channel recv for any data not captured by stdout
-                while chan.recv_ready():
                     try:
-                        data = chan.recv(4096)
-                        if not data:  # Empty data means EOF
-                            break
+                        # Read any initial data that's immediately available from stdout
+                        initial_stdout = stdout.read(4096)
+                        if initial_stdout:
+                            self.logger.debug(f"Initial stdout data captured: '{initial_stdout}'")
                             
-                        # Always decode bytes to string
-                        if isinstance(data, bytes):
-                            data = data.decode('utf-8', errors='replace')
+                            # Convert bytes to string if needed
+                            if isinstance(initial_stdout, bytes):
+                                initial_stdout = initial_stdout.decode('utf-8', errors='replace')
                             
-                        self.logger.debug(f"Initial channel data captured: '{data.strip()}'")
-                        
-                        # Process the data into lines
-                        lines = data.splitlines(True)  # keepends=True
-                        if not lines and data:  # Data without newlines
-                            lines = [data]
-                            
-                        for line in lines:
-                            handle.total_lines += 1
-                            if not line.endswith('\n'):
-                                line += '\n'
-                            self.logger.debug(f"Adding initial channel line to buffer: '{line.strip()}'")
-                            handle._buf.append(line)
+                            # Process the data into lines
+                            lines = initial_stdout.splitlines(True)  # keepends=True
+                            if not lines and initial_stdout:  # Data without newlines
+                                lines = [initial_stdout]
+                                
+                            for line in lines:
+                                handle.total_lines += 1
+                                if not line.endswith('\n'):
+                                    line += '\n'
+                                self.logger.debug(f"Adding initial stdout line to buffer: '{line.strip()}'")
+                                handle._buf.append(line)
                     except socket.timeout:
-                        break
+                        # This is expected for commands that don't produce immediate output
+                        self.logger.debug("Timeout reading initial stdout (expected for some commands)")
+                    
+                    # Also check direct channel recv for any data not captured by stdout
+                    try:
+                        while chan.recv_ready():
+                            data = chan.recv(4096)
+                            if not data:  # Empty data means EOF
+                                break
+                                
+                            # Always decode bytes to string
+                            if isinstance(data, bytes):
+                                data = data.decode('utf-8', errors='replace')
+                                
+                            self.logger.debug(f"Initial channel data captured: '{data.strip()}'")
+                            
+                            # Process the data into lines
+                            lines = data.splitlines(True)  # keepends=True
+                            if not lines and data:  # Data without newlines
+                                lines = [data]
+                                
+                            for line in lines:
+                                handle.total_lines += 1
+                                if not line.endswith('\n'):
+                                    line += '\n'
+                                self.logger.debug(f"Adding initial channel line to buffer: '{line.strip()}'")
+                                handle._buf.append(line)
+                    except socket.timeout:
+                        # This is expected for commands that don't produce immediate output
+                        self.logger.debug("Timeout reading initial channel data (expected for some commands)")
+            except Exception as e:
+                self.logger.warning(f"Error during initial output capture: {e}")
+                # Continue execution even if initial capture fails
         finally:
-            if 'stdout' in locals():
-                stdout.close()
+            # Reset timeout to blocking mode for _monitor_command
+            chan.settimeout(None)
 
     def _monitor_command(self, chan, handle, io_timeout, runtime_timeout, start_time):
         """Monitor command execution and handle timeouts."""
         last_data_time = time.monotonic()
+        
+        # Set the proper IO timeout for the monitoring phase
+        chan.settimeout(io_timeout)
         
         # If we have a runtime timeout, we'll check it more frequently
         check_interval = 0.1  # Default check interval
