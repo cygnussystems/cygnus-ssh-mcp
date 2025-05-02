@@ -138,7 +138,24 @@ class SshRunOperations:
             
             # Start capturing output immediately
             with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-                # Read initial data that's immediately available
+                # Read any initial data that's immediately available from stdout
+                initial_stdout = stdout.read(4096)
+                if initial_stdout:
+                    self.logger.debug(f"Initial stdout data captured: '{initial_stdout.strip()}'")
+                    
+                    # Process the data into lines
+                    lines = initial_stdout.splitlines(True)  # keepends=True
+                    if not lines and initial_stdout:  # Data without newlines
+                        lines = [initial_stdout]
+                        
+                    for line in lines:
+                        handle.total_lines += 1
+                        if not line.endswith('\n'):
+                            line += '\n'
+                        self.logger.debug(f"Adding initial stdout line to buffer: '{line.strip()}'")
+                        handle._buf.append(line)
+                
+                # Also check direct channel recv for any data not captured by stdout
                 while chan.recv_ready():
                     try:
                         data = chan.recv(4096)
@@ -148,7 +165,7 @@ class SshRunOperations:
                         if isinstance(data, bytes):
                             data = data.decode('utf-8', errors='replace')
                             
-                        self.logger.debug(f"Initial data captured: '{data.strip()}'")
+                        self.logger.debug(f"Initial channel data captured: '{data.strip()}'")
                         
                         # Process the data into lines
                         lines = data.splitlines(True)  # keepends=True
@@ -159,7 +176,7 @@ class SshRunOperations:
                             handle.total_lines += 1
                             if not line.endswith('\n'):
                                 line += '\n'
-                            self.logger.debug(f"Adding initial line to buffer: '{line.strip()}'")
+                            self.logger.debug(f"Adding initial channel line to buffer: '{line.strip()}'")
                             handle._buf.append(line)
                     except socket.timeout:
                         break
@@ -222,14 +239,32 @@ class SshRunOperations:
                                     line += '\n'
                                 # Clean up any shell artifacts from the line
                                 line = line.replace('\r', '')  # Remove carriage returns
-                                
-                                # Just clean up carriage returns and ensure newline
-                                line = line.replace('\r', '')
-                                if not line.endswith('\n'):
-                                    line += '\n'
                                 self.logger.debug(f"Adding line to buffer: '{line.strip()}'")
                                 handle._buf.append(line)
 
+                    # Also check stdout file for any data
+                    stdout_data = stdout.read(4096)
+                    if stdout_data:
+                        self.logger.debug(f"Received stdout data: '{stdout_data.strip()}'")
+                        
+                        # Process stdout data into lines
+                        stdout_lines = stdout_data.splitlines(keepends=True)
+                        if not stdout_lines and stdout_data:
+                            stdout_lines = [stdout_data]
+                            
+                        for line in stdout_lines:
+                            handle.total_lines += 1
+                            last_data_time = time.monotonic()
+                            if handle.total_lines > handle._buf.maxlen:
+                                handle.truncated = True
+                            # Ensure line ends with newline
+                            if not line.endswith('\n'):
+                                line += '\n'
+                            # Clean up any shell artifacts from the line
+                            line = line.replace('\r', '')  # Remove carriage returns
+                            self.logger.debug(f"Adding stdout line to buffer: '{line.strip()}'")
+                            handle._buf.append(line)
+                    
                     if chan.recv_stderr_ready():
                         stderr_line = stderr.readline()
                         if stderr_line:
