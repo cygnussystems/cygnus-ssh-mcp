@@ -9,7 +9,7 @@ from datetime import datetime
 import logging
 import threading
 import select
-from typing import Optional, Callable, Dict, Deque, Any, Union, List
+from typing import Optional, Callable, Dict, Deque, Any, Union, List, Literal
 from ssh_history import CommandHistoryManager
 from ssh_models import (
     SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
@@ -102,7 +102,8 @@ class SshClient:
 
 
 
-    def run(self, cmd, io_timeout=60.0, runtime_timeout=None, sudo=False):
+    def run(self, cmd: str, io_timeout: float = 60.0, runtime_timeout: Optional[float] = None,
+           sudo: bool = False) -> CommandHandle:
         """
         Execute a command synchronously, streaming output into a CommandHandle.
         This method BLOCKS until the command finishes, fails, or times out.
@@ -112,7 +113,8 @@ class SshClient:
         return self.run_ops.execute_command(cmd, io_timeout, runtime_timeout, sudo)
 
 
-    def launch(self, cmd, sudo=False, stdout_log=None, stderr_log=None, log_output=True):
+    def launch(self, cmd: str, sudo: bool = False, stdout_log: Optional[str] = None,
+              stderr_log: Optional[str] = None, log_output: bool = True) -> CommandHandle:
         """
         Launch a command in the background and return a CommandHandle with the PID.
         This method returns almost immediately, it does NOT block waiting for the command.
@@ -123,7 +125,7 @@ class SshClient:
         """
         return self.task_ops.launch_task(cmd, stdout_log, stderr_log, log_output, sudo)
 
-    def task_status(self, pid):
+    def task_status(self, pid: int) -> Literal['running', 'exited', 'invalid', 'error']:
         """
         Check the status of a process with the given PID on the remote host using a direct channel.
         Returns:
@@ -134,7 +136,8 @@ class SshClient:
         return self.task_ops.get_task_status(pid)
 
 
-    def task_kill(self, pid, signal=15, sudo=False, force_kill_signal=9, wait_seconds=1.0):
+    def task_kill(self, pid: int, signal: int = 15, sudo: bool = False,
+                 force_kill_signal: int = 9, wait_seconds: float = 1.0) -> Literal['killed', 'already_exited', 'failed_to_kill', 'invalid_pid', 'error']:
         """
         Send a signal to a process with the given PID on the remote host.
         Uses self.run() internally, so it respects the busy lock and handles sudo.
@@ -149,7 +152,8 @@ class SshClient:
 
 
 
-    def output(self, handle_id, mode='tail', n=50, start=None):
+    def output(self, handle_id: int, mode: Literal['tail', 'chunk'] = 'tail',
+              n: int = 50, start: Optional[int] = None) -> List[str]:
         """Retrieve output from a previous CommandHandle created by run()."""
         try:
             handle = self.history_manager.get_handle(handle_id)
@@ -171,31 +175,32 @@ class SshClient:
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
-    def get(self, remote_path, local_path):
+    def get(self, remote_path: str, local_path: str) -> None:
         """Download a file from remote to local."""
         return self.file_ops.get(remote_path, local_path)
 
-    def put(self, local_path, remote_path):
+    def put(self, local_path: str, remote_path: str) -> None:
         """Upload a file from local to remote."""
         return self.file_ops.put(local_path, remote_path)
 
-    def mkdir(self, path, sudo=False, mode=0o755):
+    def mkdir(self, path: str, sudo: bool = False, mode: int = 0o755) -> None:
         """Create a remote directory with optional sudo."""
         return self.file_ops.mkdir(path, sudo, mode)
 
-    def rmdir(self, path, sudo=False, recursive=False):
+    def rmdir(self, path: str, sudo: bool = False, recursive: bool = False) -> None:
         """Remove a remote directory with optional sudo."""
         return self.file_ops.rmdir(path, sudo, recursive)
 
-    def listdir(self, path):
+    def listdir(self, path: str) -> List[str]:
         """List contents of a remote directory."""
         return self.file_ops.listdir(path)
 
-    def stat(self, path):
+    def stat(self, path: str) -> Dict:
         """Get file/directory status info."""
         return self.file_ops.stat(path)
 
-    def replace_line(self, remote_file, old_line, new_line, count=1, sudo=False, force=False):
+    def replace_line(self, remote_file: str, old_line: str, new_line: str, 
+                    count: int = 1, sudo: bool = False, force: bool = False) -> None:
         """
         Replace occurrences of a line in a remote text file.
         Uses temporary local file. Requires write permissions on remote dir/file.
@@ -205,7 +210,8 @@ class SshClient:
         return self.file_ops.replace_line(remote_file, old_line, new_line, count, sudo, force)
 
 
-    def replace_block(self, remote_file, old_block, new_block, sudo=False, force=False):
+    def replace_block(self, remote_file: str, old_block: str, new_block: str,
+                     sudo: bool = False, force: bool = False) -> None:
         """
         Replace a block of text in a remote text file.
         Uses temporary local file. Requires write permissions on remote dir/file.
@@ -216,22 +222,23 @@ class SshClient:
 
 
 
-    def reboot(self, wait=True, timeout=300):
+    def reboot(self, wait: bool = True, timeout: int = 300) -> None:
         """Reboot the remote host and optionally wait until it comes back."""
         return self.os_ops.reboot(wait, timeout)
 
 
-    def full_status(self):
+    def full_status(self) -> Dict[str, Any]:
         """Return a snapshot of system state using a combined command."""
         return self.os_ops.status()
 
 
-    def history(self):
+    def history(self) -> List[Dict[str, Any]]:
         """Return metadata for recent CommandHandles."""
         return self.history_manager.get_history()
 
     # Directory operations wrappers
-    def search_files_recursive(self, start_path, name_pattern, max_depth=None, include_dirs=False):
+    def search_files_recursive(self, start_path: str, name_pattern: str,
+                             max_depth: Optional[int] = None, include_dirs: bool = False) -> List[Dict[str, str]]:
         """
         Recursively search for files or directories matching a name pattern.
         
@@ -246,7 +253,7 @@ class SshClient:
         """
         return self.dir_ops.search_files_recursive(start_path, name_pattern, max_depth, include_dirs)
     
-    def calculate_directory_size(self, path):
+    def calculate_directory_size(self, path: str) -> int:
         """
         Compute total size of a directory recursively in bytes.
         
@@ -258,7 +265,8 @@ class SshClient:
         """
         return self.dir_ops.calculate_directory_size(path)
     
-    def delete_directory_recursive(self, path, dry_run=True, sudo=False):
+    def delete_directory_recursive(self, path: str, dry_run: bool = True,
+                                 sudo: bool = False) -> Dict[str, Any]:
         """
         Safely delete a directory and all of its contents, with dry-run support.
         
@@ -272,7 +280,8 @@ class SshClient:
         """
         return self.dir_ops.delete_directory_recursive(path, dry_run, sudo)
     
-    def batch_delete_by_pattern(self, path, pattern, dry_run=True, sudo=False):
+    def batch_delete_by_pattern(self, path: str, pattern: str, dry_run: bool = True,
+                              sudo: bool = False) -> Dict[str, Any]:
         """
         Delete all files matching a pattern recursively under a directory.
         
@@ -287,7 +296,8 @@ class SshClient:
         """
         return self.dir_ops.batch_delete_by_pattern(path, pattern, dry_run, sudo)
     
-    def safe_move_or_rename(self, source, destination, overwrite=False, sudo=False):
+    def safe_move_or_rename(self, source: str, destination: str, overwrite: bool = False,
+                          sudo: bool = False) -> Dict[str, Any]:
         """
         Move or rename a file or directory, with overwrite control.
         
@@ -302,7 +312,8 @@ class SshClient:
         """
         return self.dir_ops.safe_move_or_rename(source, destination, overwrite, sudo)
     
-    def list_directory_recursive(self, path, max_depth=None, sudo=False):
+    def list_directory_recursive(self, path: str, max_depth: Optional[int] = None,
+                               sudo: bool = False) -> List[Dict[str, Any]]:
         """
         List all contents of a directory tree with rich metadata.
         
@@ -316,7 +327,8 @@ class SshClient:
         """
         return self.dir_ops.list_directory_recursive(path, max_depth, sudo)
     
-    def create_archive_from_directory(self, source_path, archive_path, format="tar.gz", sudo=False):
+    def create_archive_from_directory(self, source_path: str, archive_path: str,
+                                    format: str = "tar.gz", sudo: bool = False) -> Dict[str, Any]:
         """
         Create a compressed archive (tar.gz or zip) from a directory.
         
@@ -331,7 +343,8 @@ class SshClient:
         """
         return self.dir_ops.create_archive_from_directory(source_path, archive_path, format, sudo)
     
-    def extract_archive_to_directory(self, archive_path, destination_path, overwrite=False, sudo=False):
+    def extract_archive_to_directory(self, archive_path: str, destination_path: str,
+                                   overwrite: bool = False, sudo: bool = False) -> Dict[str, Any]:
         """
         Extract a zip or tar.gz archive to a directory.
         
@@ -346,7 +359,8 @@ class SshClient:
         """
         return self.dir_ops.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
     
-    def search_file_contents(self, path, pattern, regex=False, case_sensitive=True, sudo=False):
+    def search_file_contents(self, path: str, pattern: str, regex: bool = False,
+                           case_sensitive: bool = True, sudo: bool = False) -> List[Dict[str, Any]]:
         """
         Search for a string or regex inside files under a directory.
         
@@ -362,8 +376,9 @@ class SshClient:
         """
         return self.dir_ops.search_file_contents(path, pattern, regex, case_sensitive, sudo)
     
-    def copy_directory_recursive(self, source_path, destination_path, overwrite=False, 
-                               preserve_symlinks=True, preserve_permissions=True, sudo=False):
+    def copy_directory_recursive(self, source_path: str, destination_path: str, overwrite: bool = False, 
+                               preserve_symlinks: bool = True, preserve_permissions: bool = True, 
+                               sudo: bool = False) -> Dict[str, Any]:
         """
         Recursively copy one directory to another with robust handling.
         

@@ -350,7 +350,7 @@ class SshOsOperations:
 
     # Keep the old status() method signature but make it call full_status()
     # and add a deprecation warning or note in the docstring.
-    def status(self):
+    def status(self) -> Dict[str, Any]:  # Alias for full_status
         """
         Return a combined snapshot of system state.
         DEPRECATED: Prefer calling individual methods (user_status, hardware_info, etc.)
