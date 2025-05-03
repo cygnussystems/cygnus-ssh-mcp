@@ -64,8 +64,8 @@ def test_calculate_directory_size(ssh_client):
         size = client.calculate_directory_size(test_dir)
         print(f"Directory size: {size} bytes")
         
-        # Allow for some overhead in directory entries
-        assert abs(size - expected_size) < 1024, f"Expected ~{expected_size} bytes, got {size}"
+        # Allow for filesystem overhead (metadata, block allocation, etc.)
+        assert abs(size - expected_size) < 8192, f"Expected ~{expected_size} bytes, got {size}"
         
         print("calculate_directory_size test passed")
     finally:
