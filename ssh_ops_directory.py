@@ -738,8 +738,7 @@ class SshDirectoryOperations:
         if preserve_symlinks:
             # Default behavior of cp is to follow symlinks, we need to handle them specially
             # First, copy everything except symlinks
-            cp_cmd = f"find {shlex.quote(source_path)} -type f -o -type d | xargs -I{{}} cp -a {{}} {shlex.quote(destination_path)}/{{#source_prefix#}}"
-            cp_cmd = cp_cmd.replace("{#source_prefix#}", f"{source_path}/")
+            cp_cmd = f"cd {shlex.quote(source_path)} && find . -type f -o -type d | xargs -I{{}} cp -a {{}} {shlex.quote(destination_path)}/"
         else:
             # Use standard cp command
             cp_cmd = f"cp {' '.join(cp_opts)} {shlex.quote(source_path)}/* {shlex.quote(destination_path)}/"
