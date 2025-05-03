@@ -321,10 +321,10 @@ class SshDirectoryOperations:
         
         try:
             check_handle = self.ssh_client.run(check_cmd, io_timeout=30, sudo=sudo)
-            destination_exists = 'exists' in check_handle.tail(1)[0]
+            destination_exists = check_handle.tail(1)[0].strip() == 'exists'
             
             # Debug log the actual check result
-            self.logger.debug(f"Destination check result: '{check_handle.tail(1)[0]}', exists={destination_exists}")
+            self.logger.debug(f"Destination check result: '{check_handle.tail(1)[0].strip()}', exists={destination_exists}")
             
             if destination_exists and not overwrite:
                 self.logger.warning(f"Destination exists and overwrite=False: {destination}")
