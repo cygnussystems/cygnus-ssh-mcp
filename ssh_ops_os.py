@@ -1,5 +1,6 @@
 import time
 import logging
+from typing import Dict, Any
 from ssh_models import SshError, CommandTimeout, BusyError, CommandFailed # Import CommandFailed
 
 class SshOsOperations:
