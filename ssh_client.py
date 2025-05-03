@@ -202,33 +202,6 @@ class SshClient:
         """
         return self.file_ops.replace_line(remote_file, old_line, new_line, count, sudo, force)
 
-    def _perform_replace_line(self, text, old_line, new_line, count):
-        """Helper function containing the actual line replacement logic."""
-        self._logger.debug(f"Replacing line: '{old_line}' with '{new_line}', count={count}")
-        self._logger.debug(f"Original text length: {len(text)}, lines: {len(text.splitlines())}")
-        
-        lines = text.splitlines(keepends=True)
-        replaced_count = 0
-        modified = False
-        new_lines = []
-        
-        for i, line in enumerate(lines):
-            stripped_line = line.rstrip('\r\n')
-            self._logger.debug(f"Line {i}: '{stripped_line}' (len={len(stripped_line)}), original: '{line!r}'")
-            
-            if stripped_line == old_line and replaced_count < count:
-                # Preserve the original line ending
-                ending = line[len(stripped_line):]
-                new_lines.append(new_line + ending)
-                self._logger.debug(f"  Replaced line {i}: '{new_line + ending!r}'")
-                replaced_count += 1
-                modified = True
-            else:
-                new_lines.append(line)
-        
-        result = "".join(new_lines) if modified else text
-        self._logger.debug(f"Modified: {modified}, replaced: {replaced_count}, result length: {len(result)}")
-        return result
 
     def replace_block(self, remote_file, old_block, new_block, sudo=False, force=False):
         """
@@ -239,42 +212,7 @@ class SshClient:
         """
         return self.file_ops.replace_block(remote_file, old_block, new_block, sudo, force)
 
-    def _replace_content_sftp(self, remote_file, modify_func):
-        """Internal helper for SFTP-based file modification."""
-        local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
-        os.close(local_temp_fd) # Close handle, we just need the name
-        self._logger.debug(f"Created local temp file: {local_temp_path}")
 
-        try:
-            # 1. Download
-            self.get(remote_file, local_temp_path)
-
-            # 2. Read, Modify, Write locally
-            with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
-                original_text = f.read()
-            modified_text = modify_func(original_text)
-
-            # Only upload if content changed
-            if modified_text != original_text:
-                self._logger.info(f"Content modified for {remote_file}. Uploading changes.")
-                with open(local_temp_path, 'w', encoding='utf-8') as f:
-                    f.write(modified_text)
-                # 3. Upload back
-                self.put(local_temp_path, remote_file)
-            else:
-                self._logger.info(f"Content for {remote_file} not modified, skipping upload.")
-
-        finally:
-            # 4. Cleanup local temp file
-            if os.path.exists(local_temp_path):
-                self._logger.debug(f"Cleaning up local temp file: {local_temp_path}")
-                os.unlink(local_temp_path)
-
-    def _replace_content_sudo(self, remote_file, remote_temp_path, modify_func, force=False):
-        """
-        Internal helper for sudo-based file modification.
-        """
-        return self.file_ops._replace_content_sudo(remote_file, remote_temp_path, modify_func, force)
 
     def reboot(self, wait=True, timeout=300):
         """Reboot the remote host and optionally wait until it comes back."""
