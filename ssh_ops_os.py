@@ -120,17 +120,16 @@ class SshOsOperations:
     
     def user_status(self):
         """
-        Get user-related information (username, working directory, time).
+        Get user-related information (username, working directory, local time with timezone offset).
         
         Returns:
-            Dict containing user information.
+            Dict containing user information with time in ISO 8601 format (e.g., "2023-10-05T14:30:45+02:00")
         """
-        # This command doesn't use awk, so it was already working correctly.
         cmd = r"""
         bash -c '
           echo "USER:$(whoami)"
           echo "CWD:$(pwd)"
-          echo "TIME:$(date -Is)"
+          echo "TIME:$(date --iso-8601=seconds)"  # Explicit ISO format with timezone offset
         '
         """
         return self._execute_status_command(cmd, self._user_key_map)
