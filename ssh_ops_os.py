@@ -182,16 +182,21 @@ class SshOsOperations:
     
     def user_status(self):
         """
-        Get user-related information (username, working directory, local time with timezone offset).
+        Get user-related information including OS type (username, working directory, local time with timezone offset).
         
         Returns:
-            Dict containing user information with time in ISO 8601 format (e.g., "2023-10-05T14:30:45+02:00")
+            Dict containing:
+            - user: Username
+            - cwd: Current working directory
+            - time: Local time with timezone offset in ISO 8601 format (e.g., "2023-10-05T14:30:45+02:00")
+            - os_type: Operating system type (e.g., "Linux")
         """
         cmd = r"""
         bash -c '
           echo "USER:$(whoami)"
           echo "CWD:$(pwd)"
           echo "TIME:$(date --iso-8601=seconds)"  # Explicit ISO format with timezone offset
+          echo "OS_TYPE:$(uname -s)"  # Get OS type (Linux, Windows, etc.)
         '
         """
         return self._execute_status_command(cmd, self._user_key_map)
@@ -244,7 +249,7 @@ class SshOsOperations:
         return status_info
 
     # Helper key maps (defined once for reuse)
-    _user_key_map = {'USER': 'user', 'CWD': 'cwd', 'TIME': 'time'}
+    _user_key_map = {'USER': 'user', 'CWD': 'cwd', 'TIME': 'time', 'OS_TYPE': 'os_type'}
     _hardware_key_map = {
         'CPU': 'cpu_count',
         'CPU_MODEL': 'cpu_model', 
