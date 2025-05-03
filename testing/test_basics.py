@@ -90,11 +90,13 @@ def test_full_status(ssh_client): # Use the fixture
         # From user_status
         'user', 'cwd', 'time',
         # From hardware_info
-        'cpu_count', 'mem_total_mb', 'mem_free_mb', 'mem_available_mb', 'load_avg',
+        'cpu_count', 'cpu_model', 'cpu_mhz', 'mem_total_mb', 'mem_free_mb', 'mem_available_mb', 'load_avg',
         # From network_info
         'hostname', 'interfaces',
         # From disk_info
-        'disk_total', 'disk_free'
+        'disk_total', 'disk_free',
+        # From os_info
+        'os_name', 'os_version', 'os_release', 'kernel', 'architecture'
     ]
     
     missing_keys = [key for key in expected_keys if key not in status_info]
@@ -162,24 +164,80 @@ def test_hardware_info(ssh_client): # Use the fixture
     print(f"Hardware info: {hw_info}")
     
     assert 'error' not in hw_info, f"hardware_info returned an error: {hw_info.get('error')}"
+    
+    # Test CPU info
     assert 'cpu_count' in hw_info and hw_info['cpu_count'] != 'n/a', "Missing 'cpu_count'"
+    assert 'cpu_model' in hw_info and hw_info['cpu_model'] != 'n/a', "Missing 'cpu_model'"
+    assert 'cpu_mhz' in hw_info and hw_info['cpu_mhz'] != 'n/a', "Missing 'cpu_mhz'"
+    
+    # Test memory info
     assert 'mem_total_mb' in hw_info and hw_info['mem_total_mb'] != 'n/a', "Missing 'mem_total_mb'"
     assert 'mem_free_mb' in hw_info and hw_info['mem_free_mb'] != 'n/a', "Missing 'mem_free_mb'"
     assert 'mem_available_mb' in hw_info and hw_info['mem_available_mb'] != 'n/a', "Missing 'mem_available_mb'"
+    
+    # Test load average
     assert 'load_avg' in hw_info and hw_info['load_avg'] != 'n/a', "Missing 'load_avg'"
     
     # Basic sanity checks on values
     try:
+        # CPU checks
         assert int(hw_info['cpu_count']) > 0, "CPU count should be positive"
+        assert isinstance(hw_info['cpu_model'], str), "CPU model should be a string"
+        assert float(hw_info['cpu_mhz']) > 0, "CPU MHz should be positive"
+        
+        # Memory checks
         assert int(hw_info['mem_total_mb']) > 0, "Total memory should be positive"
         assert int(hw_info['mem_free_mb']) >= 0, "Free memory should be non-negative"
         assert int(hw_info['mem_available_mb']) >= 0, "Available memory should be non-negative"
+        
+        # Load average checks
+        load_avg = hw_info['load_avg'].split()
+        assert len(load_avg) == 3, "Load average should have 3 values"
+        for val in load_avg:
+            assert float(val) >= 0, "Load average values should be non-negative"
+            
     except (ValueError, TypeError) as e:
         pytest.fail(f"Failed to parse numeric hardware value: {e}. Info: {hw_info}")
     except AssertionError as e:
         pytest.fail(f"Hardware value out of expected range: {e}. Info: {hw_info}")
 
     print("Hardware info assertions passed.")
+    print_test_footer()
+
+def test_os_info(ssh_client):
+    """Tests the os_info() method."""
+    print_test_header("test_os_info")
+    client = ssh_client
+    os_info = client.os_ops.os_info()
+    print(f"OS info: {os_info}")
+    
+    assert 'error' not in os_info, f"os_info returned an error: {os_info.get('error')}"
+    
+    # Test required fields
+    required_fields = ['os_name', 'os_version', 'os_release', 'kernel', 'architecture']
+    for field in required_fields:
+        assert field in os_info and os_info[field] != 'n/a', f"Missing or invalid '{field}'"
+    
+    # Validate specific fields
+    try:
+        # Kernel version should have at least 3 parts (e.g. 5.4.0)
+        kernel_parts = os_info['kernel'].split('.')
+        assert len(kernel_parts) >= 3, "Kernel version should have at least 3 parts"
+        for part in kernel_parts:
+            assert part.isdigit(), "Kernel version parts should be numbers"
+            
+        # Architecture should be a known value
+        assert os_info['architecture'] in ['x86_64', 'aarch64', 'armv7l', 'i386'], \
+            f"Unexpected architecture: {os_info['architecture']}"
+            
+        # OS release should be a version number
+        assert os_info['os_release'].replace('.', '').isdigit(), \
+            f"OS release should be a version number: {os_info['os_release']}"
+            
+    except AssertionError as e:
+        pytest.fail(f"OS info validation failed: {e}. Info: {os_info}")
+
+    print("OS info assertions passed.")
     print_test_footer()
 
 def test_network_info(ssh_client): # Use the fixture
