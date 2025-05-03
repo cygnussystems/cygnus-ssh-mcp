@@ -8,17 +8,41 @@ from test_utils import get_client, cleanup_client, print_test_header, print_test
 # --- Test Functions ---
 
 def test_connection():
-    """Test basic connection."""
+    """Test basic connection and simple command execution."""
     print_test_header("test_connection")
     client = get_client(force_new=True)
     try:
+        # Test basic connection state
         assert client._client is not None, "Client object should exist"
         assert client._client.is_active(), "Client connection should be active"
         print("Connection active assertion passed.")
         
-        handle = client.run("pwd")
-        assert handle.exit_code == 0
-        print("Basic 'pwd' command successful.")
+        # Test simple command execution with timeout
+        test_cmd = "pwd"
+        print(f"Testing basic command execution: {test_cmd}")
+        handle = client.run(test_cmd, io_timeout=10, runtime_timeout=15)
+        assert handle.exit_code == 0, f"Command '{test_cmd}' failed with exit code {handle.exit_code}"
+        
+        # Verify command output is reasonable
+        output = "".join(handle.tail(handle.total_lines))
+        assert output.strip() != "", "Command output should not be empty"
+        assert "/" in output, "pwd output should contain a path separator"
+        print(f"Command output: {output.strip()}")
+        
+        # Test environment variables
+        test_cmd = "echo $USER"
+        print(f"Testing environment variable: {test_cmd}")
+        handle = client.run(test_cmd, io_timeout=10, runtime_timeout=15)
+        assert handle.exit_code == 0, f"Command '{test_cmd}' failed"
+        output = "".join(handle.tail(handle.total_lines)).strip()
+        if SSH_USER:
+            assert output == SSH_USER, f"Expected USER={SSH_USER}, got {output}"
+        print(f"USER environment variable: {output}")
+        
+        print("Basic connection and command execution successful.")
+    except Exception as e:
+        print(f"Connection test failed: {e}")
+        raise
     finally:
         cleanup_client(client)
         print_test_footer()
