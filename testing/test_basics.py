@@ -52,7 +52,7 @@ def test_connection():
 
 def test_full_status(ssh_client):
     """Tests the combined status() method."""
-    print("\n--- test_status_command ---")
+    print("\n--- test_full_status ---")
     client = ssh_client
     print("Calling client.status()")
     status_info = client.full_status()
