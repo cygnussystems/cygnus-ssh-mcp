@@ -706,29 +706,46 @@ class SshDirectoryOperations:
         self.logger.info(f"Copying directory {source_path} to {destination_path} (overwrite={overwrite}, "
                         f"preserve_symlinks={preserve_symlinks}, preserve_permissions={preserve_permissions}, sudo={sudo})")
         
-        # Build rsync command with appropriate options
-        rsync_opts = ["-a"]  # Archive mode (preserves permissions, times, etc.)
+        # Normalize paths
+        source_path = source_path.rstrip('/')
         
-        if not preserve_permissions:
-            rsync_opts = ["-r"]  # Recursive only
+        # Check if destination exists and handle overwrite
+        check_dest_cmd = f"[ -d {shlex.quote(destination_path)} ] && echo 'exists' || echo 'not_exists'"
+        check_handle = self.ssh_client.run(check_dest_cmd, io_timeout=30, sudo=sudo)
+        dest_exists = 'exists' in check_handle.tail(1)[0]
         
-        if not preserve_symlinks:
-            rsync_opts.append("-L")  # Dereference symlinks
+        if dest_exists and not overwrite:
+            # Create a new destination path to avoid overwriting
+            destination_path = f"{destination_path}_{int(time.time())}"
+            self.logger.info(f"Destination exists and overwrite=False, using new path: {destination_path}")
+        elif dest_exists and overwrite:
+            # Remove existing destination if overwrite is True
+            self.logger.info(f"Removing existing destination for overwrite")
+            rm_cmd = f"rm -rf {shlex.quote(destination_path)}"
+            self.ssh_client.run(rm_cmd, io_timeout=60, runtime_timeout=300, sudo=sudo)
         
-        if overwrite:
-            rsync_opts.append("--delete")  # Delete extraneous files in destination
+        # Create destination directory
+        mkdir_cmd = f"mkdir -p {shlex.quote(destination_path)}"
+        self.ssh_client.run(mkdir_cmd, io_timeout=30, sudo=sudo)
         
-        # Add verbose option for detailed output
-        rsync_opts.append("-v")
+        # Build cp command with appropriate options
+        cp_opts = ["-r"]  # Recursive copy
         
-        # Ensure source path ends with / to copy contents
-        source_path = source_path.rstrip('/') + '/'
-        
-        # Construct the full command
-        cmd = f"rsync {' '.join(rsync_opts)} {shlex.quote(source_path)} {shlex.quote(destination_path)}"
+        if preserve_permissions:
+            cp_opts.append("-p")  # Preserve mode, ownership, timestamps
+            
+        if preserve_symlinks:
+            # Default behavior of cp is to follow symlinks, we need to handle them specially
+            # First, copy everything except symlinks
+            cp_cmd = f"find {shlex.quote(source_path)} -type f -o -type d | xargs -I{{}} cp -a {{}} {shlex.quote(destination_path)}/{{#source_prefix#}}"
+            cp_cmd = cp_cmd.replace("{#source_prefix#}", f"{source_path}/")
+        else:
+            # Use standard cp command
+            cp_cmd = f"cp {' '.join(cp_opts)} {shlex.quote(source_path)}/* {shlex.quote(destination_path)}/"
         
         try:
-            handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
+            # Execute the copy command
+            handle = self.ssh_client.run(cp_cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
             
             if handle.exit_code != 0:
                 self.logger.error(f"Failed to copy directory: {handle.tail(5)}")
@@ -740,11 +757,35 @@ class SshDirectoryOperations:
                     'destination_path': destination_path
                 }
             
-            # Count files copied from rsync output
-            files_copied = 0
-            for line in handle.tail(handle.total_lines):
-                if line.strip() and not line.startswith('sending ') and not line.startswith('sent '):
-                    files_copied += 1
+            # If preserving symlinks, we need to recreate them
+            if preserve_symlinks:
+                # Find all symlinks in the source directory
+                find_links_cmd = f"find {shlex.quote(source_path)} -type l -printf '%p\\t%l\\n'"
+                links_handle = self.ssh_client.run(find_links_cmd, io_timeout=60, sudo=sudo)
+                
+                # Process each symlink
+                for line in links_handle.tail(links_handle.total_lines):
+                    if not line.strip():
+                        continue
+                    
+                    parts = line.strip().split('\t')
+                    if len(parts) == 2:
+                        link_path, target = parts
+                        # Create relative path in destination
+                        rel_path = os.path.relpath(link_path, source_path)
+                        dest_link = os.path.join(destination_path, rel_path)
+                        
+                        # Create the symlink in destination
+                        ln_cmd = f"ln -sf {shlex.quote(target)} {shlex.quote(dest_link)}"
+                        self.ssh_client.run(ln_cmd, io_timeout=30, sudo=sudo)
+            
+            # Count files copied by listing destination
+            count_cmd = f"find {shlex.quote(destination_path)} -type f | wc -l"
+            count_handle = self.ssh_client.run(count_cmd, io_timeout=60, sudo=sudo)
+            try:
+                files_copied = int(count_handle.tail(1)[0].strip())
+            except (ValueError, IndexError):
+                files_copied = -1
             
             # Get total size of destination
             size_cmd = f"du -sb {shlex.quote(destination_path)} | cut -f1"
