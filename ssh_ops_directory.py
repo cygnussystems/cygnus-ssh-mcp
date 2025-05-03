@@ -715,11 +715,7 @@ class SshDirectoryOperations:
         check_handle = self.ssh_client.run(check_dest_cmd, io_timeout=30, sudo=sudo)
         dest_exists = 'exists' in check_handle.tail(1)[0]
         
-        if dest_exists and not overwrite:
-            # Create a new destination path to avoid overwriting
-            destination_path = f"{destination_path}_{int(time.time())}"
-            self.logger.info(f"Destination exists and overwrite=False, using new path: {destination_path}")
-        elif dest_exists and overwrite:
+        if dest_exists and overwrite:
             # Remove existing destination if overwrite is True
             self.logger.info(f"Removing existing destination for overwrite")
             rm_cmd = f"rm -rf {shlex.quote(destination_path)}"
@@ -771,9 +767,11 @@ class SshDirectoryOperations:
                     parts = line.strip().split('\t')
                     if len(parts) == 2:
                         link_path, target = parts
-                        # Create relative path in destination
+                        # Create relative path in destination - use posix paths
                         rel_path = os.path.relpath(link_path, source_path)
-                        dest_link = os.path.join(destination_path, rel_path)
+                        # Convert Windows backslashes to forward slashes for Linux
+                        rel_path = rel_path.replace('\\', '/')
+                        dest_link = f"{destination_path}/{rel_path}"
                         
                         # Create the symlink in destination
                         ln_cmd = f"ln -sf {shlex.quote(target)} {shlex.quote(dest_link)}"
