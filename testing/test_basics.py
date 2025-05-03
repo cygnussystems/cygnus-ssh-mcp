@@ -282,14 +282,18 @@ def test_disk_info(ssh_client): # Use the fixture
     assert 'error' not in disk_info, f"disk_info returned an error: {disk_info.get('error')}"
     assert 'disk_total' in disk_info and disk_info['disk_total'] != 'n/a', "Missing 'disk_total'"
     assert 'disk_free' in disk_info and disk_info['disk_free'] != 'n/a', "Missing 'disk_free'"
+    assert 'filesystem' in disk_info and disk_info['filesystem'] != 'n/a', "Missing 'filesystem'"
     
-    # Basic validation of disk values (expecting human-readable format from df -h)
+    # Basic validation of disk values
     if disk_info['disk_total'] != 'n/a':
         assert disk_info['disk_total'][-1].isalpha(), \
             f"Disk total '{disk_info['disk_total']}' should end with a unit (G, M, K, etc.)"
     if disk_info['disk_free'] != 'n/a':
         assert disk_info['disk_free'][-1].isalpha(), \
             f"Disk free '{disk_info['disk_free']}' should end with a unit (G, M, K, etc.)"
+    if disk_info['filesystem'] != 'n/a':
+        assert isinstance(disk_info['filesystem'], str), "Filesystem type should be a string"
+        assert len(disk_info['filesystem']) > 0, "Filesystem type should not be empty"
     
     print("Disk info assertions passed.")
     print_test_footer()

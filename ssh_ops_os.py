@@ -166,16 +166,19 @@ class SshOsOperations:
     
     def disk_info(self):
         """
-        Get disk-related information (usage, free space, etc.).
+        Get disk-related information (usage, free space, filesystem type, etc.).
         
         Returns:
-            Dict containing disk information.
+            Dict containing:
+            - disk_total: Total disk space (human readable)
+            - disk_free: Free disk space (human readable)
+            - filesystem: Filesystem type (e.g. ext4, xfs)
         """
-        # Use bash -c '...' with awk "..." and escaped \$ inside awk
         cmd = r"""
         bash -c '
           echo "DISK_TOTAL:$(df -h / | awk "NR==2{print \$2}")"
           echo "DISK_FREE:$(df -h / | awk "NR==2{print \$4}")"
+          echo "FILESYSTEM:$(df -T / | awk "NR==2{print \$2}")"
         '
         """
         return self._execute_status_command(cmd, self._disk_key_map)
@@ -270,7 +273,11 @@ class SshOsOperations:
         'HOSTNAME': 'hostname', 
         'IFACE': 'raw_output'  # Temporary storage for parsing
     }
-    _disk_key_map = {'DISK_TOTAL': 'disk_total', 'DISK_FREE': 'disk_free'}
+    _disk_key_map = {
+        'DISK_TOTAL': 'disk_total',
+        'DISK_FREE': 'disk_free',
+        'FILESYSTEM': 'filesystem'
+    }
 
 
     def _execute_status_command(self, cmd, key_map):
