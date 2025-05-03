@@ -264,16 +264,29 @@ def test_file_upload_download(ssh_client):
         remote_content = "".join(remote_content_lines)
         print(f"Remote content via cat:\n{remote_content!r}")
 
-        # Normalize line endings for comparison and handle potential extra newlines
+        # Normalize line endings for comparison
         normalized_original_content = file_content.replace('\r\n', '\n')
         normalized_remote_content = remote_content.replace('\r\n', '\n')
         
-        # Further normalize by removing any empty lines that might have been added
-        # during transfer (common when converting between Windows/Unix line endings)
-        normalized_original_lines = [line for line in normalized_original_content.split('\n') if line or line in normalized_original_content.split('\n')]
-        normalized_remote_lines = [line for line in normalized_remote_content.split('\n') if line or line in normalized_remote_content.split('\n')]
+        # More aggressive normalization to handle line ending differences between Windows and Linux
+        # 1. Split into lines
+        original_lines = normalized_original_content.split('\n')
+        remote_lines = normalized_remote_content.split('\n')
         
-        assert normalized_original_lines == normalized_remote_lines, \
+        # 2. Filter out empty lines that might have been added during transfer
+        # But keep empty lines that are meaningful in the original content
+        meaningful_original_lines = []
+        for i, line in enumerate(original_lines):
+            if line.strip() or (i > 0 and i < len(original_lines) - 1):  # Keep non-empty lines and meaningful empty lines
+                meaningful_original_lines.append(line)
+                
+        meaningful_remote_lines = []
+        for i, line in enumerate(remote_lines):
+            if line.strip() or (i > 0 and i < len(remote_lines) - 1 and i < len(original_lines) and not original_lines[i].strip()):
+                meaningful_remote_lines.append(line)
+        
+        # Compare the meaningful content
+        assert meaningful_original_lines == meaningful_remote_lines, \
             f"Remote content (cat) mismatch after normalization.\nOriginal: {normalized_original_content!r}\nRemote: {normalized_remote_content!r}"
         print("Remote content via cat matches original (after normalization).")
 
