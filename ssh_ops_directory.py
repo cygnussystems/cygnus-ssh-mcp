@@ -304,6 +304,18 @@ class SshDirectoryOperations:
         """
         self.logger.info(f"Moving {source} to {destination} (overwrite={overwrite}, sudo={sudo})")
         
+        # Check if source exists
+        source_check_cmd = f"[ -e {shlex.quote(source)} ] && echo 'exists' || echo 'not_exists'"
+        source_check = self.ssh_client.run(source_check_cmd, io_timeout=30, sudo=sudo)
+        source_exists = 'exists' in source_check.tail(1)[0]
+        
+        if not source_exists:
+            self.logger.error(f"Source does not exist: {source}")
+            return {
+                'status': 'error',
+                'message': f"Source does not exist: {source}"
+            }
+        
         # Check if destination exists
         check_cmd = f"[ -e {shlex.quote(destination)} ] && echo 'exists' || echo 'not_exists'"
         
