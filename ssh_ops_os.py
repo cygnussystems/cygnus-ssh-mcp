@@ -1,6 +1,6 @@
 import time
 import logging
-from ssh_models import SshError, CommandTimeout, BusyError
+from ssh_models import SshError, CommandTimeout, BusyError, CommandFailed # Import CommandFailed
 
 class SshOsOperations:
     """Handles operating system level operations like reboot and status."""
