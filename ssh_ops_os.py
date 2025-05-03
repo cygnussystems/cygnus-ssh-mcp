@@ -63,6 +63,7 @@ class SshOsOperations:
           echo "CPU:$(grep -c ^processor /proc/cpuinfo)"
           echo "MEM_TOTAL:$(free -m | awk "/^Mem:/{print $2}")"
           echo "MEM_FREE:$(free -m | awk "/^Mem:/{print $4}")"
+          echo "MEM_AVAIL:$(free -m | awk "/^Mem:/{print $7}")"
           echo "LOAD:$(cut -d" " -f1-3 /proc/loadavg 2>/dev/null || echo n/a)"
         '
         """
@@ -70,6 +71,7 @@ class SshOsOperations:
             'CPU': 'cpu_count',
             'MEM_TOTAL': 'mem_total_mb',
             'MEM_FREE': 'mem_free_mb',
+            'MEM_AVAIL': 'mem_available_mb',
             'LOAD': 'load_avg'
         })
     

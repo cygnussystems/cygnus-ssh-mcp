@@ -67,7 +67,7 @@ def test_full_status(ssh_client):
         # From user_status
         'user', 'cwd', 'time',
         # From hardware_info
-        'cpu_count', 'mem_total_mb', 'mem_free_mb', 'load_avg',
+        'cpu_count', 'mem_total_mb', 'mem_free_mb', 'mem_available_mb', 'load_avg',
         # From network_info
         'hostname', 'ip_address',
         # From disk_info
