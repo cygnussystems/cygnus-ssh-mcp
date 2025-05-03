@@ -364,6 +364,9 @@ def test_safe_move_or_rename(ssh_client):
         # Test overwrite protection
         client.run(f"echo 'original content' > {source_file}")
         
+        # Create the destination file first to test overwrite protection
+        client.run(f"echo 'destination content' > {dest_file}")
+        
         # Try to move without overwrite
         result = client.safe_move_or_rename(source_file, dest_file, overwrite=False)
         print(f"Move without overwrite result: {result['status']}, message: {result.get('message', 'N/A')}")
