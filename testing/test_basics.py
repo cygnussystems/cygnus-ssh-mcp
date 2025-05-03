@@ -191,14 +191,21 @@ def test_network_info(ssh_client): # Use the fixture
     
     assert 'error' not in net_info, f"network_info returned an error: {net_info.get('error')}"
     assert 'hostname' in net_info and net_info['hostname'] != 'n/a', "Missing 'hostname'"
-    assert 'ip_address' in net_info and net_info['ip_address'] != 'n/a', "Missing 'ip_address'"
+    assert 'interfaces' in net_info, "Missing 'interfaces' list"
     
-    # Basic validation of IP address format (if not 'n/a')
-    if net_info['ip_address'] != 'n/a':
-        import re
-        # Simple IPv4 pattern - adjust if IPv6 is expected
-        ip_pattern = re.compile(r'^\d{1,3}(\.\d{1,3}){3}$') 
-        assert ip_pattern.match(net_info['ip_address']), f"Invalid IP address format: {net_info['ip_address']}"
+    # Validate at least one interface exists
+    assert len(net_info['interfaces']) > 0, "No network interfaces found"
+    
+    # Validate each interface has required fields
+    for iface in net_info['interfaces']:
+        assert 'name' in iface, "Interface missing 'name'"
+        assert 'ip_addresses' in iface, "Interface missing 'ip_addresses'"
+        # Validate IP addresses if present
+        if iface['ip_addresses']:
+            import re
+            ip_pattern = re.compile(r'^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$')
+            for ip in iface['ip_addresses']:
+                assert ip_pattern.match(ip), f"Invalid IP address format: {ip}"
     
     print("Network info assertions passed.")
     print_test_footer()

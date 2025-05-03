@@ -88,19 +88,40 @@ class SshOsOperations:
     
     def network_info(self):
         """
-        Get network-related information (interfaces, IPs, etc.).
+        Get network-related information including all interfaces and their IP addresses.
         
         Returns:
-            Dict containing network information.
+            Dict containing:
+            - hostname: System hostname
+            - interfaces: List of dicts with interface details (name, ip_addresses, etc.)
         """
         # Use bash -c '...' with awk "..." and escaped \$ inside awk
         cmd = r"""
         bash -c '
           echo "HOSTNAME:$(hostname)"
-          echo "IP:$(hostname -I | awk "{print \$1}" 2>/dev/null || echo n/a)"
+          # Get all interfaces and their IPs
+          for iface in $(ls /sys/class/net); do
+            ips=$(ip -4 addr show $iface | awk "/inet /{print \$2}" | tr "\n" " ")
+            echo "IFACE:$iface|IPS:$ips"
+          done
         '
         """
-        return self._execute_status_command(cmd, self._network_key_map)
+        result = self._execute_status_command(cmd, self._network_key_map)
+        
+        # Parse interface information
+        interfaces = []
+        for line in result.get('raw_output', '').splitlines():
+            if line.startswith('IFACE:'):
+                iface_part, ips_part = line.split('|')
+                iface_name = iface_part.split(':')[1]
+                ips = ips_part.split(':')[1].strip().split()
+                interfaces.append({
+                    'name': iface_name,
+                    'ip_addresses': ips
+                })
+        
+        result['interfaces'] = interfaces
+        return result
     
     def disk_info(self):
         """
@@ -183,7 +204,10 @@ class SshOsOperations:
     # Helper key maps (defined once for reuse)
     _user_key_map = {'USER': 'user', 'CWD': 'cwd', 'TIME': 'time'}
     _hardware_key_map = {'CPU': 'cpu_count', 'MEM_TOTAL': 'mem_total_mb', 'MEM_FREE': 'mem_free_mb', 'MEM_AVAIL': 'mem_available_mb', 'LOAD': 'load_avg'}
-    _network_key_map = {'HOSTNAME': 'hostname', 'IP': 'ip_address'}
+    _network_key_map = {
+        'HOSTNAME': 'hostname', 
+        'IFACE': 'raw_output'  # Temporary storage for parsing
+    }
     _disk_key_map = {'DISK_TOTAL': 'disk_total', 'DISK_FREE': 'disk_free'}
 
 
