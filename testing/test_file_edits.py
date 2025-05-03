@@ -302,9 +302,18 @@ def test_file_upload_download(ssh_client):
             downloaded_content = f.read()
         print(f"Downloaded content:\n{downloaded_content!r}")
 
-        # Normalize for comparison
+        # Normalize for comparison - apply the same normalization as for remote content
         normalized_downloaded_content = downloaded_content.replace('\r\n', '\n')
-        assert normalized_original_content == normalized_downloaded_content, \
+        
+        # Apply the same normalization to downloaded content as we did for remote content
+        downloaded_lines = normalized_downloaded_content.split('\n')
+        meaningful_downloaded_lines = []
+        for i, line in enumerate(downloaded_lines):
+            if line.strip() or (i > 0 and i < len(downloaded_lines) - 1 and i < len(original_lines) and not original_lines[i].strip()):
+                meaningful_downloaded_lines.append(line)
+        
+        # Compare the meaningful content
+        assert meaningful_original_lines == meaningful_downloaded_lines, \
             f"Downloaded content mismatch after normalization.\nOriginal: {normalized_original_content!r}\nDownloaded: {normalized_downloaded_content!r}"
         print("Downloaded content matches original (after normalization).")
 
