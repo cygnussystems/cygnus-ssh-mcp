@@ -331,6 +331,7 @@ def test_file_upload_download(ssh_client):
 
 if __name__ == "__main__":
     print("Running file editing tests...")
+    test_file_upload_download(get_client(force_new=True))
     test_replace_line_simple(get_client(force_new=True))
     test_replace_line_multiple(get_client(force_new=True))
     test_replace_line_no_match(get_client(force_new=True))
@@ -338,5 +339,5 @@ if __name__ == "__main__":
     test_replace_block_simple(get_client(force_new=True))
     test_replace_block_no_match(get_client(force_new=True))
     test_replace_block_sudo(get_client(force_new=True, sudo_password=TEST_SUDO_PASSWORD))
-    test_file_upload_download(get_client(force_new=True))
+
     print("All file editing tests completed.")
