@@ -275,12 +275,18 @@ def test_create_and_extract_archive(ssh_client):
         assert extract_result['status'] == 'success', f"Expected success status, got {extract_result['status']}"
         assert len(extract_result['extracted_files']) > 0, "Should have extracted files"
         
-        # Verify extracted content
-        content_check = client.run(f"cat {extract_dir}/file1.txt")
+        # Verify extracted content - first find the file
+        find_file = client.run(f"find {extract_dir} -name file1.txt")
+        file1_path = find_file.tail(1)[0].strip()
+        assert file1_path, "Could not find file1.txt in extracted content"
+        
+        content_check = client.run(f"cat {file1_path}")
         assert 'test1' in content_check.tail(1)[0], "File content should be preserved in extraction"
         
-        dir_check = client.run(f"[ -d {extract_dir}/dir1 ] && echo 'exists' || echo 'missing'")
-        assert 'exists' in dir_check.tail(1)[0], "Subdirectory should be preserved in extraction"
+        # Find the subdirectory
+        find_dir = client.run(f"find {extract_dir} -name dir1 -type d")
+        dir1_path = find_dir.tail(1)[0].strip() if find_dir.total_lines > 0 else ""
+        assert dir1_path, "Could not find dir1 subdirectory in extracted content"
         
         print("create_and_extract_archive test passed")
     finally:

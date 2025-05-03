@@ -578,10 +578,12 @@ class SshDirectoryOperations:
             
             # Extract the archive
             if archive_type == 'tar.gz':
-                extract_cmd = f"tar -xzf {shlex.quote(archive_path)} -C {shlex.quote(destination_path)}"
+                # Use --strip-components=1 to remove the top-level directory
+                extract_cmd = f"tar -xzf {shlex.quote(archive_path)} -C {shlex.quote(destination_path)} --strip-components=1"
                 if not overwrite:
                     extract_cmd += " --keep-old-files"
             else:  # zip
+                # For zip, we need to extract then move files up if they're in a subdirectory
                 extract_cmd = f"unzip {'-o' if overwrite else ''} {shlex.quote(archive_path)} -d {shlex.quote(destination_path)}"
             
             extract_handle = self.ssh_client.run(extract_cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
