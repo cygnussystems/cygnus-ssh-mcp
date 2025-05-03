@@ -74,13 +74,13 @@ class SshOsOperations:
         Returns:
             Dict containing hardware information.
         """
-        # Use single quotes around awk scripts for robustness
+        # Use bash -c '...' with awk "..." and escaped \$ inside awk
         cmd = r"""
         bash -c '
           echo "CPU:$(grep -c ^processor /proc/cpuinfo)"
-          echo "MEM_TOTAL:$(free -m | awk '/^Mem:/{print $2}')"
-          echo "MEM_FREE:$(free -m | awk '/^Mem:/{print $4}')"
-          echo "MEM_AVAIL:$(free -m | awk '/^Mem:/{print $7}')"
+          echo "MEM_TOTAL:$(free -m | awk "/^Mem:/{print \$2}")"
+          echo "MEM_FREE:$(free -m | awk "/^Mem:/{print \$4}")"
+          echo "MEM_AVAIL:$(free -m | awk "/^Mem:/{print \$7}")"
           echo "LOAD:$(cut -d" " -f1-3 /proc/loadavg 2>/dev/null || echo n/a)"
         '
         """
@@ -93,11 +93,11 @@ class SshOsOperations:
         Returns:
             Dict containing network information.
         """
-        # Use single quotes around awk script
+        # Use bash -c '...' with awk "..." and escaped \$ inside awk
         cmd = r"""
         bash -c '
           echo "HOSTNAME:$(hostname)"
-          echo "IP:$(hostname -I | awk '{print $1}' 2>/dev/null || echo n/a)"
+          echo "IP:$(hostname -I | awk "{print \$1}" 2>/dev/null || echo n/a)"
         '
         """
         return self._execute_status_command(cmd, self._network_key_map)
@@ -109,11 +109,11 @@ class SshOsOperations:
         Returns:
             Dict containing disk information.
         """
-        # Use single quotes around awk scripts
+        # Use bash -c '...' with awk "..." and escaped \$ inside awk
         cmd = r"""
         bash -c '
-          echo "DISK_TOTAL:$(df -h / | awk 'NR==2{print $2}')"
-          echo "DISK_FREE:$(df -h / | awk 'NR==2{print $4}')"
+          echo "DISK_TOTAL:$(df -h / | awk "NR==2{print \$2}")"
+          echo "DISK_FREE:$(df -h / | awk "NR==2{print \$4}")"
         '
         """
         return self._execute_status_command(cmd, self._disk_key_map)
@@ -125,6 +125,7 @@ class SshOsOperations:
         Returns:
             Dict containing user information.
         """
+        # This command doesn't use awk, so it was already working correctly.
         cmd = r"""
         bash -c '
           echo "USER:$(whoami)"
@@ -167,6 +168,8 @@ class SshOsOperations:
                 else:
                     status_info.update(component_info)
             except Exception as e:
+                # Catch exceptions raised by _execute_status_command (like BusyError)
+                # or unexpected errors within the component function itself.
                 self.logger.warning(f"Failed to get {name} status component: {e}", exc_info=True)
                 errors[name] = str(e)
                 # Add 'n/a' for expected keys if component failed
@@ -203,24 +206,17 @@ class SshOsOperations:
             status_info[key] = 'n/a'
             
         try:
-            handle = self.ssh_client.run(cmd.strip(), io_timeout=5, runtime_timeout=10)
+            # Use run_ops directly instead of self.ssh_client.run to avoid circular dependency potential
+            # and potentially simplify debugging if run() adds more logic later.
+            handle = self.ssh_client.run_ops.execute_command(cmd.strip(), io_timeout=5, runtime_timeout=10)
             
-            # Check command exit code *before* parsing output
-            if handle.exit_code != 0:
-                 # Attempt to get stderr if available, otherwise use generic message
-                 stderr_sample = "n/a"
-                 if hasattr(handle, 'stderr_buffer') and handle.stderr_buffer:
-                     stderr_sample = "".join(handle.stderr_buffer)
-                 elif hasattr(handle, 'stderr') and handle.stderr: # Fallback for simpler handles
-                     stderr_sample = handle.stderr
-                     
-                 error_msg = f"Command failed with exit code {handle.exit_code}. Stderr: {stderr_sample[:200]}"
-                 self.logger.warning(f"Status command failed: {cmd.strip()} - {error_msg}")
-                 # Return specific error, keeping the n/a values populated before
-                 status_info['error'] = error_msg 
-                 return status_info # Return early on command failure
+            # Check command exit code *after* execution completes
+            # Note: execute_command raises CommandFailed on non-zero exit, so this check
+            # might seem redundant, but it's good practice if execute_command behavior changes.
+            # However, the current implementation means we'll likely catch CommandFailed in the except block.
+            # Let's adjust the try/except structure slightly.
 
-            # Proceed with parsing if exit code is 0
+            # Proceed with parsing if exit code is 0 (which it must be if CommandFailed wasn't raised)
             output = "".join(handle.tail(handle.total_lines)) # Get all lines
             parsed_keys = set()
             for line in output.splitlines():
@@ -238,15 +234,22 @@ class SshOsOperations:
                  self.logger.warning(f"Missing expected keys in status output for command '{cmd.strip()}': {missing_keys}")
                  # Values for missing keys remain 'n/a' as set initially
 
+        except CommandFailed as e:
+             # Handle non-zero exit codes specifically
+             stderr_sample = e.stderr if isinstance(e.stderr, str) else e.stderr.decode('utf-8', errors='replace')
+             error_msg = f"Command failed with exit code {e.exit_code}. Stderr: {stderr_sample[:200]}"
+             self.logger.warning(f"Status command failed: {cmd.strip()} - {error_msg}")
+             status_info['error'] = error_msg 
+             # Keep n/a values populated before
+
         except BusyError:
             self.logger.warning("Cannot get status: client is busy.")
             status_info['error'] = "Client is busy" # Add error key
             # Keep n/a values
-            # Re-raise BusyError as it indicates a specific client state,
-            # allowing the caller (like full_status) to handle it if needed,
-            # although full_status currently catches generic Exception.
+            # Re-raise BusyError as it indicates a specific client state
             raise 
         except Exception as e:
+            # Catch other potential errors (timeouts, connection issues, unexpected parsing errors)
             self.logger.warning(f"Failed to execute or parse status component: {e}", exc_info=True)
             status_info['error'] = str(e) # Add error key
             # Keep n/a values
