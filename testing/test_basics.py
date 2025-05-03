@@ -158,10 +158,14 @@ def test_disk_info(ssh_client):
 
 if __name__ == "__main__":
     print("Running basic tests...")
-    test_connection()
-    test_full_status()
-    test_user_status()
-    test_hardware_info()
-    test_network_info()
-    test_disk_info()
-    print("All basic tests completed.")
+    client = get_client(force_new=True)
+    try:
+        test_connection()
+        test_full_status(client)
+        test_user_status(client)
+        test_hardware_info(client)
+        test_network_info(client)
+        test_disk_info(client)
+        print("All basic tests completed.")
+    finally:
+        cleanup_client(client)
