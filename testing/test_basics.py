@@ -14,7 +14,8 @@ def test_connection():
     try:
         # Test basic connection state
         assert client._client is not None, "Client object should exist"
-        assert client._client.is_active(), "Client connection should be active"
+        assert client._client.get_transport() is not None, "SSH transport should exist"
+        assert client._client.get_transport().is_active(), "Client connection should be active"
         print("Connection active assertion passed.")
         
         # Test simple command execution with timeout
