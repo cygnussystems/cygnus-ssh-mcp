@@ -69,15 +69,23 @@ class SshOsOperations:
     
     def hardware_info(self):
         """
-        Get hardware-related information (CPU, memory, etc.).
+        Get comprehensive hardware-related information.
         
         Returns:
-            Dict containing hardware information.
+            Dict containing:
+            - cpu_count: Number of CPU cores
+            - cpu_model: CPU model name
+            - cpu_mhz: CPU frequency
+            - mem_total_mb: Total memory in MB
+            - mem_free_mb: Free memory in MB
+            - mem_available_mb: Available memory in MB
+            - load_avg: 1, 5, and 15 minute load averages
         """
-        # Use bash -c '...' with awk "..." and escaped \$ inside awk
         cmd = r"""
         bash -c '
           echo "CPU:$(grep -c ^processor /proc/cpuinfo)"
+          echo "CPU_MODEL:$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | sed "s/^[ \t]*//;s/[ \t]*$//")"
+          echo "CPU_MHZ:$(grep -m1 "cpu MHz" /proc/cpuinfo | cut -d: -f2 | sed "s/^[ \t]*//;s/[ \t]*$//")"
           echo "MEM_TOTAL:$(free -m | awk "/^Mem:/{print \$2}")"
           echo "MEM_FREE:$(free -m | awk "/^Mem:/{print \$4}")"
           echo "MEM_AVAIL:$(free -m | awk "/^Mem:/{print \$7}")"
@@ -85,6 +93,39 @@ class SshOsOperations:
         '
         """
         return self._execute_status_command(cmd, self._hardware_key_map)
+
+    def os_info(self):
+        """
+        Get operating system information.
+        
+        Returns:
+            Dict containing:
+            - os_name: OS name (e.g. "Ubuntu")
+            - os_version: OS version
+            - os_release: OS release (e.g. "20.04")
+            - kernel: Kernel version
+            - architecture: System architecture
+        """
+        cmd = r"""
+        bash -c '
+          if [ -f /etc/os-release ]; then
+            echo "OS_NAME:$(grep "^NAME=" /etc/os-release | cut -d= -f2 | tr -d \")"
+            echo "OS_VERSION:$(grep "^VERSION=" /etc/os-release | cut -d= -f2 | tr -d \")"
+            echo "OS_RELEASE:$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2 | tr -d \")"
+          elif [ -f /etc/redhat-release ]; then
+            echo "OS_NAME:$(cat /etc/redhat-release | cut -d" " -f1)"
+            echo "OS_VERSION:$(cat /etc/redhat-release | cut -d" " -f3)"
+            echo "OS_RELEASE:$(cat /etc/redhat-release | cut -d" " -f4)"
+          else
+            echo "OS_NAME:Unknown"
+            echo "OS_VERSION:Unknown"
+            echo "OS_RELEASE:Unknown"
+          fi
+          echo "KERNEL:$(uname -r)"
+          echo "ARCH:$(uname -m)"
+        '
+        """
+        return self._execute_status_command(cmd, self._os_key_map)
     
     def network_info(self):
         """
@@ -172,6 +213,7 @@ class SshOsOperations:
             'hardware': (self.hardware_info, self._hardware_key_map),
             'network': (self.network_info, self._network_key_map),
             'disk': (self.disk_info, self._disk_key_map),
+            'os': (self.os_info, self._os_key_map),
         }
 
         for name, (func, key_map) in components.items():
@@ -203,7 +245,22 @@ class SshOsOperations:
 
     # Helper key maps (defined once for reuse)
     _user_key_map = {'USER': 'user', 'CWD': 'cwd', 'TIME': 'time'}
-    _hardware_key_map = {'CPU': 'cpu_count', 'MEM_TOTAL': 'mem_total_mb', 'MEM_FREE': 'mem_free_mb', 'MEM_AVAIL': 'mem_available_mb', 'LOAD': 'load_avg'}
+    _hardware_key_map = {
+        'CPU': 'cpu_count',
+        'CPU_MODEL': 'cpu_model', 
+        'CPU_MHZ': 'cpu_mhz',
+        'MEM_TOTAL': 'mem_total_mb',
+        'MEM_FREE': 'mem_free_mb',
+        'MEM_AVAIL': 'mem_available_mb',
+        'LOAD': 'load_avg'
+    }
+    _os_key_map = {
+        'OS_NAME': 'os_name',
+        'OS_VERSION': 'os_version',
+        'OS_RELEASE': 'os_release',
+        'KERNEL': 'kernel',
+        'ARCH': 'architecture'
+    }
     _network_key_map = {
         'HOSTNAME': 'hostname', 
         'IFACE': 'raw_output'  # Temporary storage for parsing
