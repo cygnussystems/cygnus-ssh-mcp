@@ -221,7 +221,7 @@ class SshClient:
         return self.os_ops.reboot(wait, timeout)
 
 
-    def status(self):
+    def full_status(self):
         """Return a snapshot of system state using a combined command."""
         return self.os_ops.status()
 
