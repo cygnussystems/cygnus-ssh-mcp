@@ -92,7 +92,7 @@ def test_full_status(ssh_client): # Use the fixture
         # From hardware_info
         'cpu_count', 'mem_total_mb', 'mem_free_mb', 'mem_available_mb', 'load_avg',
         # From network_info
-        'hostname', 'ip_address',
+        'hostname', 'interfaces',
         # From disk_info
         'disk_total', 'disk_free'
     ]
