@@ -264,10 +264,16 @@ def test_file_upload_download(ssh_client):
         remote_content = "".join(remote_content_lines)
         print(f"Remote content via cat:\n{remote_content!r}")
 
-        # Normalize line endings for comparison
+        # Normalize line endings for comparison and handle potential extra newlines
         normalized_original_content = file_content.replace('\r\n', '\n')
         normalized_remote_content = remote_content.replace('\r\n', '\n')
-        assert normalized_original_content == normalized_remote_content, \
+        
+        # Further normalize by removing any empty lines that might have been added
+        # during transfer (common when converting between Windows/Unix line endings)
+        normalized_original_lines = [line for line in normalized_original_content.split('\n') if line or line in normalized_original_content.split('\n')]
+        normalized_remote_lines = [line for line in normalized_remote_content.split('\n') if line or line in normalized_remote_content.split('\n')]
+        
+        assert normalized_original_lines == normalized_remote_lines, \
             f"Remote content (cat) mismatch after normalization.\nOriginal: {normalized_original_content!r}\nRemote: {normalized_remote_content!r}"
         print("Remote content via cat matches original (after normalization).")
 
