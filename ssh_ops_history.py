@@ -30,7 +30,7 @@ class CommandHistoryManager:
         self._next_id += 1
         
         # Create handle with unlimited buffer for recent commands
-        is_recent = len(self._history) < self.recent_full_output
+        is_recent = len(self._history_order) < self.recent_full_output
         tail_keep = None if is_recent else self.default_tail
         handle = CommandHandle(handle_id, cmd, tail_keep=tail_keep, pid=pid)
         
