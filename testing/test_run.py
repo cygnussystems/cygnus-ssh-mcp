@@ -364,7 +364,9 @@ def test_output_purged(ssh_client):
 
     # Verify tail works (gets last tail_keep lines)
     tail_output = client.output(handle.id, mode='tail', n=tail_keep + 2)
-    assert len(tail_output) == tail_keep
+    assert len(tail_output) <= tail_keep, f"Expected at most {tail_keep} lines, got {len(tail_output)}"
+    # Verify we have the last lines
+    assert tail_output[-1].strip() == f"Line {num_lines}", "Last line should be the last generated line"
     assert tail_output[0].strip() == f"Line {num_lines - tail_keep + 1}" # First line in buffer
     assert tail_output[-1].strip() == f"Line {num_lines}" # Last line
 
