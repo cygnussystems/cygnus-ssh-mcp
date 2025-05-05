@@ -2,8 +2,9 @@ import logging
 import sys
 from fastmcp import FastMCP
 from pydantic import Field
-from typing import Annotated
+from typing import Annotated, Optional, Literal
 from ssh_client import SshClient
+from ssh_models import SshError
 
 # ===================
 # Logging Setup
