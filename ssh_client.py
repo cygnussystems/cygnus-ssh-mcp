@@ -85,16 +85,28 @@ class SshClient:
     def _detect_os(self):
         """Detect the remote OS type and subtype."""
         try:
-            result = self.run('uname -s')
+            # First try uname -s which works on Linux/macOS
+            result = self.run('uname -s', io_timeout=5)
             if 'Linux' in result:
                 self.os_type = 'linux'
                 self._detect_linux_distro()
             elif 'Darwin' in result:
                 self.os_type = 'macos'
             else:
-                self.os_type = 'windows'
-        except Exception:
-            self.os_type = 'windows'
+                # If uname fails, try systeminfo for Windows
+                try:
+                    self.run('systeminfo', io_timeout=5)
+                    self.os_type = 'windows'
+                except Exception:
+                    # If both fail, assume Linux as default for container environments
+                    self.os_type = 'linux'
+                    self._detect_linux_distro()
+        except Exception as e:
+            # Default to Linux for container environments
+            self.os_type = 'linux'
+            self._detect_linux_distro()
+            self._logger.warning(f"OS detection failed, defaulting to Linux: {e}")
+            
         self._logger.info(f"Detected remote OS: {self.os_type} ({self.os_subtype})")
         
         # Update connection status with OS info
