@@ -353,7 +353,7 @@ def test_output_purged(ssh_client):
     """Tests that OutputPurged is raised when requesting chunks outside the buffer."""
     print("\n--- test_output_purged ---")
     client = ssh_client # Fixture provides client with tail_keep=10
-    tail_keep = client.history_manager.tail_keep
+    tail_keep = client.history_manager.default_tail
     num_lines = tail_keep + 5 # Generate more lines than kept in buffer
     cmd = f"for i in $(seq 1 {num_lines}); do echo \"Line $i\"; done"
     print(f"Running command to generate {num_lines} lines (tail_keep={tail_keep})...")

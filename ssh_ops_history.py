@@ -22,6 +22,7 @@ class CommandHistoryManager:
         self.history_limit = history_limit
         self.recent_full_output = recent_full_output
         self.default_tail = default_tail
+        self.tail_keep = default_tail  # Add this attribute for compatibility with tests
         self._next_id = 1
 
     def add_command(self, cmd: str, pid: Optional[int] = None) -> CommandHandle:
