@@ -243,7 +243,11 @@ exit 0
                 try:
                     chan.exec_command(full_cmd)
                     # Read stderr before checking exit status
-                    stderr = chan.makefile_stderr('r', encoding='utf-8', errors='replace').read()
+                    stderr_file = chan.makefile_stderr('r')
+                    stderr = stderr_file.read()
+                    if isinstance(stderr, bytes):
+                        stderr = stderr.decode('utf-8', errors='replace')
+                    stderr_file.close()
                     exit_status = chan.recv_exit_status()
                     
                     if exit_status == 0:

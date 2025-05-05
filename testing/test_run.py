@@ -270,7 +270,7 @@ def test_history_trimming(ssh_client):
     print("\n--- test_history_trimming ---")
     # Client is created by fixture with history_limit=5 due to marker
     client = ssh_client
-    history_limit = client.history_manager._history_limit # Get actual limit from client
+    history_limit = client.history_manager.history_limit # Get actual limit from client
 
     num_commands = history_limit + 3
     print(f"Running {num_commands} commands with history limit {history_limit}...")
@@ -353,7 +353,7 @@ def test_output_purged(ssh_client):
     """Tests that OutputPurged is raised when requesting chunks outside the buffer."""
     print("\n--- test_output_purged ---")
     client = ssh_client # Fixture provides client with tail_keep=10
-    tail_keep = client.history_manager._tail_keep
+    tail_keep = client.history_manager.tail_keep
     num_lines = tail_keep + 5 # Generate more lines than kept in buffer
     cmd = f"for i in $(seq 1 {num_lines}); do echo \"Line $i\"; done"
     print(f"Running command to generate {num_lines} lines (tail_keep={tail_keep})...")
