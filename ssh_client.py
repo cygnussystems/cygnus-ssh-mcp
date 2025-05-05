@@ -60,6 +60,8 @@ class SshClient:
         self.sudo_password = sudo_password
         self.connect_timeout = connect_timeout
         self._busy_lock = threading.Lock()
+        self.history_limit = history_limit
+        self.tail_keep = tail_keep
         self.history_manager = CommandHistoryManager(history_limit, tail_keep)
         self._logger = logging.getLogger(f"{__name__}.SshClient")
 
