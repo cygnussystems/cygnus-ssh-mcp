@@ -192,6 +192,26 @@ async def ssh_status() -> dict:
         raise
 
 @mcp.tool()
+async def ssh_output(
+    handle_id: Annotated[int, Field(description="Command handle ID to retrieve output for")],
+    lines: Annotated[Optional[int], Field(description="Number of lines to retrieve (None for all)")] = None
+) -> list:
+    """
+    Retrieve output from a specific command execution.
+    
+    Returns:
+        List of output lines from the command
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return ssh_client.output(handle_id, lines=lines)
+    except Exception as e:
+        logger.error(f"Failed to retrieve output: {e}")
+        raise
+
+@mcp.tool()
 async def ssh_command_history(
     limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
     include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
