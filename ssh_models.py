@@ -124,16 +124,32 @@ class CommandHandle:
         if start < 0: # Allow start=0 even if total_lines is 0
              raise ValueError(f"Start index {start} cannot be negative")
 
-        # Calculate the absolute index of the first element currently in the buffer
-        buf_start_abs_index = max(0, self.total_lines - len(self._buf))
-
-        if start < buf_start_abs_index:
-            # Requested start index is before the first line currently stored
-            raise OutputPurged(self.id)
-
         # Convert deque to list for easier slicing
         buf_list = list(self._buf)
         
+        # For a buffer with maxlen=10 that has 10 items (Lines 96-105),
+        # if we request start=95, we should raise OutputPurged
+        # if we request start=96, we should return the first item in the buffer
+        
+        # Calculate the absolute index of the first element currently in the buffer
+        # For a command that generated 105 lines with a buffer of 10 lines,
+        # the first line in the buffer would be at index 95 (105-10)
+        buf_start_abs_index = max(0, self.total_lines - len(self._buf))
+        
+        # Debug output to help diagnose issues
+        # print(f"Buffer start abs index: {buf_start_abs_index}, requested start: {start}")
+        # print(f"Total lines: {self.total_lines}, buffer length: {len(self._buf)}")
+        
+        if start < buf_start_abs_index:
+            # Requested start index is before the first line currently stored
+            raise OutputPurged(self.id)
+            
         # Calculate the index relative to the start of the current buffer
         relative_start_idx = start - buf_start_abs_index
+        
+        # Check if the relative index is within the buffer bounds
+        if relative_start_idx >= len(buf_list):
+            # Requested start index is beyond the end of the buffer
+            return []
+            
         return buf_list[relative_start_idx : relative_start_idx + length]

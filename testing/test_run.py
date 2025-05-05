@@ -386,9 +386,12 @@ def test_output_purged(ssh_client):
     print(f"Caught expected OutputPurged: {excinfo.value}")
     assert str(handle.id) in str(excinfo.value)
 
+    # Calculate the actual buffer start index based on the buffer contents
+    buffer_start_index = num_lines - len(tail_output)
+    print(f"Buffer starts at index {buffer_start_index} (Line {buffer_start_index + 1})")
+    
     # Try to get chunk starting just before the buffer starts
-    buffer_start_index = num_lines - tail_keep
-    print(f"Buffer starts at index {buffer_start_index}. Attempting chunk at {buffer_start_index - 1}...")
+    print(f"Attempting chunk at {buffer_start_index - 1}...")
     with pytest.raises(OutputPurged):
         client.output(handle.id, mode='chunk', start=buffer_start_index - 1, n=1)
 
