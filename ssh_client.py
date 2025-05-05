@@ -41,6 +41,17 @@ class SshClient:
         # Initialize platform detection
         self.os_type = None  # 'windows', 'linux', 'macos'
         self.os_subtype = None  # 'windows10', 'debian', 'centos', etc.
+        
+        # Initialize connection status tracking
+        self._connection_status = {
+            'os_type': None,
+            'os_version': None,
+            'user': None,
+            'cwd': None,
+            'has_sudo': sudo_password is not None,  # Assume sudo if password provided
+            'last_updated': None
+        }
+        self._status_lock = threading.Lock()  # For thread safety
         self.host = host
         self.user = user
         self.port = port
@@ -84,6 +95,13 @@ class SshClient:
         except Exception:
             self.os_type = 'windows'
         self._logger.info(f"Detected remote OS: {self.os_type} ({self.os_subtype})")
+        
+        # Update connection status with OS info
+        with self._status_lock:
+            self._connection_status.update({
+                'os_type': self.os_type,
+                'os_version': self.os_subtype
+            })
 
     def _detect_linux_distro(self):
         """Detect Linux distribution subtype."""
@@ -120,8 +138,16 @@ class SshClient:
             self.os_ops = SshOsOperations_Linux(self)
 
     def _connect(self):
-        """Establish SSH connection."""
+        """Establish SSH connection and update connection status."""
         self._logger.info(f"Connecting to {self.user}@{self.host}:{self.port}...")
+        
+        # Update connection status with initial info
+        with self._status_lock:
+            self._connection_status.update({
+                'user': self.user,
+                'host': self.host,
+                'last_updated': time.time()
+            })
         kwargs = dict(
             hostname=self.host,
             port=self.port,
@@ -144,10 +170,21 @@ class SshClient:
             raise SshError(f"Connection failed: {e}") from e
 
     def close(self):
-        """Close the SSH connection."""
+        """Close the SSH connection and clear status."""
         if self._client:
             self._logger.info("Closing SSH connection.")
             self._client.close()
+            
+        # Clear connection status
+        with self._status_lock:
+            self._connection_status = {
+                'os_type': None,
+                'os_version': None,
+                'user': None,
+                'cwd': None,
+                'has_sudo': False,
+                'last_updated': None
+            }
 
     def __enter__(self):
         return self
@@ -158,6 +195,56 @@ class SshClient:
     def _add_to_history(self, handle):
         """Adds a handle to history (delegates to history_manager)."""
         self.history_manager.add_command(handle.cmd, handle.pid)
+
+    def update_connection_status(self, force=False):
+        """Update cached connection status if stale (>5 minutes) or forced."""
+        with self._status_lock:
+            now = time.time()
+            last_update = self._connection_status.get('last_updated', 0)
+            
+            if not force and (now - last_update) < 300:  # 5 minute cache
+                return
+                
+            try:
+                # Get basic info with single command
+                cmd = """
+                echo "USER:$(whoami)"
+                echo "CWD:$(pwd)"
+                """
+                handle = self.run(cmd, io_timeout=5)
+                output = "".join(handle.tail(handle.total_lines))
+                
+                # Parse output
+                for line in output.splitlines():
+                    if 'USER:' in line:
+                        self._connection_status['user'] = line.split(':', 1)[1].strip()
+                    elif 'CWD:' in line:
+                        self._connection_status['cwd'] = line.split(':', 1)[1].strip()
+                
+                # Update timestamp
+                self._connection_status['last_updated'] = now
+                
+            except Exception as e:
+                self._logger.warning(f"Failed to update connection status: {e}")
+
+    def get_connection_status(self) -> dict:
+        """Return current connection status with timestamp."""
+        self.update_connection_status()  # Refresh if needed
+        with self._status_lock:
+            return {
+                **self._connection_status,
+                'timestamp': datetime.now(UTC).isoformat(),
+                'host': self.host
+            }
+
+    def verify_sudo_access(self) -> bool:
+        """Optionally verify sudo access when needed."""
+        try:
+            handle = self.run('sudo -n true 2>/dev/null && echo true || echo false', io_timeout=5)
+            return 'true' in handle.tail(1)[0]
+        except Exception as e:
+            self._logger.warning(f"Failed to verify sudo access: {e}")
+            return False
 
 
 
