@@ -103,6 +103,9 @@ class SshRunOperations_Linux:
     def _create_command_handle(self, cmd):
         """Create and track a new CommandHandle."""
         handle = self.ssh_client.history_manager.add_command(cmd)
+        # Ensure tail_keep is set
+        if not hasattr(handle, '_tail_keep') or handle._tail_keep is None:
+            handle._tail_keep = self.tail_keep
         handle._buf = deque(maxlen=self.tail_keep)  # Set buffer size for this handle
         return handle
 
@@ -179,7 +182,7 @@ class SshRunOperations_Linux:
                             for line in lines:
                                 handle.total_lines += 1
                                 # Set truncated flag if total lines exceed buffer capacity
-                                if handle.total_lines > handle._tail_keep:
+                                if handle._tail_keep is not None and handle.total_lines > handle._tail_keep:
                                     handle.truncated = True
                                 if not line.endswith('\n'):
                                     line += '\n'
@@ -210,7 +213,7 @@ class SshRunOperations_Linux:
                             for line in lines:
                                 handle.total_lines += 1
                                 # Set truncated flag if total lines exceed buffer capacity
-                                if handle.total_lines > handle._tail_keep:
+                                if handle._tail_keep is not None and handle.total_lines > handle._tail_keep:
                                     handle.truncated = True
                                 if not line.endswith('\n'):
                                     line += '\n'
@@ -294,7 +297,7 @@ class SshRunOperations_Linux:
                                 handle.total_lines += 1
                                 last_data_time = time.monotonic()
                                 # Set truncated flag if total lines exceed buffer capacity
-                                if handle.total_lines > handle._tail_keep:
+                                if handle._tail_keep is not None and handle.total_lines > handle._tail_keep:
                                     handle.truncated = True
                                 # Ensure line ends with newline
                                 if not line.endswith('\n'):
