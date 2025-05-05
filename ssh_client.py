@@ -70,16 +70,15 @@ class SshClient:
         self.dir_ops = None
         self.os_ops = None
         
-        # Connect and detect OS
-        self._connect()
-        self._detect_os()
-        self._create_operations()
-
         # Setup Paramiko client
         self._client = paramiko.SSHClient()
         self._client.load_system_host_keys()
         self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # Connect and detect OS
         self._connect()
+        self._detect_os()
+        self._create_operations()
 
     def _detect_os(self):
         """Detect the remote OS type and subtype."""
