@@ -86,7 +86,7 @@ class CommandHandle:
         
     def set_tail_keep(self, n):
         self._tail_keep = n
-        if len(self._output) > n:
+        if n is not None and len(self._output) > n:
             self._output = self._output[-n:]
             
     def info(self):
