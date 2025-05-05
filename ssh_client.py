@@ -77,11 +77,15 @@ class SshClient:
         self._client.load_system_host_keys()
         self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        # Connect and initialize operations
+        # Connect and detect OS
         self._connect()
-        self._create_operations()
-        # Detect OS after operations are initialized
         self._detect_os()
+        
+        # Only create Linux operations
+        if self.os_type != 'linux':
+            raise SshError(f"Unsupported OS detected: {self.os_type}. Only Linux is supported.")
+            
+        self._create_operations()
 
     def _detect_os(self):
         """Detect the remote OS type and subtype."""
