@@ -12,7 +12,11 @@ from ssh_models import (
     CommandFailed, SudoRequired, SshError, BusyError
 )
 
-class SshRunOperations:
+
+class SshRunOperations_Win:
+    pass
+
+class SshRunOperations_Linux:
     """Handles synchronous command execution and related operations."""
     
     def __init__(self, ssh_client, tail_keep=100):

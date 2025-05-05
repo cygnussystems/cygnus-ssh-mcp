@@ -6,7 +6,11 @@ from ssh_models import (
     CommandHandle, SshError, TaskNotFound, SudoRequired
 )
 
-class SshTaskOperations:
+class SshTaskOperations_Win:
+    pass
+
+
+class SshTaskOperations_Linux:
     """Handles background task management including launch, status, and kill operations."""
     
     def __init__(self, ssh_client):

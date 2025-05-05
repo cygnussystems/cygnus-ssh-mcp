@@ -3,7 +3,10 @@ import logging
 from typing import Dict, Any
 from ssh_models import SshError, CommandTimeout, BusyError, CommandFailed # Import CommandFailed
 
-class SshOsOperations:
+class SshOsOperations_Win:
+    pass
+
+class SshOsOperations_Linux:
     """Handles operating system level operations like reboot and status."""
     
     def __init__(self, ssh_client):

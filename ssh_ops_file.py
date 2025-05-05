@@ -6,7 +6,10 @@ import time
 from typing import Optional, Callable
 from ssh_models import SshError
 
-class SshFileOperations:
+class SshFileOperations_Win:
+    pass
+
+class SshFileOperations_Linux:
     """Handles file transfers, directory operations, and file editing."""
     
     def __init__(self, ssh_client):

@@ -5,7 +5,11 @@ import json
 import time
 from typing import Optional, List, Dict, Any, Union, Tuple
 
-class SshDirectoryOperations:
+class SshDirectoryOperations_Win:
+    pass
+
+
+class SshDirectoryOperations_Linux:
     """Handles advanced directory operations like searching, copying, and archiving."""
     
     def __init__(self, ssh_client):
