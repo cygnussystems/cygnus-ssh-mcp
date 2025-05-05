@@ -77,10 +77,11 @@ class SshClient:
         self._client.load_system_host_keys()
         self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        # Connect and detect OS
+        # Connect and initialize operations
         self._connect()
-        self._detect_os()
         self._create_operations()
+        # Detect OS after operations are initialized
+        self._detect_os()
 
     def _detect_os(self):
         """Detect the remote OS type and subtype."""
@@ -89,8 +90,10 @@ class SshClient:
             raise SshError("Cannot detect OS - no active SSH connection")
             
         try:
-            # First try uname -s which works on Linux/macOS
-            result = self.run('uname -s', io_timeout=5)
+            # Use direct Paramiko command execution for OS detection
+            stdin, stdout, stderr = self._client.exec_command('uname -s', timeout=5)
+            result = stdout.read().decode('utf-8', errors='replace').strip()
+            
             if 'Linux' in result:
                 self.os_type = 'linux'
                 self._detect_linux_distro()
@@ -99,7 +102,8 @@ class SshClient:
             else:
                 # If uname fails, try systeminfo for Windows
                 try:
-                    self.run('systeminfo', io_timeout=5)
+                    stdin, stdout, stderr = self._client.exec_command('systeminfo', timeout=5)
+                    stdout.read()  # Just check if command succeeds
                     self.os_type = 'windows'
                 except Exception:
                     # If both fail, assume Linux as default for container environments
