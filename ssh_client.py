@@ -10,7 +10,7 @@ import logging
 import threading
 import select
 from typing import Optional, Callable, Dict, Deque, Any, Union, List, Literal
-from ssh_history import CommandHistoryManager
+from ssh_ops_history import CommandHistoryManager
 from ssh_models import (
     SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
     SudoRequired, BusyError, OutputPurged, TaskNotFound, CommandHandle
