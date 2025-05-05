@@ -323,7 +323,12 @@ if __name__ == "__main__":
              test_disk_info(client_for_tests)
         print("\nAll basic tests completed.")
     except Exception as e:
-        print(f"\n*** Test run failed: {e} ***")
+        print(f"\n*** Test run failed ***")
+        print(f"Exception type: {type(e).__name__}")
+        print(f"Exception message: {str(e)}")
+        print("Stack trace:")
+        import traceback
+        traceback.print_exc()
     finally:
         if main_client:
             cleanup_client(main_client)
