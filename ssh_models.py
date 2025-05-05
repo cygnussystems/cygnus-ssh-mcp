@@ -134,16 +134,16 @@ class CommandHandle:
 
     def info(self):
         """Return metadata about the command."""
-        info_dict = {
-            "id": self.id,
-            "cmd": self.cmd,
-            "pid": self.pid, # Include PID for both run() and launch()
-            "start_ts": self.start_ts.isoformat() + 'Z',
-            "end_ts": self.end_ts.isoformat() + 'Z' if self.end_ts else None,
-            "exit_code": self.exit_code,
-            "running": self.running,
-            # Output details are primarily for run() commands, but might have partial data on timeout
-            "total_lines": self.total_lines,
-            "truncated": self.truncated,
+        return {
+            'id': self.id,
+            'cmd': self.cmd,
+            'pid': self.pid,
+            'output_lines': len(self._output),
+            'tail_keep': self._tail_keep,
+            'start_ts': self.start_ts.isoformat() + 'Z',
+            'end_ts': self.end_ts.isoformat() + 'Z' if self.end_ts else None,
+            'exit_code': self.exit_code,
+            'running': self.running,
+            'total_lines': self.total_lines,
+            'truncated': self.truncated
         }
-        return info_dict
