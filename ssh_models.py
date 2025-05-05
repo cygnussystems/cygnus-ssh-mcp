@@ -107,7 +107,8 @@ class CommandHandle:
 
     def tail(self, n=50):
         """Return the last n lines of output captured by run()."""
-        # Output buffer is primarily populated by run()
+        if n <= 0:
+            return []
         return self._output[-n:]
 
     def chunk(self, start, length=50):
