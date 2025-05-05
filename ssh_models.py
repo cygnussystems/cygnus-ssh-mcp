@@ -57,11 +57,40 @@ class TaskNotFound(SshError):
 
 
 class CommandHandle:
-    """
-    Tracks the state and output of a single SSH command execution.
+    """Tracks the state and output of a single SSH command execution.
     For launched commands, tracks the PID.
     """
-    def __init__(self, handle_id, cmd, tail_keep=100, pid=None): # Added pid
+    def __init__(self, handle_id, cmd, tail_keep=None, pid=None):
+        self.id = handle_id
+        self.cmd = cmd
+        self.pid = pid
+        self._output = []
+        self._tail_keep = tail_keep
+        
+    def add_output(self, line):
+        self._output.append(line)
+        if self._tail_keep is not None and len(self._output) > self._tail_keep:
+            self._output.pop(0)
+            
+    def get_full_output(self):
+        return self._output.copy()
+        
+    def tail(self, n):
+        return self._output[-n:]
+        
+    def set_tail_keep(self, n):
+        self._tail_keep = n
+        if len(self._output) > n:
+            self._output = self._output[-n:]
+            
+    def info(self):
+        return {
+            'id': self.id,
+            'cmd': self.cmd,
+            'pid': self.pid,
+            'output_lines': len(self._output),
+            'tail_keep': self._tail_keep
+        }
         self.id = handle_id
         self.cmd = cmd
         self.start_ts = datetime.utcnow()
