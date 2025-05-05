@@ -1,14 +1,11 @@
 from collections import deque
 from datetime import datetime
-from typing import Optional, Self
+from typing import Optional, Self, List, Dict
 from datetime import UTC
 from ssh_models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
     CommandFailed, SudoRequired, SshError
 )
-from datetime import datetime
-from typing import Dict, Deque, Optional
-from ssh_models import CommandHandle
 
 class CommandHistoryManager:
     """Manages command history with flexible output retention."""
