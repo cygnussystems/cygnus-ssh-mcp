@@ -75,8 +75,10 @@ class CommandHandle:
         
     def add_output(self, line):
         self._output.append(line)
+        self.total_lines += 1
         if self._tail_keep is not None and len(self._output) > self._tail_keep:
             self._output.pop(0)
+            self.truncated = True
             
     def get_full_output(self):
         return self._output.copy()
