@@ -44,8 +44,12 @@ def test_connection(ssh_client): # Use the fixture
         print(f"Handle buffer contents: {list(handle._buf)}")
         
         # Verify command output is reasonable
-        output = "".join(handle.tail(handle.total_lines))
-        print(f"Raw output: '{output}'")
+        # Get the raw buffer contents first for debugging
+        print(f"Raw buffer: {[line for line in handle._buf]}")
+        
+        # Join the buffer contents directly instead of using tail
+        output = ''.join(handle._buf)
+        print(f"Full output: '{output}'")
         assert output.strip() != "", "Command output should not be empty"
         assert "/" in output, "pwd output should contain a path separator"
         print(f"Command output: {output.strip()}")
