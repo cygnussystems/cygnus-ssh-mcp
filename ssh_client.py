@@ -31,11 +31,16 @@ class SshClient:
     """
     def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
-        from ssh_ops_file import SshFileOperations_Linux  # Import here to avoid circular import
-        from ssh_ops_task import SshTaskOperations_Linux  # Import here to avoid circular import
-        from ssh_ops_run import SshRunOperations_Linux  # Import here to avoid circular import
-        from ssh_ops_directory import SshDirectoryOperations_Linux  # Import here to avoid circular import
-        from ssh_ops_os import SshOsOperations_Linux  # Import here to avoid circular import
+        # Import all platform-specific operations
+        from ssh_ops_file import SshFileOperations_Linux, SshFileOperations_Win
+        from ssh_ops_task import SshTaskOperations_Linux, SshTaskOperations_Win
+        from ssh_ops_run import SshRunOperations_Linux, SshRunOperations_Win
+        from ssh_ops_directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Win
+        from ssh_ops_os import SshOsOperations_Linux, SshOsOperations_Win
+        
+        # Initialize platform detection
+        self.os_type = None  # 'windows', 'linux', 'macos'
+        self.os_subtype = None  # 'windows10', 'debian', 'centos', etc.
         self.host = host
         self.user = user
         self.port = port
@@ -47,18 +52,72 @@ class SshClient:
         self.history_manager = CommandHistoryManager(history_limit, tail_keep)
         self._logger = logging.getLogger(f"{__name__}.SshClient")
 
-        # Initialize operations classes
-        self.run_ops = SshRunOperations_Linux(self, tail_keep)
-        self.task_ops = SshTaskOperations_Linux(self)
-        self.file_ops = SshFileOperations_Linux(self)
-        self.dir_ops = SshDirectoryOperations_Linux(self)
-        self.os_ops = SshOsOperations_Linux(self)
+        # Initialize operations after connection
+        self.run_ops = None
+        self.task_ops = None
+        self.file_ops = None
+        self.dir_ops = None
+        self.os_ops = None
+        
+        # Connect and detect OS
+        self._connect()
+        self._detect_os()
+        self._create_operations()
 
         # Setup Paramiko client
         self._client = paramiko.SSHClient()
         self._client.load_system_host_keys()
         self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         self._connect()
+
+    def _detect_os(self):
+        """Detect the remote OS type and subtype."""
+        try:
+            result = self.run('uname -s')
+            if 'Linux' in result:
+                self.os_type = 'linux'
+                self._detect_linux_distro()
+            elif 'Darwin' in result:
+                self.os_type = 'macos'
+            else:
+                self.os_type = 'windows'
+        except Exception:
+            self.os_type = 'windows'
+        self._logger.info(f"Detected remote OS: {self.os_type} ({self.os_subtype})")
+
+    def _detect_linux_distro(self):
+        """Detect Linux distribution subtype."""
+        try:
+            result = self.run('cat /etc/os-release')
+            if 'debian' in result.lower():
+                self.os_subtype = 'debian'
+            elif 'centos' in result.lower():
+                self.os_subtype = 'centos'
+            else:
+                self.os_subtype = 'unknown_linux'
+        except Exception:
+            self.os_subtype = 'unknown_linux'
+
+    def _create_operations(self):
+        """Create platform-specific operation classes."""
+        from ssh_ops_file import SshFileOperations_Linux, SshFileOperations_Win
+        from ssh_ops_task import SshTaskOperations_Linux, SshTaskOperations_Win
+        from ssh_ops_run import SshRunOperations_Linux, SshRunOperations_Win
+        from ssh_ops_directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Win
+        from ssh_ops_os import SshOsOperations_Linux, SshOsOperations_Win
+
+        if self.os_type == 'windows':
+            self.run_ops = SshRunOperations_Win(self, self.tail_keep)
+            self.task_ops = SshTaskOperations_Win(self)
+            self.file_ops = SshFileOperations_Win(self)
+            self.dir_ops = SshDirectoryOperations_Win(self)
+            self.os_ops = SshOsOperations_Win(self)
+        else:
+            self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
+            self.task_ops = SshTaskOperations_Linux(self)
+            self.file_ops = SshFileOperations_Linux(self)
+            self.dir_ops = SshDirectoryOperations_Linux(self)
+            self.os_ops = SshOsOperations_Linux(self)
 
     def _connect(self):
         """Establish SSH connection."""
