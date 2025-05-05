@@ -191,6 +191,65 @@ async def ssh_status() -> dict:
         logger.error(f"Failed to get status: {e}")
         raise
 
+@mcp.tool()
+async def ssh_command_history(
+    limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
+    include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
+    output_lines: Annotated[int, Field(description="Number of output lines to include", ge=1)] = 3,
+    reverse: Annotated[bool, Field(description="Return in reverse order (newest first)")] = False
+) -> list:
+    """
+    Retrieve command execution history with optional output snippets.
+    
+    Returns:
+        List of dictionaries containing command history, ordered from oldest to newest by default.
+        Each entry contains:
+        - id: Command handle ID
+        - command: Executed command
+        - exit_code: Exit status
+        - start_time: Execution start timestamp
+        - end_time: Execution end timestamp
+        - output: Command output snippet (if include_output=True)
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        history = ssh_client.history()
+        
+        # Apply limit if specified
+        if limit is not None:
+            history = history[-limit:]
+        
+        # Reverse if requested
+        if reverse:
+            history = history[::-1]
+        
+        results = []
+        for entry in history:
+            history_entry = {
+                'id': entry.get('id'),
+                'command': entry.get('cmd'),
+                'exit_code': entry.get('exit_code'),
+                'start_time': entry.get('start_ts'),
+                'end_time': entry.get('end_ts'),
+                'pid': entry.get('pid')
+            }
+            
+            if include_output:
+                try:
+                    output = ssh_client.output(entry['id'], lines=output_lines)
+                    history_entry['output'] = output
+                except Exception as e:
+                    history_entry['output'] = f"Unable to retrieve output: {str(e)}"
+            
+            results.append(history_entry)
+        
+        return results
+    except Exception as e:
+        logger.error(f"Failed to retrieve command history: {e}")
+        raise
+
 # ===================
 # Main Execution
 # ===================
