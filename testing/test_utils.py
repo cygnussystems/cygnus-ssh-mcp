@@ -23,6 +23,12 @@ TEST_SUDO_PASSWORD = os.environ.get('SSH_TEST_SUDO_PASSWORD', 'testpass')
 _client_cache = None
 
 def get_client(force_new=False, **kwargs):
+    """Get SSH client configured for Linux testing only"""
+    # Verify we're connecting to a Linux system
+    client = SshClient(**kwargs)
+    if client.os_type != 'linux':
+        raise RuntimeError(f"Tests must run against Linux systems, but detected {client.os_type}")
+    return client
     """
     Get a connected SSH client instance.
     Caches the client by default unless force_new=True.

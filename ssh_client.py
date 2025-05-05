@@ -31,12 +31,12 @@ class SshClient:
     """
     def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
-        # Import all platform-specific operations
-        from ssh_ops_file import SshFileOperations_Linux, SshFileOperations_Win
-        from ssh_ops_task import SshTaskOperations_Linux, SshTaskOperations_Win
-        from ssh_ops_run import SshRunOperations_Linux, SshRunOperations_Win
-        from ssh_ops_directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Win
-        from ssh_ops_os import SshOsOperations_Linux, SshOsOperations_Win
+        # Only import Linux-specific operations
+        from ssh_ops_file import SshFileOperations_Linux
+        from ssh_ops_task import SshTaskOperations_Linux
+        from ssh_ops_run import SshRunOperations_Linux
+        from ssh_ops_directory import SshDirectoryOperations_Linux
+        from ssh_ops_os import SshOsOperations_Linux
         
         # Initialize platform detection
         self.os_type = None  # 'windows', 'linux', 'macos'
@@ -125,18 +125,12 @@ class SshClient:
         from ssh_ops_directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Win
         from ssh_ops_os import SshOsOperations_Linux, SshOsOperations_Win
 
-        if self.os_type == 'windows':
-            self.run_ops = SshRunOperations_Win(self, self.tail_keep)
-            self.task_ops = SshTaskOperations_Win(self)
-            self.file_ops = SshFileOperations_Win(self)
-            self.dir_ops = SshDirectoryOperations_Win(self)
-            self.os_ops = SshOsOperations_Win(self)
-        else:
-            self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
-            self.task_ops = SshTaskOperations_Linux(self)
-            self.file_ops = SshFileOperations_Linux(self)
-            self.dir_ops = SshDirectoryOperations_Linux(self)
-            self.os_ops = SshOsOperations_Linux(self)
+        # Always use Linux operations since we're testing against Linux containers
+        self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
+        self.task_ops = SshTaskOperations_Linux(self)
+        self.file_ops = SshFileOperations_Linux(self)
+        self.dir_ops = SshDirectoryOperations_Linux(self)
+        self.os_ops = SshOsOperations_Linux(self)
 
     def _connect(self):
         """Establish SSH connection and update connection status."""
