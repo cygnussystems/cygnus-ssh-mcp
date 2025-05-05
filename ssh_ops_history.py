@@ -13,7 +13,7 @@ from ssh_models import CommandHandle
 class CommandHistoryManager:
     """Manages command history with flexible output retention."""
     
-    def __init__(self, history_limit=30, recent_full_output=10, default_tail=50):
+    def __init__(self, history_limit=30, recent_full_output=10, default_tail=100):
         """
         Args:
             history_limit: Total number of commands to keep
@@ -72,6 +72,13 @@ class CommandHistoryManager:
         if handle.id not in self._history:
             raise KeyError(f"Handle ID {handle.id} not found in history")
         self._history[handle.id] = handle
+
+    def get_output(self, handle_id: int, lines: Optional[int] = None) -> List[str]:
+        """Get output for a command, optionally limiting to specific number of lines."""
+        handle = self.get_handle(handle_id)
+        if lines is None:
+            return handle.get_full_output()
+        return handle.tail(lines)
 
 # class CommandHistoryManager:
 #     """Manages command history and output storage."""
