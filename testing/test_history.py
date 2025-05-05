@@ -93,6 +93,45 @@ def test_empty_output():
     assert len(handle.tail(10)) == 0
     assert len(handle.tail(100)) == 0
 
+def test_command_metadata():
+    print("\n--- test_command_metadata ---")
+    manager = CommandHistoryManager()
+    handle = manager.add_command("test_command")
+    
+    # Add some output and mark as completed
+    handle.add_output("output line 1")
+    handle.add_output("output line 2")
+    handle.running = False
+    handle.exit_code = 0
+    handle.end_ts = datetime.now(UTC)
+    
+    # Get metadata
+    info = handle.info()
+    
+    # Verify basic fields
+    assert info['id'] == handle.id
+    assert info['cmd'] == "test_command"
+    assert info['running'] is False
+    assert info['exit_code'] == 0
+    assert info['total_lines'] == 2
+    assert info['truncated'] is False
+    
+    # Verify timestamps
+    assert 'start_ts' in info
+    assert 'end_ts' in info
+    assert info['end_ts'].endswith('Z')
+    assert info['start_ts'].endswith('Z')
+    
+    # Verify output metadata
+    assert info['output_lines'] == 2
+    assert info['tail_keep'] is None  # Default for recent commands
+    
+    # Verify history manager preserves metadata
+    history = manager.get_history()
+    assert len(history) == 1
+    assert history[0]['cmd'] == "test_command"
+    assert history[0]['exit_code'] == 0
+
 def test_output_after_truncation():
     print("\n--- test_output_after_truncation ---")
     manager = CommandHistoryManager(recent_full_output=1, default_tail=50)
@@ -119,6 +158,7 @@ if __name__ == "__main__":
     test_output_retrieval()
     test_output_truncation()
     test_empty_output()
+    test_command_metadata()
     test_output_after_truncation()
     try:
         test_get_nonexistent_handle()
