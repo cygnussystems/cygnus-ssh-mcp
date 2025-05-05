@@ -38,6 +38,10 @@ class CommandHistoryManager:
         if len(self._history) >= self.history_limit:
             oldest_id = self._history_order.popleft()
             if oldest_id in self._history:
+                # Truncate output before removing
+                old_handle = self._history[oldest_id]
+                if old_handle._tail_keep is not None:
+                    old_handle.set_tail_keep(self.default_tail)
                 del self._history[oldest_id]
         
         self._history[handle.id] = handle
