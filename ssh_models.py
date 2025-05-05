@@ -66,6 +66,12 @@ class CommandHandle:
         self.pid = pid
         self._output = []
         self._tail_keep = tail_keep
+        self.start_ts = datetime.now(UTC)
+        self.end_ts = None
+        self.exit_code = None
+        self.running = True
+        self.total_lines = 0
+        self.truncated = False
         
     def add_output(self, line):
         self._output.append(line)
@@ -90,7 +96,13 @@ class CommandHandle:
             'cmd': self.cmd,
             'pid': self.pid,
             'output_lines': len(self._output),
-            'tail_keep': self._tail_keep
+            'tail_keep': self._tail_keep,
+            'start_ts': self.start_ts.isoformat() + 'Z',
+            'end_ts': self.end_ts.isoformat() + 'Z' if self.end_ts else None,
+            'exit_code': self.exit_code,
+            'running': self.running,
+            'total_lines': self.total_lines,
+            'truncated': self.truncated
         }
 
     def tail(self, n=50):
