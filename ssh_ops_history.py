@@ -43,12 +43,15 @@ class CommandHistoryManager:
         self._history[handle.id] = handle
         self._history_order.append(handle.id)
         
-        # Trim older commands if they've fallen out of recent
-        if len(self._history) > self.recent_full_output:
-            for handle_id, handle in self._history.items():
-                if handle._tail_keep is None and \
-                   handle_id not in list(self._history_order)[-self.recent_full_output:]:
-                    handle.set_tail_keep(self.default_tail)
+        # Ensure only the most recent N commands keep full output
+        for handle_id, handle in self._history.items():
+            is_currently_recent = handle_id in list(self._history_order)[-self.recent_full_output:]
+            if is_currently_recent and handle._tail_keep is not None:
+                # This command is now recent, give it unlimited output
+                handle.set_tail_keep(None)
+            elif not is_currently_recent and handle._tail_keep is None:
+                # This command is no longer recent, truncate its output
+                handle.set_tail_keep(self.default_tail)
         
         return handle
 
