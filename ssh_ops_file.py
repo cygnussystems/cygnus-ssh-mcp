@@ -7,7 +7,15 @@ from typing import Optional, Callable
 from ssh_models import SshError
 
 class SshFileOperations_Win:
-    pass
+    """Handles file operations on Windows systems."""
+    
+    def __init__(self, ssh_client):
+        """
+        Args:
+            ssh_client: Reference to parent SSH client
+        """
+        self.ssh_client = ssh_client
+        self.logger = logging.getLogger(f"{__name__}.SshFileOperations_Win")
 
 class SshFileOperations_Linux:
     """Handles file transfers, directory operations, and file editing."""

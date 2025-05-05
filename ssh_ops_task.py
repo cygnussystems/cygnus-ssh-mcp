@@ -7,7 +7,15 @@ from ssh_models import (
 )
 
 class SshTaskOperations_Win:
-    pass
+    """Handles background task management on Windows systems."""
+    
+    def __init__(self, ssh_client):
+        """
+        Args:
+            ssh_client: Reference to parent SSH client
+        """
+        self.ssh_client = ssh_client
+        self.logger = logging.getLogger(f"{__name__}.SshTaskOperations_Win")
 
 
 class SshTaskOperations_Linux:

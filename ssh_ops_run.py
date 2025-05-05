@@ -14,7 +14,17 @@ from ssh_models import (
 
 
 class SshRunOperations_Win:
-    pass
+    """Handles synchronous command execution on Windows systems."""
+    
+    def __init__(self, ssh_client, tail_keep=100):
+        """
+        Args:
+            ssh_client: Reference to parent SSH client
+            tail_keep: Number of lines to keep in output buffer
+        """
+        self.ssh_client = ssh_client
+        self.tail_keep = tail_keep
+        self.logger = logging.getLogger(f"{__name__}.SshRunOperations_Win")
 
 class SshRunOperations_Linux:
     """Handles synchronous command execution and related operations."""
