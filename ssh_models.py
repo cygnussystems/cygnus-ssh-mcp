@@ -77,7 +77,9 @@ class CommandHandle:
         self._output.append(line)
         self.total_lines += 1
         if self._tail_keep is not None and len(self._output) > self._tail_keep:
-            self._output.pop(0)
+            # Remove oldest lines until we're at the tail_keep limit
+            while len(self._output) > self._tail_keep:
+                self._output.pop(0)
             self.truncated = True
             
     def get_full_output(self):
