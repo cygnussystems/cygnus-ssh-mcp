@@ -84,6 +84,10 @@ class SshClient:
 
     def _detect_os(self):
         """Detect the remote OS type and subtype."""
+        # First verify we have an active connection
+        if not self._client or not self._client.get_transport() or not self._client.get_transport().is_active():
+            raise SshError("Cannot detect OS - no active SSH connection")
+            
         try:
             # First try uname -s which works on Linux/macOS
             result = self.run('uname -s', io_timeout=5)
@@ -102,10 +106,13 @@ class SshClient:
                     self.os_type = 'linux'
                     self._detect_linux_distro()
         except Exception as e:
-            # Default to Linux for container environments
-            self.os_type = 'linux'
-            self._detect_linux_distro()
-            self._logger.warning(f"OS detection failed, defaulting to Linux: {e}")
+            # Only default to Linux if we have a valid connection
+            if self._client and self._client.get_transport() and self._client.get_transport().is_active():
+                self.os_type = 'linux'
+                self._detect_linux_distro()
+                self._logger.warning(f"OS detection failed, defaulting to Linux: {e}")
+            else:
+                raise SshError(f"Failed to detect OS: {e}")
             
         self._logger.info(f"Detected remote OS: {self.os_type} ({self.os_subtype})")
         
