@@ -299,28 +299,17 @@ def test_disk_info(ssh_client): # Use the fixture
     print_test_footer()
 
 
-# Keep the __main__ block for running tests directly if needed,
-# but primary execution should be via pytest.
 if __name__ == "__main__":
     print("Running basic tests directly (pytest recommended)...")
-    # Manually create and cleanup client if not using pytest runner
-    main_client = None
+    client = None
     try:
-        main_client = get_client(force_new=True)
-        # Create a temporary fixture-like object for tests needing it
-        class MockFixtureClient:
-            def __init__(self, client):
-                self.client = client
-            def __enter__(self): return self.client
-            def __exit__(self, *args): pass # Cleanup handled in finally
-
-        with MockFixtureClient(main_client) as client_for_tests:
-             test_connection(client_for_tests) # Pass the client
-             test_full_status(client_for_tests)
-             test_user_status(client_for_tests)
-             test_hardware_info(client_for_tests)
-             test_network_info(client_for_tests)
-             test_disk_info(client_for_tests)
+        client = get_client(force_new=True)
+        test_connection(client)
+        test_full_status(client)
+        test_user_status(client)
+        test_hardware_info(client)
+        test_network_info(client)
+        test_disk_info(client)
         print("\nAll basic tests completed.")
     except Exception as e:
         print(f"\n*** Test run failed ***")
@@ -330,5 +319,5 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
     finally:
-        if main_client:
-            cleanup_client(main_client)
+        if client:
+            cleanup_client(client)
