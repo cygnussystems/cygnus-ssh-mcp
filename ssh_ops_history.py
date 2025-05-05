@@ -46,7 +46,7 @@ class CommandHistoryManager:
         # Trim older commands if they've fallen out of recent
         if len(self._history) > self.recent_full_output:
             for handle_id, handle in self._history.items():
-                if handle.tail_keep is None and \
+                if handle._tail_keep is None and \
                    handle_id not in list(self._history_order)[-self.recent_full_output:]:
                     handle.set_tail_keep(self.default_tail)
         
