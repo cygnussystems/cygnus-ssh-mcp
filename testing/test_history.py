@@ -3,6 +3,7 @@ from ssh_ops_history import CommandHistoryManager
 from ssh_models import CommandHandle
 
 def test_add_and_retrieve_command():
+    print("\n--- test_add_and_retrieve_command ---")
     manager = CommandHistoryManager(history_limit=2)
     handle1 = manager.add_command("cmd1")
     handle2 = manager.add_command("cmd2")
@@ -18,6 +19,7 @@ def test_add_and_retrieve_command():
     assert len(manager.get_history()) == 2
 
 def test_update_handle():
+    print("\n--- test_update_handle ---")
     manager = CommandHistoryManager()
     handle = manager.add_command("original")
     handle.cmd = "updated"
@@ -26,6 +28,7 @@ def test_update_handle():
     assert manager.get_handle(handle.id).cmd == "updated"
 
 def test_history_order():
+    print("\n--- test_history_order ---")
     manager = CommandHistoryManager(history_limit=3)
     handles = [manager.add_command(f"cmd{i}") for i in range(5)]
     
@@ -35,17 +38,20 @@ def test_history_order():
     assert history[-1]['cmd'] == "cmd4" # Newest command
 
 def test_get_nonexistent_handle():
+    print("\n--- test_get_nonexistent_handle ---")
     manager = CommandHistoryManager()
     with pytest.raises(KeyError):
         manager.get_handle(999)
 
 def test_update_nonexistent_handle():
+    print("\n--- test_update_nonexistent_handle ---")
     manager = CommandHistoryManager()
     fake_handle = CommandHandle(999, "fake")
     with pytest.raises(KeyError):
         manager.update_handle(fake_handle)
 
 def test_output_retrieval():
+    print("\n--- test_output_retrieval ---")
     manager = CommandHistoryManager()
     handle = manager.add_command("test")
     
@@ -65,6 +71,7 @@ def test_output_retrieval():
     assert last_10[-1] == "Line 99"
 
 def test_output_truncation():
+    print("\n--- test_output_truncation ---")
     manager = CommandHistoryManager(recent_full_output=0, default_tail=50)
     handle = manager.add_command("test")
     
@@ -79,6 +86,7 @@ def test_output_truncation():
     assert output[-1] == "Line 99"
 
 def test_empty_output():
+    print("\n--- test_empty_output ---")
     manager = CommandHistoryManager()
     handle = manager.add_command("test")
     
@@ -86,6 +94,7 @@ def test_empty_output():
     assert len(handle.tail(100)) == 0
 
 def test_output_after_truncation():
+    print("\n--- test_output_after_truncation ---")
     manager = CommandHistoryManager(recent_full_output=1, default_tail=50)
     
     # First command will be truncated
