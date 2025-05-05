@@ -24,8 +24,20 @@ _client_cache = None
 
 def get_client(force_new=False, **kwargs):
     """Get SSH client configured for Linux testing only"""
-    # Verify we're connecting to a Linux system
-    client = SshClient(**kwargs)
+    # Set default connection parameters
+    default_kwargs = dict(
+        host=SSH_HOST,
+        port=SSH_PORT,
+        user=SSH_USER,
+        password=SSH_PASSWORD,
+        keyfile=SSH_KEYFILE,
+        sudo_password=None,
+        connect_timeout=15
+    )
+    default_kwargs.update(kwargs)
+    
+    # Create and verify client
+    client = SshClient(**default_kwargs)
     if client.os_type != 'linux':
         raise RuntimeError(f"Tests must run against Linux systems, but detected {client.os_type}")
     return client
