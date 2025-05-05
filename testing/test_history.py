@@ -1,5 +1,5 @@
 import pytest
-from ssh_history import CommandHistoryManager
+from ssh_ops_history import CommandHistoryManager
 from ssh_models import CommandHandle
 
 def test_add_and_retrieve_command():
