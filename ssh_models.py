@@ -108,7 +108,7 @@ class CommandHandle:
     def tail(self, n=50):
         """Return the last n lines of output captured by run()."""
         # Output buffer is primarily populated by run()
-        return list(self._buf)[-n:]
+        return self._output[-n:]
 
     def chunk(self, start, length=50):
         """Return `length` lines starting at zero-based index `start` from run()."""
@@ -116,9 +116,8 @@ class CommandHandle:
         if start < 0: # Allow start=0 even if total_lines is 0
              raise ValueError(f"Start index {start} cannot be negative")
 
-        buf_list = list(self._buf)
-        # Calculate the absolute index of the first element currently in the deque buffer
-        buf_start_abs_index = max(0, self.total_lines - len(buf_list))
+        # Calculate the absolute index of the first element currently in the buffer
+        buf_start_abs_index = max(0, self.total_lines - len(self._output))
 
         if start < buf_start_abs_index:
             # Requested start index is before the first line currently stored
@@ -126,7 +125,7 @@ class CommandHandle:
 
         # Calculate the index relative to the start of the current buffer
         relative_start_idx = start - buf_start_abs_index
-        return buf_list[relative_start_idx : relative_start_idx + length]
+        return self._output[relative_start_idx : relative_start_idx + length]
 
     def info(self):
         """Return metadata about the command."""
