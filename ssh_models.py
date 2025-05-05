@@ -82,7 +82,8 @@ class CommandHandle:
     def get_full_output(self):
         return ''.join(self._buf)
         
-    def tail(self, n):
+    def tail(self, n=50):
+        """Return the last n lines of output captured by run()."""
         if n <= 0:
             return []
         # If n is greater than buffer size, return all available lines

@@ -24,7 +24,7 @@ def test_simple_run(ssh_client):
         handle = client.run(cmd)
 
         print(f"Command finished. Handle ID: {handle.id}, PID: {handle.pid}, Exit code: {handle.exit_code}")
-        output_lines = handle.tail()
+        output_lines = handle.tail(50)  # Explicitly specify the number of lines
         print("Output tail:")
         for line in output_lines:
             print(f"  {line.strip()}")
@@ -195,7 +195,7 @@ def test_command_io_timeout(ssh_client):
     assert handle.exit_code == 0
     
     # Get the tail and check if it has any output
-    output_tail = handle.tail()
+    output_tail = handle.tail(50)  # Explicitly specify the number of lines
     print(f"Output tail length: {len(output_tail)}")
     if output_tail:
         assert "Client responsive" in ''.join(output_tail)
