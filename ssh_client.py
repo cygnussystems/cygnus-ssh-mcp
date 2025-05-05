@@ -31,11 +31,11 @@ class SshClient:
     """
     def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
-        from ssh_ops_file import SshFileOperations  # Import here to avoid circular import
-        from ssh_ops_task import SshTaskOperations  # Import here to avoid circular import
-        from ssh_ops_run import SshRunOperations  # Import here to avoid circular import
-        from ssh_ops_directory import SshDirectoryOperations  # Import here to avoid circular import
-        from ssh_ops_os import SshOsOperations  # Import here to avoid circular import
+        from ssh_ops_file import SshFileOperations_Linux  # Import here to avoid circular import
+        from ssh_ops_task import SshTaskOperations_Linux  # Import here to avoid circular import
+        from ssh_ops_run import SshRunOperations_Linux  # Import here to avoid circular import
+        from ssh_ops_directory import SshDirectoryOperations_Linux  # Import here to avoid circular import
+        from ssh_ops_os import SshOsOperations_Linux  # Import here to avoid circular import
         self.host = host
         self.user = user
         self.port = port
@@ -48,11 +48,11 @@ class SshClient:
         self._logger = logging.getLogger(f"{__name__}.SshClient")
 
         # Initialize operations classes
-        self.run_ops = SshRunOperations(self, tail_keep)
-        self.task_ops = SshTaskOperations(self)
-        self.file_ops = SshFileOperations(self)
-        self.dir_ops = SshDirectoryOperations(self)
-        self.os_ops = SshOsOperations(self)
+        self.run_ops = SshRunOperations_Linux(self, tail_keep)
+        self.task_ops = SshTaskOperations_Linux(self)
+        self.file_ops = SshFileOperations_Linux(self)
+        self.dir_ops = SshDirectoryOperations_Linux(self)
+        self.os_ops = SshOsOperations_Linux(self)
 
         # Setup Paramiko client
         self._client = paramiko.SSHClient()
