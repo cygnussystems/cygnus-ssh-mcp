@@ -110,17 +110,12 @@ class SshClient:
                     stdout.read()  # Just check if command succeeds
                     self.os_type = 'windows'
                 except Exception:
-                    # If both fail, assume Linux as default for container environments
-                    self.os_type = 'linux'
-                    self._detect_linux_distro()
+                    # Instead of defaulting to Linux, raise an error
+                    raise SshError("Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded")
         except Exception as e:
-            # Only default to Linux if we have a valid connection
-            if self._client and self._client.get_transport() and self._client.get_transport().is_active():
-                self.os_type = 'linux'
-                self._detect_linux_distro()
-                self._logger.warning(f"OS detection failed, defaulting to Linux: {e}")
-            else:
-                raise SshError(f"Failed to detect OS: {e}")
+            # Close the connection and raise an error instead of defaulting to Linux
+            self.close()
+            raise SshError(f"Failed to detect OS: {e}")
             
         self._logger.info(f"Detected remote OS: {self.os_type} ({self.os_subtype})")
         
