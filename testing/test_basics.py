@@ -39,8 +39,13 @@ def test_connection(ssh_client): # Use the fixture
         handle = client.run(test_cmd, io_timeout=10, runtime_timeout=15)
         assert handle.exit_code == 0, f"Command '{test_cmd}' failed with exit code {handle.exit_code}"
         
+        # Debug output handling
+        print(f"Handle total lines: {handle.total_lines}")
+        print(f"Handle buffer contents: {list(handle._buf)}")
+        
         # Verify command output is reasonable
         output = "".join(handle.tail(handle.total_lines))
+        print(f"Raw output: '{output}'")
         assert output.strip() != "", "Command output should not be empty"
         assert "/" in output, "pwd output should contain a path separator"
         print(f"Command output: {output.strip()}")

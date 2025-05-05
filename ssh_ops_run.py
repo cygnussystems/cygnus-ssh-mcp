@@ -170,9 +170,12 @@ class SshRunOperations_Linux:
                         if initial_stdout:
                             self.logger.debug(f"Initial stdout data captured: '{initial_stdout}'")
                             
-                            # Convert bytes to string if needed
+                            # Always decode bytes to string and strip any 'b' prefix that might be in the string
                             if isinstance(initial_stdout, bytes):
                                 initial_stdout = initial_stdout.decode('utf-8', errors='replace')
+                            elif isinstance(initial_stdout, str) and initial_stdout.startswith("b'") and initial_stdout.endswith("'"):
+                                # Handle case where bytes representation is already a string
+                                initial_stdout = initial_stdout[2:-1]
                             
                             # Process the data into lines
                             lines = initial_stdout.splitlines(True)  # keepends=True
@@ -281,10 +284,10 @@ class SshRunOperations_Linux:
                         # This is more reliable than using stdout.read() which can block
                         data = chan.recv(4096)  # Read up to 4KB at a time
                         if data:
-                            # Decode if needed
+                            # Always decode bytes to string
                             if isinstance(data, bytes):
                                 data = data.decode('utf-8', errors='replace')
-                            
+                                
                             self.logger.debug(f"Received data: '{data.strip()}'")
                             
                             # Split into lines while preserving newlines
