@@ -84,6 +84,7 @@ class CommandHandle:
             self._output = self._output[-n:]
             
     def info(self):
+        """Return metadata about the command."""
         return {
             'id': self.id,
             'cmd': self.cmd,
@@ -91,17 +92,6 @@ class CommandHandle:
             'output_lines': len(self._output),
             'tail_keep': self._tail_keep
         }
-        self.id = handle_id
-        self.cmd = cmd
-        self.start_ts = datetime.utcnow()
-        self.end_ts = None
-        self.exit_code = None # None means not finished or not applicable (launched)
-        self.running = True   # True for run() until finished, True for launch() initially
-        self.total_lines = 0  # Only relevant for run()
-        self.truncated = False # Only relevant for run()
-        self._buf = deque(maxlen=tail_keep) # Only relevant for run()
-        self._tail_keep = tail_keep  # Store the tail_keep value for reference
-        self.pid = pid # Store the PID for launched commands and run() commands
 
     def tail(self, n=50):
         """Return the last n lines of output captured by run()."""
