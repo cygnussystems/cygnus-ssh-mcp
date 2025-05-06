@@ -7,6 +7,7 @@ from pathlib import Path
 from fastmcp import FastMCP
 from pydantic import Field
 from typing import Annotated, Optional, Literal, Dict
+from datetime import datetime, UTC
 from ssh_client import SshClient
 from ssh_models import SshError
 
@@ -424,6 +425,98 @@ async def ssh_command_history(
         return results
     except Exception as e:
         logger.error(f"Failed to retrieve command history: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_launch_task(
+    command: Annotated[str, Field(description="Command to execute in the background")],
+    sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
+    stdout_log: Annotated[Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log)")] = None,
+    stderr_log: Annotated[Optional[str], Field(description="Path to redirect stderr (default: same as stdout)")] = None,
+    log_output: Annotated[bool, Field(description="Whether to log output to files")] = True
+) -> dict:
+    """
+    Launch a command in the background and return its PID.
+    
+    Unlike ssh_run, this does not wait for the command to complete.
+    Output is redirected to files or /dev/null, not captured in memory.
+    
+    Returns:
+        Dictionary containing task information including PID
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        handle = ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output)
+        return {
+            'command': command,
+            'pid': handle.pid,
+            'start_time': handle.start_ts.isoformat() if handle.start_ts else None,
+            'stdout_log': stdout_log or f"/tmp/task-{handle.pid}.log" if log_output else None,
+            'stderr_log': stderr_log or f"/tmp/task-{handle.pid}.log" if log_output else None
+        }
+    except Exception as e:
+        logger.error(f"Task launch failed: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_task_status(
+    pid: Annotated[int, Field(description="Process ID to check status for")]
+) -> dict:
+    """
+    Check the status of a background task by PID.
+    
+    Returns:
+        Dictionary containing task status information
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        status = ssh_client.task_status(pid)
+        return {
+            'pid': pid,
+            'status': status,
+            'running': status == 'running',
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to get task status: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_task_kill(
+    pid: Annotated[int, Field(description="Process ID to terminate")],
+    signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
+    sudo: Annotated[bool, Field(description="Use sudo for the kill operation")] = False,
+    force: Annotated[bool, Field(description="Force kill with SIGKILL if process doesn't exit")] = True,
+    wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
+) -> dict:
+    """
+    Terminate a background task by sending a signal to its PID.
+    
+    If force=True and the process doesn't exit after wait_seconds,
+    it will be forcibly killed with SIGKILL (signal 9).
+    
+    Returns:
+        Dictionary containing kill operation result
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        force_kill_signal = 9 if force else None
+        result = ssh_client.task_kill(pid, signal, sudo, force_kill_signal, wait_seconds)
+        return {
+            'pid': pid,
+            'result': result,
+            'signal': signal,
+            'force_kill_used': result == 'killed' and force,
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to kill task: {e}")
         raise
 
 # ===================

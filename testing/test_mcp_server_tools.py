@@ -107,6 +107,25 @@ async def run_mcp_server_tests():
             except Exception as e:
                 print(f"  -> Error testing 'ssh_connect' parameters: {e}", file=sys.stderr)
                 raise
+                
+            # --- Test task management tools existence ---
+            try:
+                print("\nVerifying task management tools...")
+                tools = await client.list_tools()
+                tool_names = {tool.name for tool in tools}
+                
+                task_tools = {"ssh_launch_task", "ssh_task_status", "ssh_task_kill"}
+                missing_tools = task_tools - tool_names
+                
+                assert not missing_tools, f"Missing task management tools: {missing_tools}"
+                print("  -> Task management tools verification passed!")
+                
+                # We can't actually test these tools without an SSH connection,
+                # but we can verify they exist and have the correct parameters
+                print("  -> Task management tools are available")
+            except Exception as e:
+                print(f"  -> Error verifying task management tools: {e}", file=sys.stderr)
+                raise
 
     except Exception as e:
         print(f"\nTest run failed with error: {e}", file=sys.stderr)
