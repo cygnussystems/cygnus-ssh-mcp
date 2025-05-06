@@ -103,3 +103,60 @@ def test_ssh_host_manager_save_failure(temp_config):
     
     with pytest.raises(SshError):
         manager.add_host('test1', 'host1', 22, 'user1', 'pass1')
+
+if __name__ == "__main__":
+    import tempfile
+    from pathlib import Path
+    
+    print("Testing SSH Host Manager - Manual Mode")
+    
+    # Create a temporary config file
+    with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+        yaml.safe_dump({'hosts': []}, tmp)
+        config_path = Path(tmp.name)
+    
+    try:
+        # Create the temp_config fixture equivalent
+        def run_with_temp_config():
+            # Run all test functions that use the temp_config fixture
+            print("\nRunning test_ssh_host_manager_explicit_config...")
+            test_ssh_host_manager_explicit_config(config_path)
+            
+            print("\nRunning test_ssh_host_manager_add_host...")
+            test_ssh_host_manager_add_host(config_path)
+            
+            print("\nRunning test_ssh_host_manager_get_host...")
+            test_ssh_host_manager_get_host(config_path)
+            
+            print("\nRunning test_ssh_host_manager_config_permissions...")
+            test_ssh_host_manager_config_permissions(config_path)
+            
+            print("\nRunning test_ssh_host_manager_invalid_config...")
+            test_ssh_host_manager_invalid_config(config_path)
+            
+            print("\nRunning test_ssh_host_manager_save_failure...")
+            test_ssh_host_manager_save_failure(config_path)
+        
+        # Run the tests
+        run_with_temp_config()
+        
+        # Run tests that don't use the temp_config fixture
+        print("\nRunning test_parse_args_default...")
+        test_parse_args_default()
+        
+        print("\nRunning test_parse_args_with_config...")
+        test_parse_args_with_config()
+        
+        print("\nRunning test_ssh_host_manager_default_config...")
+        test_ssh_host_manager_default_config()
+        
+        print("\nAll manual tests completed successfully!")
+        
+    except Exception as e:
+        print(f"\nError during manual testing: {e}")
+    finally:
+        # Clean up the temporary file
+        try:
+            config_path.unlink()
+        except:
+            pass
