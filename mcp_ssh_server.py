@@ -192,6 +192,50 @@ async def ssh_status() -> dict:
         raise
 
 @mcp.tool()
+async def ssh_verify_sudo() -> bool:
+    """
+    Verify if password-less sudo is available on the remote system.
+    
+    Returns:
+        True if sudo access is available, False otherwise
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return ssh_client.verify_sudo_access()
+    except Exception as e:
+        logger.error(f"Failed to verify sudo access: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_replace_block(
+    path: Annotated[str, Field(description="File path to modify")],
+    old_block: Annotated[str, Field(description="Block of text to replace")],
+    new_block: Annotated[str, Field(description="New block of text")],
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Replace a block of text in a remote file.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        ssh_client.replace_block(path, old_block, new_block, sudo)
+        return {
+            'status': 'success',
+            'path': path,
+            'message': f"Replaced block of text in {path}"
+        }
+    except Exception as e:
+        logger.error(f"Failed to replace block: {e}")
+        raise
+
+@mcp.tool()
 async def ssh_output(
     handle_id: Annotated[int, Field(description="Command handle ID to retrieve output for")],
     lines: Annotated[Optional[int], Field(description="Number of lines to retrieve (None for all)")] = None
