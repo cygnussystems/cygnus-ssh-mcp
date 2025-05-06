@@ -648,6 +648,259 @@ async def ssh_replace_line(
         raise
 
 # ===================
+# Directory Operation Tools
+# ===================
+
+@mcp.tool()
+async def ssh_search_files(
+    path: Annotated[str, Field(description="Base directory to search from")],
+    pattern: Annotated[str, Field(description="Filename glob pattern (e.g. *.log)")],
+    max_depth: Annotated[Optional[int], Field(description="Maximum recursion depth (None for unlimited)", ge=1)] = None,
+    include_dirs: Annotated[bool, Field(description="Include matching directories in results")] = False
+) -> list:
+    """
+    Recursively search for files matching a pattern.
+    
+    Returns:
+        List of dictionaries with file information
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        results = ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs)
+        return results
+    except Exception as e:
+        logger.error(f"Failed to search files: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_directory_size(
+    path: Annotated[str, Field(description="Directory path to calculate size for")]
+) -> dict:
+    """
+    Calculate the total size of a directory recursively.
+    
+    Returns:
+        Dictionary with size information
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        size_bytes = ssh_client.calculate_directory_size(path)
+        return {
+            'path': path,
+            'size_bytes': size_bytes,
+            'size_human': _format_size(size_bytes)
+        }
+    except Exception as e:
+        logger.error(f"Failed to calculate directory size: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_delete_directory(
+    path: Annotated[str, Field(description="Directory path to delete")],
+    dry_run: Annotated[bool, Field(description="Preview deletion without actually deleting")] = True,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Delete a directory and all its contents recursively.
+    
+    Returns:
+        Dictionary with deletion status and details
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        result = ssh_client.delete_directory_recursive(path, dry_run, sudo)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to delete directory: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_batch_delete(
+    path: Annotated[str, Field(description="Base directory to search in")],
+    pattern: Annotated[str, Field(description="File pattern to match for deletion (e.g. *.tmp)")],
+    dry_run: Annotated[bool, Field(description="Preview deletion without actually deleting")] = True,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Delete all files matching a pattern under a directory.
+    
+    Returns:
+        Dictionary with deletion status and details
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        result = ssh_client.batch_delete_by_pattern(path, pattern, dry_run, sudo)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to batch delete files: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_move(
+    source: Annotated[str, Field(description="Source file or directory path")],
+    destination: Annotated[str, Field(description="Destination path")],
+    overwrite: Annotated[bool, Field(description="Overwrite destination if it exists")] = False,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Move or rename a file or directory.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        result = ssh_client.safe_move_or_rename(source, destination, overwrite, sudo)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to move file/directory: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_list_directory(
+    path: Annotated[str, Field(description="Directory path to list")],
+    max_depth: Annotated[Optional[int], Field(description="Maximum recursion depth (None for unlimited)", ge=1)] = None,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> list:
+    """
+    List contents of a directory recursively with detailed information.
+    
+    Returns:
+        List of dictionaries with file/directory information
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        results = ssh_client.list_directory_recursive(path, max_depth, sudo)
+        return results
+    except Exception as e:
+        logger.error(f"Failed to list directory: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_create_archive(
+    source_path: Annotated[str, Field(description="Directory to archive")],
+    archive_path: Annotated[str, Field(description="Path for the created archive")],
+    format: Annotated[Literal["tar.gz", "zip"], Field(description="Archive format")] = "tar.gz",
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Create a compressed archive from a directory.
+    
+    Returns:
+        Dictionary with archive information
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        result = ssh_client.create_archive_from_directory(source_path, archive_path, format, sudo)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to create archive: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_extract_archive(
+    archive_path: Annotated[str, Field(description="Path to the archive file")],
+    destination_path: Annotated[str, Field(description="Directory to extract to")],
+    overwrite: Annotated[bool, Field(description="Overwrite existing files")] = False,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Extract an archive to a directory.
+    
+    Returns:
+        Dictionary with extraction information
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        result = ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
+        return result
+    except Exception as e:
+        logger.error(f"Failed to extract archive: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_search_content(
+    path: Annotated[str, Field(description="Directory to search in")],
+    pattern: Annotated[str, Field(description="Text or pattern to search for")],
+    regex: Annotated[bool, Field(description="Treat pattern as regular expression")] = False,
+    case_sensitive: Annotated[bool, Field(description="Perform case-sensitive search")] = True,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> list:
+    """
+    Search for text patterns in files.
+    
+    Returns:
+        List of dictionaries with search matches
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        results = ssh_client.search_file_contents(path, pattern, regex, case_sensitive, sudo)
+        return results
+    except Exception as e:
+        logger.error(f"Failed to search file contents: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_copy_directory(
+    source_path: Annotated[str, Field(description="Source directory path")],
+    destination_path: Annotated[str, Field(description="Destination directory path")],
+    overwrite: Annotated[bool, Field(description="Overwrite existing files")] = False,
+    preserve_symlinks: Annotated[bool, Field(description="Preserve symbolic links")] = True,
+    preserve_permissions: Annotated[bool, Field(description="Preserve file permissions")] = True,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Copy a directory recursively.
+    
+    Returns:
+        Dictionary with copy operation details
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        result = ssh_client.copy_directory_recursive(
+            source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, sudo
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Failed to copy directory: {e}")
+        raise
+
+# ===================
+# Helper Functions
+# ===================
+
+def _format_size(size_bytes):
+    """Format bytes into human-readable size."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.2f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+# ===================
 # Main Execution
 # ===================
 

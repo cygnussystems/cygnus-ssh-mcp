@@ -145,6 +145,30 @@ async def run_mcp_server_tests():
             except Exception as e:
                 print(f"  -> Error verifying file operation tools: {e}", file=sys.stderr)
                 raise
+                
+            # --- Test directory operation tools existence ---
+            try:
+                print("\nVerifying directory operation tools...")
+                tools = await client.list_tools()
+                tool_names = {tool.name for tool in tools}
+                
+                dir_tools = {
+                    "ssh_search_files", "ssh_directory_size", "ssh_delete_directory", 
+                    "ssh_batch_delete", "ssh_move", "ssh_list_directory",
+                    "ssh_create_archive", "ssh_extract_archive", "ssh_search_content",
+                    "ssh_copy_directory"
+                }
+                missing_tools = dir_tools - tool_names
+                
+                assert not missing_tools, f"Missing directory operation tools: {missing_tools}"
+                print("  -> Directory operation tools verification passed!")
+                
+                # We can't actually test these tools without an SSH connection,
+                # but we can verify they exist and have the correct parameters
+                print("  -> Directory operation tools are available")
+            except Exception as e:
+                print(f"  -> Error verifying directory operation tools: {e}", file=sys.stderr)
+                raise
 
     except Exception as e:
         print(f"\nTest run failed with error: {e}", file=sys.stderr)
