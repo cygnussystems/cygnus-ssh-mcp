@@ -520,6 +520,134 @@ async def ssh_task_kill(
         raise
 
 # ===================
+# File Operation Tools
+# ===================
+
+@mcp.tool()
+async def ssh_mkdir(
+    path: Annotated[str, Field(description="Directory path to create")],
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    mode: Annotated[int, Field(description="Directory permissions (octal)", ge=0, le=0o777)] = 0o755
+) -> dict:
+    """
+    Create a directory on the remote system.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        ssh_client.mkdir(path, sudo, mode)
+        return {
+            'status': 'success',
+            'path': path,
+            'mode': f"{mode:o}",
+            'message': f"Created directory {path} with mode {mode:o}"
+        }
+    except Exception as e:
+        logger.error(f"Failed to create directory: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_rmdir(
+    path: Annotated[str, Field(description="Directory path to remove")],
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    recursive: Annotated[bool, Field(description="Remove directory and contents recursively")] = False
+) -> dict:
+    """
+    Remove a directory on the remote system.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        ssh_client.rmdir(path, sudo, recursive)
+        return {
+            'status': 'success',
+            'path': path,
+            'recursive': recursive,
+            'message': f"Removed directory {path}" + (" recursively" if recursive else "")
+        }
+    except Exception as e:
+        logger.error(f"Failed to remove directory: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_listdir(
+    path: Annotated[str, Field(description="Directory path to list")]
+) -> list:
+    """
+    List contents of a directory on the remote system.
+    
+    Returns:
+        List of filenames in the directory
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        files = ssh_client.listdir(path)
+        return files
+    except Exception as e:
+        logger.error(f"Failed to list directory: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_stat(
+    path: Annotated[str, Field(description="File or directory path to get information about")]
+) -> dict:
+    """
+    Get status information about a file or directory.
+    
+    Returns:
+        Dictionary with file/directory metadata
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        stat_info = ssh_client.stat(path)
+        return stat_info
+    except Exception as e:
+        logger.error(f"Failed to get file status: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_replace_line(
+    path: Annotated[str, Field(description="File path to modify")],
+    old_line: Annotated[str, Field(description="Line of text to replace")],
+    new_line: Annotated[str, Field(description="New line of text")],
+    count: Annotated[int, Field(description="Number of occurrences to replace (0=all)", ge=0)] = 1,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+) -> dict:
+    """
+    Replace specific lines in a remote file.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        ssh_client.replace_line(path, old_line, new_line, count, sudo, force)
+        return {
+            'status': 'success',
+            'path': path,
+            'count': count,
+            'message': f"Replaced {'all occurrences' if count == 0 else count} of the specified line in {path}"
+        }
+    except Exception as e:
+        logger.error(f"Failed to replace line: {e}")
+        raise
+
+# ===================
 # Main Execution
 # ===================
 
