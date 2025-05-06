@@ -1,10 +1,64 @@
 import logging
 import sys
+import os
+import yaml
+from pathlib import Path
 from fastmcp import FastMCP
 from pydantic import Field
-from typing import Annotated, Optional, Literal
+from typing import Annotated, Optional, Literal, Dict
 from ssh_client import SshClient
 from ssh_models import SshError
+
+class SshHostManager:
+    def __init__(self):
+        self.config_path = Path.home() / ".ssh_hosts.yaml"
+        self._ensure_config_file()
+        self.hosts = self._load_hosts()
+
+    def _ensure_config_file(self):
+        """Create config file if it doesn't exist with secure permissions."""
+        if not self.config_path.exists():
+            with open(self.config_path, 'w') as f:
+                yaml.safe_dump({'hosts': []}, f)
+            self.config_path.chmod(0o600)  # rw-------
+
+    def _load_hosts(self) -> Dict[str, Dict]:
+        """Load hosts from config file."""
+        try:
+            with open(self.config_path, 'r') as f:
+                data = yaml.safe_load(f) or {}
+            return {h['name']: h for h in data.get('hosts', [])}
+        except Exception as e:
+            logger.error(f"Failed to load SSH hosts: {e}")
+            return {}
+
+    def get_host(self, name: str) -> Optional[Dict]:
+        """Get host config by name."""
+        return self.hosts.get(name)
+
+    def add_host(self, name: str, host: str, port: int, user: str, password: str):
+        """Add or update a host configuration."""
+        self.hosts[name] = {
+            'name': name,
+            'host': host,
+            'port': port,
+            'user': user,
+            'password': password
+        }
+        self._save_hosts()
+
+    def _save_hosts(self):
+        """Save hosts to config file."""
+        try:
+            with open(self.config_path, 'w') as f:
+                yaml.safe_dump({'hosts': list(self.hosts.values())}, f)
+            self.config_path.chmod(0o600)  # Maintain secure permissions
+        except Exception as e:
+            logger.error(f"Failed to save SSH hosts: {e}")
+            raise SshError("Failed to save host configuration")
+
+# Initialize host manager
+host_manager = SshHostManager()
 
 # ===================
 # Logging Setup
@@ -72,36 +126,64 @@ async def cleanup_ssh():
 
 @mcp.tool()
 async def ssh_connect(
-    host: Annotated[str, Field(description="Remote hostname or IP address")],
-    user: Annotated[str, Field(description="Username for authentication")],
-    password: Annotated[Optional[str], Field(description="Password for authentication", secret=True)] = None,
-    port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22,
-    keyfile: Annotated[Optional[str], Field(description="Path to SSH private key file")] = None
+    host_name: Annotated[str, Field(description="Name of host configuration to use")]
 ) -> dict:
     """
-    Establish an SSH connection to a remote host.
+    Establish an SSH connection using a pre-configured host.
     
     Returns:
-        Dictionary with connection status and metadata
+        Dictionary with connection status
     """
     global ssh_client
+    
     try:
+        host_config = host_manager.get_host(host_name)
+        if not host_config:
+            raise SshError(f"Host configuration '{host_name}' not found")
+            
         if ssh_client:
             logger.warning("Closing existing SSH connection")
             ssh_client.close()
             
         ssh_client = SshClient(
-            host=host,
-            user=user,
-            password=password,
-            port=port,
-            keyfile=keyfile
+            host=host_config['host'],
+            user=host_config['user'],
+            password=host_config['password'],
+            port=host_config['port']
         )
-        status = ssh_client.get_connection_status()
-        logger.info(f"Successfully connected to {user}@{host}:{port}")
-        return status
+        
+        return {
+            'status': 'success',
+            'host': host_config['host'],
+            'user': host_config['user']
+        }
     except Exception as e:
-        logger.error(f"Failed to connect to {host}: {e}")
+        logger.error(f"Failed to connect to {host_name}: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_add_host(
+    name: Annotated[str, Field(description="Unique name for this host configuration")],
+    host: Annotated[str, Field(description="Hostname or IP address")],
+    port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22,
+    user: Annotated[str, Field(description="Username for authentication")],
+    password: Annotated[str, Field(description="Password for authentication", secret=True)]
+) -> dict:
+    """
+    Add or update a host configuration.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    try:
+        host_manager.add_host(name, host, port, user, password)
+        return {
+            'status': 'success',
+            'host': host,
+            'user': user
+        }
+    except Exception as e:
+        logger.error(f"Failed to add host: {e}")
         raise
 
 @mcp.tool()
