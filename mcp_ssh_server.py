@@ -2,6 +2,7 @@ import logging
 import sys
 import os
 import yaml
+import argparse
 from pathlib import Path
 from fastmcp import FastMCP
 from pydantic import Field
@@ -9,9 +10,33 @@ from typing import Annotated, Optional, Literal, Dict
 from ssh_client import SshClient
 from ssh_models import SshError
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="SSH MCP Server")
+    parser.add_argument(
+        '--config',
+        type=str,
+        help="Path to SSH hosts configuration file",
+        default=None
+    )
+    return parser.parse_args()
+
 class SshHostManager:
-    def __init__(self):
-        self.config_path = Path.home() / ".ssh_hosts.yaml"
+    def __init__(self, config_path: Optional[Path] = None):
+        # Try paths in this order:
+        # 1. Explicit config_path if provided
+        # 2. ~/.ssh_hosts.yaml
+        # 3. ./ssh_hosts.yaml
+        if config_path:
+            self.config_path = config_path
+        else:
+            home_config = Path.home() / ".ssh_hosts.yaml"
+            project_config = Path("ssh_hosts.yaml")
+            
+            if home_config.exists():
+                self.config_path = home_config
+            else:
+                self.config_path = project_config
+                
         self._ensure_config_file()
         self.hosts = self._load_hosts()
 
@@ -57,8 +82,13 @@ class SshHostManager:
             logger.error(f"Failed to save SSH hosts: {e}")
             raise SshError("Failed to save host configuration")
 
-# Initialize host manager
-host_manager = SshHostManager()
+# Parse command line arguments
+args = parse_args()
+
+# Initialize host manager with config path if provided
+host_manager = SshHostManager(
+    config_path=Path(args.config) if args.config else None
+)
 
 # ===================
 # Logging Setup
@@ -403,6 +433,7 @@ async def ssh_command_history(
 if __name__ == '__main__':
     try:
         logger.info(f"Starting SSH MCP server '{mcp.name}' version {mcp.version}")
+        logger.info(f"Using config file: {host_manager.config_path}")
         logger.info("Available tools:")
         for tool in mcp.list_tools():
             logger.info(f"  - {tool.name}: {tool.description}")
