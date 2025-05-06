@@ -165,9 +165,9 @@ async def ssh_connect(
 async def ssh_add_host(
     name: Annotated[str, Field(description="Unique name for this host configuration")],
     host: Annotated[str, Field(description="Hostname or IP address")],
-    port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22,
     user: Annotated[str, Field(description="Username for authentication")],
-    password: Annotated[str, Field(description="Password for authentication", secret=True)]
+    password: Annotated[str, Field(description="Password for authentication", secret=True)],
+    port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22
 ) -> dict:
     """
     Add or update a host configuration.
