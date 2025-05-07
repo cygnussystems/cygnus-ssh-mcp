@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from test_mcp_fixtures import setup_test_environment, teardown_test_environment, get_mcp_client, ssh_client
+from test__fixtures import setup_test_environment, teardown_test_environment, get_mcp_client, ssh_client
 from test_utils import print_test_header, print_test_footer
 
 @pytest.mark.asyncio

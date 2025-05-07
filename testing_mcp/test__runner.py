@@ -6,9 +6,18 @@ import pytest
 from test_mcp_fixtures import setup_test_environment, teardown_test_environment
 
 # Import all test modules
-from test_mcp_run_commands import test_ssh_run_basic, test_ssh_run_multiline, test_ssh_run_failure
-from test_mcp_status import test_ssh_status
-from test_mcp_history import test_ssh_command_history
+from test_tool__run import test_ssh_run_basic, test_ssh_run_multiline, test_ssh_run_failure
+from test_tool__status import test_ssh_status
+from test_tool__history import test_ssh_command_history
+from test_mcp_server_tools import (
+    test_tool_listing,
+    test_ssh_add_host,
+    test_ssh_connect_parameters,
+    test_tool_category_existence,
+    TASK_MANAGEMENT_TOOLS,
+    FILE_OPERATION_TOOLS,
+    DIRECTORY_OPERATION_TOOLS
+)
 
 async def run_mcp_ssh_integration_tests():
     """Run integration tests for the SSH MCP server tools using a real SSH connection."""
@@ -27,6 +36,16 @@ async def run_mcp_ssh_integration_tests():
         await test_ssh_run_failure()
         await test_ssh_status()
         await test_ssh_command_history()
+        
+        # Run tool verification tests
+        from mcp_ssh_server import mcp
+        from fastmcp import Client
+        
+        async with Client(mcp) as client:
+            await test_tool_listing(client)
+            await test_tool_category_existence(client, "task_management", TASK_MANAGEMENT_TOOLS)
+            await test_tool_category_existence(client, "file_operations", FILE_OPERATION_TOOLS)
+            await test_tool_category_existence(client, "directory_operations", DIRECTORY_OPERATION_TOOLS)
         
         # Add more test functions here as they are created
         
