@@ -41,11 +41,13 @@ async def mcp_client(mcp_test_environment):
     """Fixture to provide a connected MCP client."""
     client = await get_mcp_client()
     try:
-        yield client
-    finally:
+        # Return the client directly, not as an async generator
+        return client
+    except Exception as e:
         # Only try to close if the client has a close method
         if hasattr(client, 'close'):
             await client.close()
+        raise e
 
 def print_test_header(test_name):
     """Print a formatted test header."""
