@@ -211,7 +211,6 @@ async def get_mcp_client():
     
     # Create a client connected to the MCP server
     client = Client(mcp)
-    await client.connect()
     
     # Set up the SSH connection if not already established
     try:
