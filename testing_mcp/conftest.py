@@ -3,24 +3,197 @@ import asyncio
 import sys
 import os
 import logging
+import subprocess
+import time
 from pathlib import Path
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
-# Import test fixtures
-from testing_mcp.test_mcp_fixtures import setup_test_environment, teardown_test_environment, get_mcp_client
+# Import necessary modules
+from mcp_ssh_server import mcp
+from fastmcp import Client
+from ssh_client import SshClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logging.getLogger('paramiko').setLevel(logging.WARNING)
+
+# Test environment configuration
+SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
+SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
+SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
 
 # This allows running the tests with pytest
 def pytest_configure(config):
     """Configure pytest."""
     # Register the asyncio marker
     config.addinivalue_line("markers", "asyncio: mark test as an asyncio test")
+
+# SSH test container management
+async def setup_test_environment():
+    """
+    Set up the test environment by starting an SSH server container.
+    """
+    logger = logging.getLogger("test_setup")
+    logger.info("Setting up test environment")
+    
+    # Check if the container is already running
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=ssh-test-server", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        if "ssh-test-server" in result.stdout:
+            logger.info("SSH test container is already running")
+            return
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Error checking for existing container: {e}")
+    
+    # Start the SSH test container
+    try:
+        logger.info("Starting SSH test container")
+        subprocess.run(
+            [
+                "docker", "run", "-d",
+                "--name", "ssh-test-server",
+                "-p", f"{SSH_TEST_PORT}:22",
+                "-e", f"USER_NAME={SSH_TEST_USER}",
+                "-e", f"USER_PASSWORD={SSH_TEST_PASSWORD}",
+                "-e", "SUDO_ACCESS=true",
+                "-e", "PASSWORD_ACCESS=true",
+                "linuxserver/openssh-server:latest"
+            ],
+            check=True
+        )
+        
+        # Wait for the container to be ready
+        logger.info("Waiting for SSH server to be ready")
+        time.sleep(5)  # Give the container time to initialize
+        
+        # Test the SSH connection
+        max_retries = 5
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                client = SshClient(
+                    host='localhost',
+                    user=SSH_TEST_USER,
+                    port=SSH_TEST_PORT,
+                    password=SSH_TEST_PASSWORD
+                )
+                
+                # Run a simple command to verify the connection
+                result = client.run("echo 'SSH connection test'")
+                logger.info(f"SSH connection test result: {result.exit_code}")
+                client.close()
+                
+                logger.info("SSH test environment is ready")
+                return
+            except Exception as e:
+                logger.warning(f"SSH connection attempt {attempt+1}/{max_retries} failed: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    raise RuntimeError(f"Failed to connect to SSH test server after {max_retries} attempts")
+    
+    except Exception as e:
+        logger.error(f"Failed to set up test environment: {e}")
+        raise
+
+async def teardown_test_environment():
+    """
+    Clean up the test environment by stopping and removing the SSH server container.
+    """
+    logger = logging.getLogger("test_teardown")
+    logger.info("Tearing down test environment")
+    
+    # Stop and remove the container
+    try:
+        # Check if the container exists
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=ssh-test-server", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        if "ssh-test-server" in result.stdout:
+            # Stop the container
+            logger.info("Stopping SSH test container")
+            subprocess.run(["docker", "stop", "ssh-test-server"], check=True)
+            
+            # Remove the container
+            logger.info("Removing SSH test container")
+            subprocess.run(["docker", "rm", "ssh-test-server"], check=True)
+            
+            logger.info("SSH test environment cleaned up")
+        else:
+            logger.info("SSH test container not found, nothing to clean up")
+    
+    except Exception as e:
+        logger.error(f"Error during test environment teardown: {e}")
+        # Don't raise the exception to allow tests to complete
+
+async def get_mcp_client():
+    """
+    Get a client connected to the MCP server.
+    
+    Returns:
+        A connected MCP client
+    """
+    logger = logging.getLogger("test_client")
+    logger.info("Creating MCP client")
+    
+    # Create a client connected to the MCP server
+    client = Client(mcp)
+    await client.connect()
+    
+    # Set up the SSH connection if not already established
+    try:
+        # First check if there's already an active connection
+        try:
+            await client.call_tool("ssh_status", {})
+            logger.info("SSH connection already established")
+        except Exception as e:
+            if "No active SSH connection" in str(e):
+                # Connect to the test SSH server
+                logger.info("Establishing SSH connection")
+                await client.call_tool("ssh_connect", {
+                    "host_name": "test_server"
+                })
+                logger.info("SSH connection established")
+            else:
+                raise
+    except Exception as e:
+        logger.error(f"Failed to set up SSH connection: {e}")
+        # Add the test server configuration
+        try:
+            logger.info("Adding test server configuration")
+            await client.call_tool("ssh_add_host", {
+                "name": "test_server",
+                "host": "localhost",
+                "user": SSH_TEST_USER,
+                "password": SSH_TEST_PASSWORD,
+                "port": SSH_TEST_PORT
+            })
+            
+            # Now connect to the test server
+            logger.info("Connecting to test server")
+            await client.call_tool("ssh_connect", {
+                "host_name": "test_server"
+            })
+            logger.info("SSH connection established")
+        except Exception as e2:
+            logger.error(f"Failed to add and connect to test server: {e2}")
+            raise
+    
+    return client
 
 @pytest.fixture(scope="session")
 def event_loop():

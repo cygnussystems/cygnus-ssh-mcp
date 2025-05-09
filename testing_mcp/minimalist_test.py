@@ -80,7 +80,7 @@ async def test_with_fixtures():
     
     try:
         # Import the necessary functions directly
-        from test_mcp_fixtures import setup_test_environment, teardown_test_environment
+        from conftest import setup_test_environment, teardown_test_environment
         from mcp_ssh_server import mcp
         
         # Set up the test environment
@@ -149,7 +149,7 @@ async def test_simple_fixture_usage():
     logger.info("Starting simple fixture test")
     
     try:
-        from test_mcp_fixtures import setup_test_environment, teardown_test_environment
+        from conftest import setup_test_environment, teardown_test_environment
         from mcp_ssh_server import mcp
         
         # Set up the test environment
@@ -209,7 +209,7 @@ async def test_ssh_connection_and_status():
     logger.info("Starting SSH connection and status test")
     
     try:
-        from test_mcp_fixtures import setup_test_environment, teardown_test_environment
+        from conftest import setup_test_environment, teardown_test_environment
         from mcp_ssh_server import mcp
         from ssh_client import SshClient
         import os
