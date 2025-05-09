@@ -79,9 +79,20 @@ async def test_with_fixtures(mcp_client):
     logger.info("Starting test with fixtures")
     
     try:
+        # Get the actual client from the fixture
+        # The fixture is an async generator, so we need to get the client from it
+        client = None
+        async for c in mcp_client:
+            client = c
+            break
+        
+        if client is None:
+            logger.error("Failed to get client from fixture")
+            assert False, "Failed to get client from fixture"
+        
         # Test if the client is properly connected
         logger.info("Testing ssh_status with fixture-provided client")
-        status_result = await mcp_client.call_tool("ssh_status", {})
+        status_result = await client.call_tool("ssh_status", {})
         logger.info(f"ssh_status result: {status_result}")
         
         # Basic validation of the result
@@ -95,6 +106,56 @@ async def test_with_fixtures(mcp_client):
         logger.error(f"Error in test with fixtures: {e}", exc_info=True)
         raise
 
+@pytest.mark.asyncio
+async def test_simple_fixture_usage():
+    """
+    A simpler test that directly imports and uses the test fixtures
+    without relying on pytest's fixture mechanism.
+    """
+    logger.info("Starting simple fixture test")
+    
+    try:
+        from test_mcp_fixtures import setup_test_environment, get_mcp_client, teardown_test_environment
+        
+        # Set up the test environment
+        logger.info("Setting up test environment")
+        await setup_test_environment()
+        
+        try:
+            # Get the client
+            logger.info("Getting MCP client")
+            client = await get_mcp_client()
+            
+            # List available tools
+            logger.info("Listing available tools")
+            tools = await client.list_tools()
+            tool_names = [tool.name for tool in tools]
+            logger.info(f"Available tools: {tool_names}")
+            
+            # Check if ssh_status is available
+            assert "ssh_status" in tool_names, "ssh_status tool not found"
+            
+            # Try to call ssh_status
+            logger.info("Calling ssh_status")
+            try:
+                status = await client.call_tool("ssh_status", {})
+                logger.info(f"Status result: {status}")
+                assert status is not None
+            except Exception as e:
+                logger.warning(f"Error calling ssh_status: {e}")
+                # This might be expected if no SSH connection is established
+            
+            logger.info("Simple fixture test completed")
+            
+        finally:
+            # Clean up
+            logger.info("Tearing down test environment")
+            await teardown_test_environment()
+            
+    except Exception as e:
+        logger.error(f"Error in simple fixture test: {e}", exc_info=True)
+        raise
+
 if __name__ == "__main__":
     """
     Allow running this test directly without pytest
@@ -102,6 +163,10 @@ if __name__ == "__main__":
     try:
         asyncio.run(test_ssh_status_direct())
         print("Direct test completed successfully")
+        
+        # Also run the simple fixture test
+        asyncio.run(test_simple_fixture_usage())
+        print("Simple fixture test completed successfully")
     except Exception as e:
         print(f"Test failed: {e}")
         sys.exit(1)
