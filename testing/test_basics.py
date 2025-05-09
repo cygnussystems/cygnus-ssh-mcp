@@ -2,20 +2,10 @@ import os
 import tempfile
 import time
 import shlex
-import pytest # Import pytest for fixtures
+import pytest
 from test_utils import get_client, cleanup_client, print_test_header, print_test_footer, SSH_USER
 
-
-# --- Test Fixture ---
-
-@pytest.fixture(scope="module") # Use module scope for efficiency if tests don't interfere
-def ssh_client():
-    """Pytest fixture to provide a connected SshClient instance."""
-    print("\n--- Setting up SSH client fixture ---")
-    client = get_client(force_new=True) # Ensure a fresh client for the module
-    yield client # Provide the client to the tests
-    print("\n--- Tearing down SSH client fixture ---")
-    cleanup_client(client)
+# No need to define the fixture here as it's in conftest.py
 
 
 # --- Test Functions ---
