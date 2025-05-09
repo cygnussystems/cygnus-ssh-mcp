@@ -8,7 +8,13 @@ async def test_ssh_status(mcp_client):
     """Test retrieving SSH connection status."""
     print_test_header("Testing 'ssh_status' tool")
     
-    status_result = await mcp_client.call_tool("ssh_status", {})
+    # Debug the client type
+    print(f"Client type: {type(mcp_client)}")
+    
+    # Get the actual client by awaiting the async generator
+    client = await anext(mcp_client.__aiter__())
+    
+    status_result = await client.call_tool("ssh_status", {})
     
     print(f"Status result: {status_result}")
     
