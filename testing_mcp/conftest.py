@@ -57,6 +57,21 @@ async def setup_test_environment():
     except subprocess.CalledProcessError as e:
         logger.warning(f"Error checking for existing container: {e}")
     
+    # Check if the container exists but is stopped
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=ssh-test-server", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        if "ssh-test-server" in result.stdout:
+            logger.info("SSH test container exists but is stopped or has port conflict, removing it")
+            subprocess.run(["docker", "rm", "-f", "ssh-test-server"], check=True)
+    except subprocess.CalledProcessError as e:
+        logger.warning(f"Error checking for existing stopped container: {e}")
+    
     # Start the SSH test container
     try:
         logger.info("Starting SSH test container")
