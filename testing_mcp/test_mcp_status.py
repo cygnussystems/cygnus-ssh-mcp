@@ -8,37 +8,73 @@ from conftest import print_test_header, print_test_footer, setup_test_environmen
 logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
-async def test_ssh_status(mcp_client):
+async def test_ssh_status():
     """Test retrieving SSH connection status."""
     print_test_header("Testing 'ssh_status' tool")
     logger.info("Starting SSH status test")
     
-    # Run the status command via MCP
-    async for client in mcp_client:
-        status_result = await client.call_tool("ssh_status", {})
+    # Import necessary modules
+    from mcp_ssh_server import mcp
+    from fastmcp import Client
+    
+    # Use the Client context manager with the imported mcp instance
+    async with Client(mcp) as client:
+        # First, add the test server configuration
+        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
         
-        # Verify the result
-        assert status_result is not None, "Expected non-empty result"
-        assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
-        assert len(status_result) > 0, "Expected non-empty list result"
-        assert hasattr(status_result[0], 'text'), "Expected TextContent object with 'text' attribute"
-        
-        # Parse the JSON response
-        result_json = json.loads(status_result[0].text)
-        logger.info(f"Status result: {result_json}")
-        
-        # Verify the result structure
-        assert 'connection' in result_json, "Result should include connection info"
-        assert 'system' in result_json, "Result should include system info"
-        
-        # Check connection details
-        conn = result_json['connection']
-        assert 'host' in conn, "Connection info should include host"
-        
-        # Check system details
-        system = result_json['system']
-        assert 'os_name' in system, "System info should include OS name"
-        assert 'cpu_count' in system, "System info should include CPU count"
+        try:
+            # Try to get status first (might fail if no connection)
+            try:
+                status_result = await client.call_tool("ssh_status", {})
+                logger.info("SSH connection already established")
+            except Exception as e:
+                if "No active SSH connection" in str(e):
+                    # Add the test server configuration
+                    logger.info("Adding test server configuration")
+                    await client.call_tool("ssh_add_host", {
+                        "name": "test_server",
+                        "host": "localhost",
+                        "user": SSH_TEST_USER,
+                        "password": SSH_TEST_PASSWORD,
+                        "port": SSH_TEST_PORT
+                    })
+                    
+                    # Connect to the test server
+                    logger.info("Connecting to test server")
+                    await client.call_tool("ssh_connect", {
+                        "host_name": "test_server"
+                    })
+                    
+                    # Now get the status
+                    status_result = await client.call_tool("ssh_status", {})
+                else:
+                    raise
+            
+            # Verify the result
+            assert status_result is not None, "Expected non-empty result"
+            assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
+            assert len(status_result) > 0, "Expected non-empty list result"
+            assert hasattr(status_result[0], 'text'), "Expected TextContent object with 'text' attribute"
+            
+            # Parse the JSON response
+            result_json = json.loads(status_result[0].text)
+            logger.info(f"Status result: {result_json}")
+            
+            # Verify the result structure
+            assert 'connection' in result_json, "Result should include connection info"
+            assert 'system' in result_json, "Result should include system info"
+            
+            # Check connection details
+            conn = result_json['connection']
+            assert 'host' in conn, "Connection info should include host"
+            
+            # Check system details
+            system = result_json['system']
+            assert 'os_name' in system, "System info should include OS name"
+            assert 'cpu_count' in system, "System info should include CPU count"
+        except Exception as e:
+            logger.error(f"Error in SSH status test: {e}")
+            raise
     
     print_test_footer()
 
@@ -47,7 +83,7 @@ if __name__ == "__main__":
     Allow running this test directly without pytest
     """
     import sys
-    from conftest import setup_test_environment, teardown_test_environment, get_mcp_client
+    from conftest import setup_test_environment, teardown_test_environment
     
     async def run_tests():
         """Run all tests in this file"""
@@ -55,25 +91,12 @@ if __name__ == "__main__":
         await setup_test_environment()
         
         try:
-            # Get a client
-            client = await get_mcp_client()
+            # Run the tests
+            logger.info("Running tests")
+            await test_ssh_status()
             
-            try:
-                # Create a simple generator to mimic the fixture behavior
-                async def mock_client_fixture():
-                    yield client
+            logger.info("All tests completed successfully")
                 
-                # Run the tests
-                logger.info("Running tests")
-                await test_ssh_status(mock_client_fixture())
-                
-                logger.info("All tests completed successfully")
-                
-            finally:
-                # Close the client
-                if hasattr(client, 'close'):
-                    await client.close()
-                    
         finally:
             # Clean up
             logger.info("Tearing down test environment")
