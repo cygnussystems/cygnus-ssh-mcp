@@ -108,9 +108,20 @@ async def test_with_fixtures():
                     
                     # Basic validation of the result
                     assert status_result is not None, "ssh_status returned None"
-                    assert isinstance(status_result, dict), f"Expected dict result, got {type(status_result)}"
-                    assert "connection" in status_result, "Expected 'connection' key in result"
-                    assert "system" in status_result, "Expected 'system' key in result"
+                    # The result is a list of TextContent objects, not a dict
+                    assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
+                    assert len(status_result) > 0, "Expected non-empty list result"
+                        
+                    # The first item should be a TextContent object with JSON text
+                    content = status_result[0]
+                    assert hasattr(content, 'text'), "Expected TextContent object with 'text' attribute"
+                        
+                    # The text should be a JSON string that we can parse
+                    import json
+                    status_json = json.loads(content.text)
+                    assert isinstance(status_json, dict), "Expected JSON to parse to dict"
+                    assert "connection" in status_json, "Expected 'connection' key in result"
+                    assert "system" in status_json, "Expected 'system' key in result"
                     
                     logger.info("Test with fixtures completed successfully")
                 except Exception as e:
@@ -164,6 +175,12 @@ async def test_simple_fixture_usage():
                     status = await client.call_tool("ssh_status", {})
                     logger.info(f"Status result: {status}")
                     assert status is not None
+                    
+                    # Parse the JSON from the TextContent
+                    if isinstance(status, list) and len(status) > 0 and hasattr(status[0], 'text'):
+                        import json
+                        status_json = json.loads(status[0].text)
+                        logger.info(f"Parsed status JSON: {status_json}")
                 except Exception as e:
                     logger.warning(f"Error calling ssh_status: {e}")
                     # This might be expected if no SSH connection is established
@@ -187,28 +204,41 @@ async def test_simple_fixture_usage():
 async def test_ssh_connection_and_status():
     """
     Test that establishes an SSH connection and then checks the status.
-    This test directly uses the SSH client from the test environment.
+    This test creates its own SSH client and connects to the test server.
     """
     logger.info("Starting SSH connection and status test")
     
     try:
         from test_mcp_fixtures import setup_test_environment, teardown_test_environment
-        from mcp_ssh_server import mcp, ssh_client
+        from mcp_ssh_server import mcp
+        from ssh_client import SshClient
+        import os
         
         # Set up the test environment
         logger.info("Setting up test environment")
         await setup_test_environment()
         
         try:
+            # Create our own SSH client
+            logger.info("Creating SSH client")
+            ssh_port = int(os.environ.get('SSH_TEST_PORT', 2222))
+            ssh_user = os.environ.get('SSH_TEST_USER', 'testuser')
+            ssh_password = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
+            
+            local_ssh_client = SshClient(
+                host='localhost',
+                user=ssh_user,
+                port=ssh_port,
+                password=ssh_password
+            )
+            
             # Check if the SSH client is connected
             logger.info("Checking SSH client connection")
-            if ssh_client is None:
-                logger.warning("SSH client is None, test environment setup may have failed")
-                assert False, "SSH client is None"
+            assert local_ssh_client is not None, "Failed to create SSH client"
             
             # Get connection status
             logger.info("Getting SSH connection status")
-            status = ssh_client.get_connection_status()
+            status = local_ssh_client.get_connection_status()
             logger.info(f"Connection status: {status}")
             assert status is not None, "Connection status is None"
             
@@ -221,11 +251,23 @@ async def test_ssh_connection_and_status():
                     status_result = await client.call_tool("ssh_status", {})
                     logger.info(f"ssh_status result: {status_result}")
                     assert status_result is not None, "ssh_status returned None"
+                    
+                    # Parse the JSON from the TextContent
+                    if isinstance(status_result, list) and len(status_result) > 0 and hasattr(status_result[0], 'text'):
+                        import json
+                        status_json = json.loads(status_result[0].text)
+                        logger.info(f"Parsed status JSON: {status_json}")
+                        assert "connection" in status_json, "Expected 'connection' key in result"
+                        assert "system" in status_json, "Expected 'system' key in result"
                 except Exception as e:
                     logger.error(f"Error calling ssh_status: {e}")
                     raise
                 
                 logger.info("SSH connection and status test completed successfully")
+                
+            # Close our local SSH client
+            if local_ssh_client:
+                local_ssh_client.close()
                 
         finally:
             # Clean up
