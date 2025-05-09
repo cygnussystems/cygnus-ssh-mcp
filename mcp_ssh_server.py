@@ -142,7 +142,7 @@ ssh_client = None
 # Cleanup Handlers
 # ===================
 
-@mcp.on_shutdown
+# Cleanup function - will be called manually at shutdown
 async def cleanup_ssh():
     """Clean up SSH connection when server shuts down."""
     global ssh_client
@@ -155,6 +155,13 @@ async def cleanup_ssh():
         finally:
             ssh_client = None
     logger.info("SSH cleanup complete")
+
+# Register shutdown handler if the FastMCP version supports it
+try:
+    mcp.on_shutdown(cleanup_ssh)
+    logger.info("Registered shutdown handler")
+except AttributeError:
+    logger.info("FastMCP version doesn't support on_shutdown, will clean up manually")
 
 # ===================
 # Core SSH Tools
