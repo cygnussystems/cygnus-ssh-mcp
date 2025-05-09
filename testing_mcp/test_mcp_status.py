@@ -4,17 +4,17 @@ from test_mcp_fixtures import setup_test_environment, teardown_test_environment,
 from conftest import print_test_header, print_test_footer
 
 @pytest.mark.asyncio
-async def test_ssh_status(mcp_client):
+async def test_ssh_status(mcp_test_environment):
     """Test retrieving SSH connection status."""
     print_test_header("Testing 'ssh_status' tool")
     
-    # Debug the client type
-    print(f"Client type: {type(mcp_client)}")
+    # Create a client directly using the approach from mcp_server_testing_demo.py
+    from fastmcp import Client
+    from mcp_ssh_server import mcp, ssh_client
     
-    # Get the actual client by awaiting the async generator
-    client = await anext(mcp_client.__aiter__())
-    
-    status_result = await client.call_tool("ssh_status", {})
+    # Use the Client with an async context manager
+    async with Client(mcp) as client:
+        status_result = await client.call_tool("ssh_status", {})
     
     print(f"Status result: {status_result}")
     
