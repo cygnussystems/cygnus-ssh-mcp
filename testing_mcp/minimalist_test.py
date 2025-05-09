@@ -71,37 +71,60 @@ async def test_ssh_status_direct():
             raise
 
 @pytest.mark.asyncio
-async def test_with_fixtures(mcp_client):
+async def test_with_fixtures():
     """
-    Test using the fixtures from conftest.py.
-    This test assumes the fixtures properly set up an SSH connection.
+    Test using the fixtures directly without relying on pytest's fixture mechanism.
+    This approach avoids issues with the async generator fixture.
     """
-    logger.info("Starting test with fixtures")
+    logger.info("Starting test with fixtures (direct approach)")
     
     try:
-        # Get the actual client from the fixture
-        # The fixture is an async generator, so we need to get the client from it
-        client = None
-        async for c in mcp_client:
-            client = c
-            break
+        # Import the necessary functions directly
+        from test_mcp_fixtures import setup_test_environment, teardown_test_environment
+        from mcp_ssh_server import mcp
         
-        if client is None:
-            logger.error("Failed to get client from fixture")
-            assert False, "Failed to get client from fixture"
+        # Set up the test environment
+        logger.info("Setting up test environment")
+        await setup_test_environment()
         
-        # Test if the client is properly connected
-        logger.info("Testing ssh_status with fixture-provided client")
-        status_result = await client.call_tool("ssh_status", {})
-        logger.info(f"ssh_status result: {status_result}")
-        
-        # Basic validation of the result
-        assert status_result is not None, "ssh_status returned None"
-        assert isinstance(status_result, dict), f"Expected dict result, got {type(status_result)}"
-        assert "connection" in status_result, "Expected 'connection' key in result"
-        assert "system" in status_result, "Expected 'system' key in result"
-        
-        logger.info("Test with fixtures completed successfully")
+        try:
+            # Create a client directly
+            logger.info("Creating MCP client")
+            async with Client(mcp) as client:
+                # List available tools
+                logger.info("Listing available tools")
+                tools = await client.list_tools()
+                tool_names = [tool.name for tool in tools]
+                logger.info(f"Available tools: {tool_names}")
+                
+                # Check if ssh_status is available
+                assert "ssh_status" in tool_names, "ssh_status tool not found"
+                
+                # Try to call ssh_status
+                logger.info("Calling ssh_status")
+                try:
+                    status_result = await client.call_tool("ssh_status", {})
+                    logger.info(f"ssh_status result: {status_result}")
+                    
+                    # Basic validation of the result
+                    assert status_result is not None, "ssh_status returned None"
+                    assert isinstance(status_result, dict), f"Expected dict result, got {type(status_result)}"
+                    assert "connection" in status_result, "Expected 'connection' key in result"
+                    assert "system" in status_result, "Expected 'system' key in result"
+                    
+                    logger.info("Test with fixtures completed successfully")
+                except Exception as e:
+                    logger.warning(f"Error calling ssh_status: {e}")
+                    # This might be expected if no SSH connection is established
+                    if "No active SSH connection" in str(e):
+                        logger.info("Received expected 'No active SSH connection' error")
+                    else:
+                        raise
+        finally:
+            # Clean up
+            logger.info("Tearing down test environment")
+            await teardown_test_environment()
+            
     except Exception as e:
         logger.error(f"Error in test with fixtures: {e}", exc_info=True)
         raise
@@ -115,38 +138,42 @@ async def test_simple_fixture_usage():
     logger.info("Starting simple fixture test")
     
     try:
-        from test_mcp_fixtures import setup_test_environment, get_mcp_client, teardown_test_environment
+        from test_mcp_fixtures import setup_test_environment, teardown_test_environment
+        from mcp_ssh_server import mcp
         
         # Set up the test environment
         logger.info("Setting up test environment")
         await setup_test_environment()
         
         try:
-            # Get the client
-            logger.info("Getting MCP client")
-            client = await get_mcp_client()
-            
-            # List available tools
-            logger.info("Listing available tools")
-            tools = await client.list_tools()
-            tool_names = [tool.name for tool in tools]
-            logger.info(f"Available tools: {tool_names}")
-            
-            # Check if ssh_status is available
-            assert "ssh_status" in tool_names, "ssh_status tool not found"
-            
-            # Try to call ssh_status
-            logger.info("Calling ssh_status")
-            try:
-                status = await client.call_tool("ssh_status", {})
-                logger.info(f"Status result: {status}")
-                assert status is not None
-            except Exception as e:
-                logger.warning(f"Error calling ssh_status: {e}")
-                # This might be expected if no SSH connection is established
-            
-            logger.info("Simple fixture test completed")
-            
+            # Create a client directly instead of using get_mcp_client
+            logger.info("Creating MCP client directly")
+            async with Client(mcp) as client:
+                # List available tools
+                logger.info("Listing available tools")
+                tools = await client.list_tools()
+                tool_names = [tool.name for tool in tools]
+                logger.info(f"Available tools: {tool_names}")
+                
+                # Check if ssh_status is available
+                assert "ssh_status" in tool_names, "ssh_status tool not found"
+                
+                # Try to call ssh_status
+                logger.info("Calling ssh_status")
+                try:
+                    status = await client.call_tool("ssh_status", {})
+                    logger.info(f"Status result: {status}")
+                    assert status is not None
+                except Exception as e:
+                    logger.warning(f"Error calling ssh_status: {e}")
+                    # This might be expected if no SSH connection is established
+                    if "No active SSH connection" in str(e):
+                        logger.info("Received expected 'No active SSH connection' error")
+                    else:
+                        raise
+                
+                logger.info("Simple fixture test completed")
+                
         finally:
             # Clean up
             logger.info("Tearing down test environment")
@@ -154,6 +181,59 @@ async def test_simple_fixture_usage():
             
     except Exception as e:
         logger.error(f"Error in simple fixture test: {e}", exc_info=True)
+        raise
+
+@pytest.mark.asyncio
+async def test_ssh_connection_and_status():
+    """
+    Test that establishes an SSH connection and then checks the status.
+    This test directly uses the SSH client from the test environment.
+    """
+    logger.info("Starting SSH connection and status test")
+    
+    try:
+        from test_mcp_fixtures import setup_test_environment, teardown_test_environment
+        from mcp_ssh_server import mcp, ssh_client
+        
+        # Set up the test environment
+        logger.info("Setting up test environment")
+        await setup_test_environment()
+        
+        try:
+            # Check if the SSH client is connected
+            logger.info("Checking SSH client connection")
+            if ssh_client is None:
+                logger.warning("SSH client is None, test environment setup may have failed")
+                assert False, "SSH client is None"
+            
+            # Get connection status
+            logger.info("Getting SSH connection status")
+            status = ssh_client.get_connection_status()
+            logger.info(f"Connection status: {status}")
+            assert status is not None, "Connection status is None"
+            
+            # Create MCP client
+            logger.info("Creating MCP client")
+            async with Client(mcp) as client:
+                # Try to call ssh_status
+                logger.info("Calling ssh_status through MCP")
+                try:
+                    status_result = await client.call_tool("ssh_status", {})
+                    logger.info(f"ssh_status result: {status_result}")
+                    assert status_result is not None, "ssh_status returned None"
+                except Exception as e:
+                    logger.error(f"Error calling ssh_status: {e}")
+                    raise
+                
+                logger.info("SSH connection and status test completed successfully")
+                
+        finally:
+            # Clean up
+            logger.info("Tearing down test environment")
+            await teardown_test_environment()
+            
+    except Exception as e:
+        logger.error(f"Error in SSH connection and status test: {e}", exc_info=True)
         raise
 
 if __name__ == "__main__":
@@ -164,9 +244,9 @@ if __name__ == "__main__":
         asyncio.run(test_ssh_status_direct())
         print("Direct test completed successfully")
         
-        # Also run the simple fixture test
-        asyncio.run(test_simple_fixture_usage())
-        print("Simple fixture test completed successfully")
+        # Run the SSH connection and status test
+        asyncio.run(test_ssh_connection_and_status())
+        print("SSH connection and status test completed successfully")
     except Exception as e:
         print(f"Test failed: {e}")
         sys.exit(1)
