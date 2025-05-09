@@ -229,11 +229,18 @@ def test_os_info(ssh_client):
     
     # Validate specific fields
     try:
-        # Kernel version should have at least 3 parts (e.g. 5.4.0)
-        kernel_parts = os_info['kernel'].split('.')
-        assert len(kernel_parts) >= 3, "Kernel version should have at least 3 parts"
-        for part in kernel_parts:
-            assert part.isdigit(), "Kernel version parts should be numbers"
+        # Kernel version should start with at least 2 numeric parts (e.g. 5.4)
+        # But may contain non-numeric parts for special builds like WSL2
+        kernel = os_info['kernel']
+        kernel_parts = kernel.split('.')
+        assert len(kernel_parts) >= 2, "Kernel version should have at least 2 parts"
+            
+        # At least the first two parts should be numeric
+        assert kernel_parts[0].isdigit(), "First kernel version part should be a number"
+            
+        # Check if second part is entirely numeric or starts with a number
+        second_part = kernel_parts[1].split('-')[0]  # Handle formats like "15-microsoft"
+        assert second_part.isdigit(), "Second kernel version part should start with a number"
             
         # Architecture should be a known value
         assert os_info['architecture'] in ['x86_64', 'aarch64', 'armv7l', 'i386'], \
