@@ -1,5 +1,6 @@
 import pytest
 import json
+import asyncio
 
 @pytest.mark.asyncio
 async def test_ssh_run_basic(mcp_client):

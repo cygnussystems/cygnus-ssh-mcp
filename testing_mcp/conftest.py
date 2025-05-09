@@ -213,10 +213,12 @@ async def mcp_test_environment():
 async def mcp_client(mcp_test_environment):
     """Fixture to provide a connected MCP client."""
     client = await get_mcp_client()
-    yield client
-    # Clean up after the test
-    if hasattr(client, 'close'):
-        await client.close()
+    try:
+        yield client
+    finally:
+        # Clean up after the test
+        if hasattr(client, 'close'):
+            await client.close()
 
 def print_test_header(test_name):
     """Print a formatted test header."""
