@@ -288,3 +288,53 @@ def print_test_footer():
     print("\n" + "=" * 40)
     print("Test completed")
     print("=" * 40 + "\n")
+
+async def run_mcp_server_tests():
+    """
+    Run all MCP server tests in sequence.
+    This function can be called to run the full MCP test suite.
+    """
+    logger = logging.getLogger("mcp_tests")
+    logger.info("Starting MCP server test suite")
+    
+    # Set up the test environment
+    await setup_test_environment()
+    
+    try:
+        # Import test modules
+        from testing_mcp.test_mcp_run_commands import test_ssh_run_basic, test_ssh_run_multiline, test_ssh_run_failure
+        from testing_mcp.test_mcp_status import test_ssh_status
+        from testing_mcp.test_mcp_history import test_ssh_command_history
+        from testing_mcp.test_mcp_server_tools import test_tool_listing, test_ssh_add_host, test_ssh_connect_parameters
+        
+        # Create a client
+        client = await get_mcp_client()
+        
+        try:
+            # Run the tests
+            logger.info("Running basic command tests")
+            await test_ssh_run_basic(client)
+            await test_ssh_run_multiline(client)
+            await test_ssh_run_failure(client)
+            
+            logger.info("Running status tests")
+            await test_ssh_status({"client": client})
+            
+            logger.info("Running history tests")
+            await test_ssh_command_history()
+            
+            logger.info("Running tool tests")
+            await test_tool_listing(client)
+            await test_ssh_add_host(None, client)
+            await test_ssh_connect_parameters(client)
+            
+            logger.info("All MCP server tests completed successfully")
+            
+        finally:
+            # Close the client
+            if hasattr(client, 'close'):
+                await client.close()
+                
+    finally:
+        # Clean up the test environment
+        await teardown_test_environment()
