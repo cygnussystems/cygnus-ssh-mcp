@@ -3,7 +3,7 @@ import tempfile
 import time
 import shlex
 import pytest
-from test_utils import get_client, cleanup_client, print_test_header, print_test_footer, SSH_USER
+from conftest import get_client, cleanup_client, print_test_header, print_test_footer, SSH_USER
 
 # No need to define the fixture here as it's in conftest.py
 

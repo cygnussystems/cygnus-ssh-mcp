@@ -1,7 +1,7 @@
 import os
 import time
 import shlex
-from test_utils import print_test_header, print_test_footer, TEST_SUDO_PASSWORD, get_client
+from conftest import print_test_header, print_test_footer, TEST_SUDO_PASSWORD, get_client
 from ssh_client import SshClient
 
 
