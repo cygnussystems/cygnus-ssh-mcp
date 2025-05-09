@@ -32,9 +32,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "asyncio: mark test as an asyncio test")
     
     # Set default fixture loop scope to function
-    config.addinivalue_line(
-        "asyncio_default_fixture_loop_scope", "function"
-    )
+    config._inicache["asyncio_default_fixture_loop_scope"] = "function"
 
 # SSH test container management
 async def setup_test_environment():
