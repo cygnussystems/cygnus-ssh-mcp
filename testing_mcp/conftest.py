@@ -199,21 +199,7 @@ async def teardown_test_environment():
         logger.error(f"Error during test environment teardown: {e}")
         # Don't raise the exception to allow tests to complete
 
-async def get_mcp_client():
-    """
-    Get a client connected to the MCP server.
-    
-    Returns:
-        A connected MCP client
-    """
-    logger = logging.getLogger("test_client")
-    logger.info("Creating MCP client")
-    
-    # Create a client connected to the MCP server using context manager
-    client = Client(mcp)
-    
-    # Return the client to be used with a context manager
-    return client
+# This function is no longer needed as tests create their own clients
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -229,59 +215,7 @@ async def mcp_test_environment():
     yield
     await teardown_test_environment()
 
-@pytest.fixture(scope="function")
-async def mcp_client(mcp_test_environment):
-    """Fixture to provide a connected MCP client."""
-    client = await get_mcp_client()
-    fixture_logger = logging.getLogger("mcp_client_fixture")
-    
-    async def client_generator():
-        async with client as connected_client:
-            # Set up the SSH connection if not already established
-            try:
-                # First check if there's already an active connection
-                try:
-                    await connected_client.call_tool("ssh_status", {})
-                    fixture_logger.info("SSH connection already established")
-                except Exception as e:
-                    if "No active SSH connection" in str(e):
-                        # Connect to the test SSH server
-                        fixture_logger.info("Establishing SSH connection")
-                        try:
-                            await connected_client.call_tool("ssh_connect", {
-                                "host_name": "test_server"
-                            })
-                            fixture_logger.info("SSH connection established")
-                        except Exception as connect_error:
-                            # The host might not be configured yet
-                            if "not found" in str(connect_error):
-                                # Add the test server configuration
-                                fixture_logger.info("Adding test server configuration")
-                                await connected_client.call_tool("ssh_add_host", {
-                                    "name": "test_server",
-                                    "host": "localhost",
-                                    "user": SSH_TEST_USER,
-                                    "password": SSH_TEST_PASSWORD,
-                                    "port": SSH_TEST_PORT
-                                })
-                                
-                                # Now connect to the test server
-                                fixture_logger.info("Connecting to test server")
-                                await connected_client.call_tool("ssh_connect", {
-                                    "host_name": "test_server"
-                                })
-                                fixture_logger.info("SSH connection established")
-                            else:
-                                raise
-                    else:
-                        raise
-            except Exception as e:
-                fixture_logger.error(f"Failed to set up SSH connection: {e}")
-                raise
-                
-            yield connected_client
-    
-    yield client_generator()
+# This fixture is no longer needed as tests create their own clients
 
 def print_test_header(test_name):
     """Print a formatted test header."""
@@ -308,77 +242,21 @@ async def run_mcp_server_tests():
     
     try:
         # Import test modules
-        from testing_mcp.test_mcp_run_commands import test_ssh_run_basic, test_ssh_run_multiline, test_ssh_run_failure
+        from testing_mcp.test_tool__run import test_ssh_run_basic, test_ssh_run_multiline, test_ssh_run_failure
         from testing_mcp.test_mcp_status import test_ssh_status
-        from testing_mcp.test_mcp_history import test_ssh_command_history
-        from testing_mcp.test_mcp_server_tools import test_tool_listing, test_ssh_add_host, test_ssh_connect_parameters
+        from testing_mcp.test_tool__history import test_ssh_command_history
         
-        # Create a client
-        client = await get_mcp_client()
-        
-        # Create a client generator function similar to the fixture
-        async def client_generator():
-            async with client as connected_client:
-                # Set up the SSH connection
-                try:
-                    # First check if there's already an active connection
-                    try:
-                        await connected_client.call_tool("ssh_status", {})
-                        logger.info("SSH connection already established")
-                    except Exception as e:
-                        if "No active SSH connection" in str(e):
-                            # Connect to the test SSH server
-                            logger.info("Establishing SSH connection")
-                            try:
-                                await connected_client.call_tool("ssh_connect", {
-                                    "host_name": "test_server"
-                                })
-                                logger.info("SSH connection established")
-                            except Exception as connect_error:
-                                # The host might not be configured yet
-                                if "not found" in str(connect_error):
-                                    # Add the test server configuration
-                                    logger.info("Adding test server configuration")
-                                    await connected_client.call_tool("ssh_add_host", {
-                                        "name": "test_server",
-                                        "host": "localhost",
-                                        "user": SSH_TEST_USER,
-                                        "password": SSH_TEST_PASSWORD,
-                                        "port": SSH_TEST_PORT
-                                    })
-                                    
-                                    # Now connect to the test server
-                                    logger.info("Connecting to test server")
-                                    await connected_client.call_tool("ssh_connect", {
-                                        "host_name": "test_server"
-                                    })
-                                    logger.info("SSH connection established")
-                                else:
-                                    raise
-                        else:
-                            raise
-                except Exception as e:
-                    logger.error(f"Failed to set up SSH connection: {e}")
-                    raise
-                    
-                yield connected_client
-        
-        # Run the tests
+        # Run the tests directly - they handle their own client creation
         logger.info("Running basic command tests")
-        await test_ssh_run_basic(client_generator())
-        await test_ssh_run_multiline(client_generator())
-        await test_ssh_run_failure(client_generator())
+        await test_ssh_run_basic()
+        await test_ssh_run_multiline()
+        await test_ssh_run_failure()
         
         logger.info("Running status tests")
-        await test_ssh_status(client_generator())
+        await test_ssh_status()
         
         logger.info("Running history tests")
         await test_ssh_command_history()
-        
-        logger.info("Running tool tests")
-        await test_tool_listing(client_generator())
-        await test_ssh_add_host(None, client_generator())
-        await test_ssh_connect_parameters(client_generator())
         
         logger.info("All MCP server tests completed successfully")
                 
