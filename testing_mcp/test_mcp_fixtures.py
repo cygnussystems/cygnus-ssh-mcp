@@ -94,6 +94,7 @@ async def teardown_test_environment():
 async def get_mcp_client():
     """Get a FastMCP client for testing."""
     client = Client(mcp)
-    # Ensure the client is properly initialized
+    # Ensure the client is properly initialized and connected
     await client.connect()
+    # Make sure we're returning a fully initialized client, not an async generator
     return client

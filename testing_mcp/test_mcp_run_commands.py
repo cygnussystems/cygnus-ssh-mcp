@@ -13,8 +13,8 @@ async def test_ssh_run_basic(mcp_client):
     }
     
     print(f"Running command via MCP: {run_params['command']}")
-    # Use the client correctly - it's already awaited by the fixture
-    run_result = await mcp_client.call("ssh_run", run_params)
+    # Use the correct method name for the FastMCP client
+    run_result = await mcp_client.call_tool("ssh_run", run_params)
     
     print(f"Command result: {run_result}")
     
@@ -39,7 +39,7 @@ async def test_ssh_run_multiline(mcp_client):
     }
     
     print(f"Running multi-line command via MCP: {run_params['command']}")
-    run_result = await mcp_client.call("ssh_run", run_params)
+    run_result = await mcp_client.call_tool("ssh_run", run_params)
     
     print(f"Command result: {run_result}")
     
@@ -63,7 +63,7 @@ async def test_ssh_run_failure(mcp_client):
     
     print(f"Running failing command via MCP: {run_params['command']}")
     try:
-        run_result = await mcp_client.call("ssh_run", run_params)
+        run_result = await mcp_client.call_tool("ssh_run", run_params)
         print("Command should have failed but didn't")
         assert False, "Command should have failed with exit code 42"
     except Exception as e:
