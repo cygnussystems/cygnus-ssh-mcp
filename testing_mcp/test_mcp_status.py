@@ -78,38 +78,38 @@ async def test_ssh_status():
     
     print_test_footer()
 
-if __name__ == "__main__":
-    """
-    Allow running this test directly without pytest
-    """
-    import sys
-    from conftest import setup_test_environment, teardown_test_environment
-    
-    async def run_tests():
-        """Run all tests in this file"""
-        logger.info("Setting up test environment")
-        await setup_test_environment()
-        
-        try:
-            # Run the tests
-            logger.info("Running tests")
-            await test_ssh_status()
-            
-            logger.info("All tests completed successfully")
-                
-        finally:
-            # Clean up
-            logger.info("Tearing down test environment")
-            await teardown_test_environment()
-    
-    try:
-        # Configure logging for direct execution
-        logging.basicConfig(level=logging.INFO, 
-                           format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        
-        # Run the tests
-        asyncio.run(run_tests())
-        print("All tests completed successfully")
-    except Exception as e:
-        print(f"Tests failed: {e}")
-        sys.exit(1)
+# if __name__ == "__main__":
+#     """
+#     Allow running this test directly without pytest
+#     """
+#     import sys
+#     from conftest import setup_test_environment, teardown_test_environment
+#
+#     async def run_tests():
+#         """Run all tests in this file"""
+#         logger.info("Setting up test environment")
+#         await setup_test_environment()
+#
+#         try:
+#             # Run the tests
+#             logger.info("Running tests")
+#             await test_ssh_status()
+#
+#             logger.info("All tests completed successfully")
+#
+#         finally:
+#             # Clean up
+#             logger.info("Tearing down test environment")
+#             await teardown_test_environment()
+#
+#     try:
+#         # Configure logging for direct execution
+#         logging.basicConfig(level=logging.INFO,
+#                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#
+#         # Run the tests
+#         asyncio.run(run_tests())
+#         print("All tests completed successfully")
+#     except Exception as e:
+#         print(f"Tests failed: {e}")
+#         sys.exit(1)
