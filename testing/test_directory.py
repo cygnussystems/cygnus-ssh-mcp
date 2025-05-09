@@ -16,11 +16,14 @@ def test_mkdir_rmdir(ssh_client):
     try:
         # Create directory
         client.mkdir(test_dir)
-        assert test_dir in client.listdir("/tmp")
+        # Extract just the directory name from the path for comparison
+        test_dir_name = os.path.basename(test_dir)
+        assert test_dir_name in client.listdir("/tmp")
         
         # Remove directory
         client.rmdir(test_dir)
-        assert test_dir not in client.listdir("/tmp")
+        test_dir_name = os.path.basename(test_dir)
+        assert test_dir_name not in client.listdir("/tmp")
         
         print("Basic directory create/remove successful.")
     finally:
