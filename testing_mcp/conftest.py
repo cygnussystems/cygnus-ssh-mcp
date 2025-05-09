@@ -25,6 +25,8 @@ SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
 SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
 SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
 
+# Make SSH_TEST_PORT global so it can be modified if needed
+
 # This allows running the tests with pytest
 def pytest_configure(config):
     """Configure pytest."""
@@ -39,6 +41,7 @@ async def setup_test_environment():
     """
     Set up the test environment by starting an SSH server container.
     """
+    global SSH_TEST_PORT
     logger = logging.getLogger("test_setup")
     logger.info("Setting up test environment")
     
@@ -53,6 +56,19 @@ async def setup_test_environment():
         
         if "ssh-test-server" in result.stdout:
             logger.info("SSH test container is already running")
+            # Get the port mapping for the running container
+            port_result = subprocess.run(
+                ["docker", "port", "ssh-test-server", "22"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            if port_result.stdout.strip():
+                # Extract port from output like "0.0.0.0:2222"
+                port_mapping = port_result.stdout.strip()
+                if ":" in port_mapping:
+                    SSH_TEST_PORT = int(port_mapping.split(":")[-1])
+                    logger.info(f"Using existing container with port {SSH_TEST_PORT}")
             return
     except subprocess.CalledProcessError as e:
         logger.warning(f"Error checking for existing container: {e}")
@@ -72,9 +88,34 @@ async def setup_test_environment():
     except subprocess.CalledProcessError as e:
         logger.warning(f"Error checking for existing stopped container: {e}")
     
+    # Find an available port
+    import socket
+    original_port = SSH_TEST_PORT
+    max_port_attempts = 10
+    
+    for attempt in range(max_port_attempts):
+        # Check if the current port is available
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind(('127.0.0.1', SSH_TEST_PORT))
+            s.close()
+            logger.info(f"Port {SSH_TEST_PORT} is available")
+            break
+        except socket.error:
+            s.close()
+            logger.warning(f"Port {SSH_TEST_PORT} is not available, trying next port")
+            SSH_TEST_PORT += 1
+            
+            # If we've tried too many ports, give up
+            if attempt == max_port_attempts - 1:
+                raise RuntimeError(f"Could not find an available port after {max_port_attempts} attempts")
+    
+    if SSH_TEST_PORT != original_port:
+        logger.info(f"Using port {SSH_TEST_PORT} instead of {original_port}")
+    
     # Start the SSH test container
     try:
-        logger.info("Starting SSH test container")
+        logger.info(f"Starting SSH test container on port {SSH_TEST_PORT}")
         subprocess.run(
             [
                 "docker", "run", "-d",
