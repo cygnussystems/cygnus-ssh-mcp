@@ -45,20 +45,20 @@ async def setup_test_environment():
     logger = logging.getLogger("test_setup")
     logger.info("Setting up test environment")
     
-    # Check if the container is already running
+    # Check if the ssh-test container is already running
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "name=ssh-test-server", "--format", "{{.Names}}"],
+            ["docker", "ps", "--filter", "name=ssh-test", "--format", "{{.Names}}"],
             capture_output=True,
             text=True,
             check=True
         )
         
-        if "ssh-test-server" in result.stdout:
-            logger.info("SSH test container is already running")
+        if "ssh-test" in result.stdout:
+            logger.info("SSH test container 'ssh-test' is already running")
             # Get the port mapping for the running container
             port_result = subprocess.run(
-                ["docker", "port", "ssh-test-server", "22"],
+                ["docker", "port", "ssh-test", "22"],
                 capture_output=True,
                 text=True,
                 check=True
@@ -73,7 +73,7 @@ async def setup_test_environment():
     except subprocess.CalledProcessError as e:
         logger.warning(f"Error checking for existing container: {e}")
     
-    # Check if the container exists but is stopped
+    # Check if the ssh-test-server container exists but is stopped
     try:
         result = subprocess.run(
             ["docker", "ps", "-a", "--filter", "name=ssh-test-server", "--format", "{{.Names}}"],
@@ -83,7 +83,7 @@ async def setup_test_environment():
         )
         
         if "ssh-test-server" in result.stdout:
-            logger.info("SSH test container exists but is stopped or has port conflict, removing it")
+            logger.info("SSH test container 'ssh-test-server' exists but is stopped or has port conflict, removing it")
             subprocess.run(["docker", "rm", "-f", "ssh-test-server"], check=True)
     except subprocess.CalledProcessError as e:
         logger.warning(f"Error checking for existing stopped container: {e}")
