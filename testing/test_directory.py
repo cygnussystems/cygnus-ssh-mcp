@@ -1,7 +1,7 @@
 import os
 import time
 import shlex
-from test_utils import print_test_header, print_test_footer, TEST_SUDO_PASSWORD
+from test_utils import print_test_header, print_test_footer, TEST_SUDO_PASSWORD, get_client
 from ssh_client import SshClient
 
 
@@ -82,7 +82,12 @@ def test_listdir_stat(ssh_client):
 
 if __name__ == "__main__":
     print("Running directory tests...")
-    test_mkdir_rmdir(get_client(force_new=True))
-    test_mkdir_sudo(get_client(force_new=True, sudo_password=TEST_SUDO_PASSWORD))
-    test_listdir_stat(get_client(force_new=True))
+    client = get_client(force_new=True)
+    test_mkdir_rmdir(client)
+    
+    client_with_sudo = get_client(force_new=True, sudo_password=TEST_SUDO_PASSWORD)
+    test_mkdir_sudo(client_with_sudo)
+    
+    client_for_stat = get_client(force_new=True)
+    test_listdir_stat(client_for_stat)
     print("All directory tests completed.")
