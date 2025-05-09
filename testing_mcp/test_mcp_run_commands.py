@@ -6,6 +6,10 @@ async def test_ssh_run_basic(mcp_client):
     """Test basic command execution with ssh_run."""
     print_test_header("Testing 'ssh_run' tool - Basic")
     
+    # Debug the client type
+    print(f"Client type: {type(mcp_client)}")
+    print(f"Client dir: {dir(mcp_client)}")
+    
     # Simple echo command
     run_params = {
         "command": "echo 'Hello from MCP SSH!'",
