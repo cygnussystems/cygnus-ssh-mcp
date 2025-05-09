@@ -1,8 +1,7 @@
 import os
 import time
 import shlex
-import pytest
-from test_utils import get_client, print_test_header, print_test_footer, TEST_SUDO_PASSWORD
+from test_utils import print_test_header, print_test_footer, TEST_SUDO_PASSWORD
 from ssh_client import SshClient
 
 
