@@ -10,7 +10,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
 
 # Import test fixtures
-from test_mcp_fixtures import setup_test_environment, teardown_test_environment, get_mcp_client
+from testing_mcp.test_mcp_fixtures import setup_test_environment, teardown_test_environment, get_mcp_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
