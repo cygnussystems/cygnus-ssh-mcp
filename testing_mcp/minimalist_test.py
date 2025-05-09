@@ -245,13 +245,30 @@ async def test_ssh_connection_and_status():
             # Create MCP client
             logger.info("Creating MCP client")
             async with Client(mcp) as client:
-                # Try to call ssh_status
+                # First, add the test server configuration to MCP
+                logger.info("Adding test server configuration to MCP")
+                await client.call_tool("ssh_add_host", {
+                    "name": "test_server",
+                    "host": "localhost",
+                    "user": ssh_user,
+                    "password": ssh_password,
+                    "port": ssh_port
+                })
+                    
+                # Connect to the test server using MCP
+                logger.info("Connecting to test server using MCP")
+                connect_result = await client.call_tool("ssh_connect", {
+                    "host_name": "test_server"
+                })
+                logger.info(f"Connection result: {connect_result}")
+                    
+                # Now try to call ssh_status
                 logger.info("Calling ssh_status through MCP")
                 try:
                     status_result = await client.call_tool("ssh_status", {})
                     logger.info(f"ssh_status result: {status_result}")
                     assert status_result is not None, "ssh_status returned None"
-                    
+                        
                     # Parse the JSON from the TextContent
                     if isinstance(status_result, list) and len(status_result) > 0 and hasattr(status_result[0], 'text'):
                         import json
