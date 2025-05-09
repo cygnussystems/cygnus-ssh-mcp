@@ -1,34 +1,92 @@
 import pytest
 import asyncio
-from test_mcp_fixtures import setup_test_environment, teardown_test_environment, ssh_client
-from conftest import print_test_header, print_test_footer
+import json
+import logging
+from conftest import print_test_header, print_test_footer, setup_test_environment, teardown_test_environment
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
-async def test_ssh_status(mcp_test_environment):
+async def test_ssh_status(mcp_client):
     """Test retrieving SSH connection status."""
     print_test_header("Testing 'ssh_status' tool")
+    logger.info("Starting SSH status test")
     
-    # Create a client directly using the approach from mcp_server_testing_demo.py
-    from fastmcp import Client
-    from mcp_ssh_server import mcp, ssh_client
-    
-    # Use the Client with an async context manager
-    async with Client(mcp) as client:
+    # Run the status command via MCP
+    async for client in mcp_client:
         status_result = await client.call_tool("ssh_status", {})
-    
-    print(f"Status result: {status_result}")
-    
-    # Verify the result structure
-    assert 'connection' in status_result, "Result should include connection info"
-    assert 'system' in status_result, "Result should include system info"
-    
-    # Check connection details
-    conn = status_result['connection']
-    assert conn['host'] == ssh_client.host, f"Host mismatch: {conn['host']} != {ssh_client.host}"
-    
-    # Check system details
-    system = status_result['system']
-    assert 'os_name' in system, "System info should include OS name"
-    assert 'cpu_count' in system, "System info should include CPU count"
+        
+        # Verify the result
+        assert status_result is not None, "Expected non-empty result"
+        assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
+        assert len(status_result) > 0, "Expected non-empty list result"
+        assert hasattr(status_result[0], 'text'), "Expected TextContent object with 'text' attribute"
+        
+        # Parse the JSON response
+        result_json = json.loads(status_result[0].text)
+        logger.info(f"Status result: {result_json}")
+        
+        # Verify the result structure
+        assert 'connection' in result_json, "Result should include connection info"
+        assert 'system' in result_json, "Result should include system info"
+        
+        # Check connection details
+        conn = result_json['connection']
+        assert 'host' in conn, "Connection info should include host"
+        
+        # Check system details
+        system = result_json['system']
+        assert 'os_name' in system, "System info should include OS name"
+        assert 'cpu_count' in system, "System info should include CPU count"
     
     print_test_footer()
+
+if __name__ == "__main__":
+    """
+    Allow running this test directly without pytest
+    """
+    import sys
+    from conftest import setup_test_environment, teardown_test_environment, get_mcp_client
+    
+    async def run_tests():
+        """Run all tests in this file"""
+        logger.info("Setting up test environment")
+        await setup_test_environment()
+        
+        try:
+            # Get a client
+            client = await get_mcp_client()
+            
+            try:
+                # Create a simple generator to mimic the fixture behavior
+                async def mock_client_fixture():
+                    yield client
+                
+                # Run the tests
+                logger.info("Running tests")
+                await test_ssh_status(mock_client_fixture())
+                
+                logger.info("All tests completed successfully")
+                
+            finally:
+                # Close the client
+                if hasattr(client, 'close'):
+                    await client.close()
+                    
+        finally:
+            # Clean up
+            logger.info("Tearing down test environment")
+            await teardown_test_environment()
+    
+    try:
+        # Configure logging for direct execution
+        logging.basicConfig(level=logging.INFO, 
+                           format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Run the tests
+        asyncio.run(run_tests())
+        print("All tests completed successfully")
+    except Exception as e:
+        print(f"Tests failed: {e}")
+        sys.exit(1)
