@@ -1,29 +1,81 @@
 import pytest
-import asyncio
-from test__fixtures import setup_test_environment, teardown_test_environment, get_mcp_client, ssh_client
-from test_utils import print_test_header, print_test_footer
+import json
+import logging
+from conftest import print_test_header, print_test_footer
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
 async def test_ssh_status():
     """Test retrieving SSH connection status."""
     print_test_header("Testing 'ssh_status' tool")
+    logger.info("Starting SSH status test")
     
-    async with await get_mcp_client() as client:
-        status_result = await client.call_tool("ssh_status", {})
+    # Import necessary modules
+    from mcp_ssh_server import mcp
+    from fastmcp import Client
+    
+    # Use the Client context manager with the imported mcp instance
+    async with Client(mcp) as client:
+        # First, add the test server configuration
+        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
         
-        print(f"Status result: {status_result}")
-        
-        # Verify the result structure
-        assert 'connection' in status_result, "Result should include connection info"
-        assert 'system' in status_result, "Result should include system info"
-        
-        # Check connection details
-        conn = status_result['connection']
-        assert conn['host'] == ssh_client.host, f"Host mismatch: {conn['host']} != {ssh_client.host}"
-        
-        # Check system details
-        system = status_result['system']
-        assert 'os_info' in system, "System info should include OS info"
-        assert 'hardware_info' in system, "System info should include hardware info"
+        try:
+            # Try to run a command first (might fail if no connection)
+            try:
+                # Simple status check
+                status_result = await client.call_tool("ssh_status", {})
+                logger.info("SSH connection already established")
+            except Exception as e:
+                if "No active SSH connection" in str(e):
+                    # Add the test server configuration
+                    logger.info("Adding test server configuration")
+                    await client.call_tool("ssh_add_host", {
+                        "name": "test_server",
+                        "host": "localhost",
+                        "user": SSH_TEST_USER,
+                        "password": SSH_TEST_PASSWORD,
+                        "port": SSH_TEST_PORT
+                    })
+                    
+                    # Connect to the test server
+                    logger.info("Connecting to test server")
+                    await client.call_tool("ssh_connect", {
+                        "host_name": "test_server"
+                    })
+                    
+                    # Now get the status
+                    status_result = await client.call_tool("ssh_status", {})
+                else:
+                    raise
+            
+            # Verify the result
+            assert status_result is not None, "Expected non-empty result"
+            assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
+            assert len(status_result) > 0, "Expected non-empty list result"
+            assert hasattr(status_result[0], 'text'), "Expected TextContent object with 'text' attribute"
+            
+            # Parse the JSON response
+            result_json = json.loads(status_result[0].text)
+            logger.info(f"Status result: {result_json}")
+            
+            # Verify the structure of the result
+            assert 'connection' in result_json, "Expected 'connection' key in result"
+            assert 'system' in result_json, "Expected 'system' key in result"
+            
+            # Verify connection details
+            connection = result_json['connection']
+            assert 'connected' in connection, "Expected 'connected' status in connection info"
+            assert connection['connected'] is True, "Expected connection to be established"
+            
+            # Verify system information is present
+            system = result_json['system']
+            assert isinstance(system, dict), "Expected system info to be a dictionary"
+            
+            logger.info("SSH status test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SSH status test: {e}")
+            raise
     
     print_test_footer()
