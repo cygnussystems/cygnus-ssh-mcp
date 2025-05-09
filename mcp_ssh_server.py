@@ -83,13 +83,18 @@ class SshHostManager:
             logger.error(f"Failed to save SSH hosts: {e}")
             raise SshError("Failed to save host configuration")
 
-# Parse command line arguments
-args = parse_args()
-
-# Initialize host manager with config path if provided
-host_manager = SshHostManager(
-    config_path=Path(args.config) if args.config else None
-)
+# Only parse command line arguments when run directly
+if __name__ == "__main__":
+    # Parse command line arguments
+    args = parse_args()
+    
+    # Initialize host manager with config path if provided
+    host_manager = SshHostManager(
+        config_path=Path(args.config) if args.config else None
+    )
+else:
+    # When imported as a module (e.g. during testing), use default config
+    host_manager = SshHostManager()
 
 # ===================
 # Logging Setup

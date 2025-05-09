@@ -10,12 +10,19 @@ import logging
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+# Configure logging first
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("mcp_test")
+
 try:
     from fastmcp import Client
+    import mcp_ssh_server
     from mcp_ssh_server import mcp, SshHostManager
     from ssh_models import SshError
-    from test_utils import get_client, cleanup_client, print_test_header, print_test_footer
+    from testing.conftest import get_client, cleanup_client, print_test_header, print_test_footer
 except ImportError as e:
+    logger.error(f"FATAL: Failed to import required modules. Error: {e}")
     print(f"FATAL: Failed to import required modules. Error: {e}", file=sys.stderr)
     print("Make sure fastmcp is installed and you are running from the correct directory.", file=sys.stderr)
     sys.exit(1)
