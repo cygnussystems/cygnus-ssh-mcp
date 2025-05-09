@@ -17,7 +17,8 @@ async def test_ssh_run_basic(mcp_client):
     
     # Run the command via MCP
     logger.info("Running basic SSH command test")
-    run_result = await mcp_client.call_tool("ssh_run", run_params)
+    async for client in mcp_client:
+        run_result = await client.call_tool("ssh_run", run_params)
     
     # Verify the result
     assert run_result is not None, "Expected non-empty result"
@@ -46,7 +47,8 @@ async def test_ssh_run_multiline(mcp_client):
     
     # Run the multi-line command via MCP
     logger.info("Running multi-line command test")
-    run_result = await mcp_client.call_tool("ssh_run", run_params)
+    async for client in mcp_client:
+        run_result = await client.call_tool("ssh_run", run_params)
     
     # Verify the result
     assert run_result is not None, "Expected non-empty result"
@@ -73,8 +75,9 @@ async def test_ssh_run_failure(mcp_client):
     
     # Run the failing command via MCP
     logger.info("Running command failure test")
-    with pytest.raises(Exception) as excinfo:
-        await mcp_client.call_tool("ssh_run", run_params)
+    async for client in mcp_client:
+        with pytest.raises(Exception) as excinfo:
+            await client.call_tool("ssh_run", run_params)
     
     # Verify the exception
     error_message = str(excinfo.value)
@@ -97,14 +100,18 @@ if __name__ == "__main__":
             client = await get_mcp_client()
             
             try:
+                # Create a simple generator to mimic the fixture behavior
+                async def mock_client_fixture():
+                    yield client
+                
                 # Run the tests
                 logger.info("Running tests")
-                await test_ssh_run_basic(client)
-                await test_ssh_run_multiline(client)
+                await test_ssh_run_basic(mock_client_fixture())
+                await test_ssh_run_multiline(mock_client_fixture())
                 
                 # The failure test is expected to raise an exception
                 try:
-                    await test_ssh_run_failure(client)
+                    await test_ssh_run_failure(mock_client_fixture())
                     print("ERROR: Failure test did not raise an exception as expected")
                 except Exception as e:
                     if "exit code 42" in str(e):
