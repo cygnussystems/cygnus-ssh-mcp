@@ -12,7 +12,8 @@ async def test_ssh_run_basic(mcp_client):
     }
     
     # Run the command via MCP
-    run_result = await mcp_client.call_tool("ssh_run", run_params)
+    async for client in mcp_client:
+        run_result = await client.call_tool("ssh_run", run_params)
     
     # Verify the result
     assert run_result[0].text is not None, "Expected non-empty result"
@@ -36,7 +37,8 @@ async def test_ssh_run_multiline(mcp_client):
     }
     
     # Run the multi-line command via MCP
-    run_result = await mcp_client.call_tool("ssh_run", run_params)
+    async for client in mcp_client:
+        run_result = await client.call_tool("ssh_run", run_params)
     
     # Parse the JSON response
     result_json = json.loads(run_result[0].text)
@@ -56,8 +58,9 @@ async def test_ssh_run_failure(mcp_client):
     }
     
     # Run the failing command via MCP
-    with pytest.raises(Exception) as excinfo:
-        await mcp_client.call_tool("ssh_run", run_params)
+    async for client in mcp_client:
+        with pytest.raises(Exception) as excinfo:
+            await client.call_tool("ssh_run", run_params)
     
     # Verify the exception
     assert "exit code 42" in str(excinfo.value), "Exception should mention exit code 42"
