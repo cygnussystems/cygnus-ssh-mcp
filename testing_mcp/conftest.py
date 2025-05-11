@@ -25,6 +25,15 @@ SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
 SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
 SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
 
+# Standard SSH connection parameters for tests
+SSH_TEST_CONFIG = {
+    "name": "test_server",
+    "host": "localhost",
+    "user": SSH_TEST_USER,
+    "password": SSH_TEST_PASSWORD,
+    "port": SSH_TEST_PORT
+}
+
 # Make SSH_TEST_PORT global so it can be modified if needed
 
 # This allows running the tests with pytest

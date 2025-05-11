@@ -6,7 +6,7 @@ from conftest import print_test_header, print_test_footer
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
-from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
+from conftest import SSH_TEST_CONFIG
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -28,13 +28,7 @@ async def test_ssh_status():
 
             # Add the test server configuration
             logger.info("Adding test server configuration")
-            await client.call_tool("ssh_add_host", {
-                "name": "test_server",
-                "host": "localhost",
-                "user": SSH_TEST_USER,
-                "password": SSH_TEST_PASSWORD,
-                "port": SSH_TEST_PORT
-            })
+            await client.call_tool("ssh_add_host", SSH_TEST_CONFIG)
             
             # Connect to the test server
             logger.info("Connecting to test server")
