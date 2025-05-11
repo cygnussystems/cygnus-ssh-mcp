@@ -277,3 +277,91 @@ async def test_ssh_command_history_limit_behaviour(
             await disconnect_ssh(client)
     
     print_test_footer()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "test_id, num_commands_to_run, limit_param, reverse_param, expected_first_cmd_idx, expected_last_cmd_idx, expected_num_entries_override",
+    [
+        ("reverse_true_no_limit", 3, None, True, 2, 0, None), # Newest (cmd_2) to oldest (cmd_0)
+        ("reverse_false_no_limit", 3, None, False, 0, 2, None),# Oldest (cmd_0) to newest (cmd_2) - default
+        ("reverse_true_with_limit", 5, 3, True, 4, 2, None),  # 3 newest: cmd_4, cmd_3, cmd_2
+        ("reverse_false_with_limit", 5, 3, False, 2, 4, None), # 3 most recent, but oldest of that set first: cmd_2, cmd_3, cmd_4
+        ("reverse_true_limit_one", 3, 1, True, 2, 2, None), # Newest one: cmd_2
+        ("reverse_false_limit_one", 3, 1, False, 2, 2, None) # Newest one (as limit is 1): cmd_2
+    ]
+)
+async def test_ssh_command_history_reverse_order(
+    mcp_test_environment, test_id, num_commands_to_run, limit_param, 
+    reverse_param, expected_first_cmd_idx, expected_last_cmd_idx, expected_num_entries_override
+):
+    """Test 'ssh_command_history' with reverse order parameter."""
+    print_test_header(f"Testing 'ssh_command_history' reverse order: {test_id}")
+    logger.info(f"Starting SSH command history reverse order test: {test_id}")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info(f"[{test_id}] SSH connection established.")
+
+            # Run commands to populate history
+            base_command_name = f"cmd_rev_test_{test_id}"
+            logger.info(f"[{test_id}] Running {num_commands_to_run} commands (e.g., {base_command_name}_0)")
+            for i in range(num_commands_to_run):
+                cmd = f"echo '{base_command_name}_{i}'"
+                run_params = {"command": cmd, "io_timeout": 5.0}
+                run_result = await client.call_tool("ssh_run", run_params)
+                run_result_json = json.loads(run_result[0].text)
+                assert run_result_json.get('exit_code') == 0, f"Command '{cmd}' failed"
+
+            history_params = {"include_output": False, "reverse": reverse_param}
+            if limit_param is not None:
+                history_params["limit"] = limit_param
+            
+            logger.info(f"[{test_id}] Retrieving command history with params: {history_params}")
+            raw_tool_output = await client.call_tool("ssh_command_history", history_params)
+            logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
+
+            assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
+                f"[{test_id}] Tool call should return a non-empty list of content blocks"
+            history_list = json.loads(raw_tool_output[0].text)
+            logger.info(f"[{test_id}] Parsed history list (length {len(history_list)}): {history_list}")
+
+            expected_num_entries = expected_num_entries_override if expected_num_entries_override is not None \
+                                   else (limit_param if limit_param is not None else num_commands_to_run)
+            
+            # Adjust expected_num_entries if limit is greater than actual commands
+            if limit_param is not None and limit_param > num_commands_to_run:
+                 expected_num_entries = num_commands_to_run
+
+
+            assert isinstance(history_list, list), f"[{test_id}] Parsed history should be a list"
+            assert len(history_list) == expected_num_entries, \
+                f"[{test_id}] Expected {expected_num_entries} history entries, got {len(history_list)}"
+
+            if expected_num_entries > 0:
+                # Check the command content of the first and last entries in the returned list
+                actual_first_cmd_in_list = history_list[0]['command']
+                expected_first_cmd_content = f"echo '{base_command_name}_{expected_first_cmd_idx}'"
+                assert actual_first_cmd_in_list == expected_first_cmd_content, \
+                    f"[{test_id}] First command in list mismatch. Expected '{expected_first_cmd_content}', got '{actual_first_cmd_in_list}'"
+
+                if expected_num_entries > 1: # Only check last if more than one entry
+                    actual_last_cmd_in_list = history_list[-1]['command']
+                    expected_last_cmd_content = f"echo '{base_command_name}_{expected_last_cmd_idx}'"
+                    assert actual_last_cmd_in_list == expected_last_cmd_content, \
+                        f"[{test_id}] Last command in list mismatch. Expected '{expected_last_cmd_content}', got '{actual_last_cmd_in_list}'"
+                elif expected_num_entries == 1: # If only one entry, first and last are the same
+                     assert actual_first_cmd_in_list == f"echo '{base_command_name}_{expected_last_cmd_idx}'", \
+                        f"[{test_id}] Single command in list mismatch. Expected content for index {expected_last_cmd_idx}, got '{actual_first_cmd_in_list}'"
+
+
+            logger.info(f"[{test_id}] SSH command history reverse order test completed successfully.")
+
+        except Exception as e:
+            logger.error(f"[{test_id}] Error in SSH command history reverse order test: {e}", exc_info=True)
+            raise
+        finally:
+            logger.info(f"[{test_id}] Ensuring SSH connection is closed.")
+            await disconnect_ssh(client)
+    
+    print_test_footer()
