@@ -3,6 +3,11 @@ import json
 import logging
 from conftest import print_test_header, print_test_footer
 
+# Import necessary modules
+from mcp_ssh_server import mcp
+from fastmcp import Client
+from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -11,16 +16,10 @@ async def test_ssh_status():
     """Test retrieving SSH connection status."""
     print_test_header("Testing 'ssh_status' tool")
     logger.info("Starting SSH status test")
-    
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
+
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         # First, add the test server configuration
-        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-        
         try:
             # Try to run a command first (might fail if no connection)
             try:
