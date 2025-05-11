@@ -6,7 +6,7 @@ from conftest import print_test_header, print_test_footer
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
-from conftest import SSH_TEST_CONFIG
+from conftest import SSH_TEST_CONFIG, is_ssh_connected, ensure_ssh_connection
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -21,29 +21,13 @@ async def test_ssh_status():
     async with Client(mcp) as client:
         try:
             # Ensure no connection exists at start
-            is_connected_result = await client.call_tool("ssh_is_connected", {})
-            is_connected_json = json.loads(is_connected_result[0].text)
-            assert not is_connected_json, "Test started with an existing SSH connection"
+            assert not await is_ssh_connected(client), "Test started with an existing SSH connection"
             logger.info("Verified no existing SSH connection")
 
-            # Add the test server configuration
-            logger.info("Adding test server configuration")
-            await client.call_tool("ssh_add_host", SSH_TEST_CONFIG)
-            
-            # Connect to the test server
-            logger.info("Connecting to test server")
-            connect_result = await client.call_tool("ssh_connect", {
-                "host_name": "test_server"
-            })
-            connect_json = json.loads(connect_result[0].text)
-            assert connect_json['status'] == 'success', "Connection should be successful"
-            
-            # Verify connection is now active
-            is_connected_result = await client.call_tool("ssh_is_connected", {})
-            is_connected_json = json.loads(is_connected_result[0].text)
-            assert is_connected_json, "SSH connection should now be active"
+            # Establish connection
+            assert await ensure_ssh_connection(client), "Failed to establish SSH connection"
             logger.info("Verified SSH connection is active")
-
+            
             # Now get the status
             status_result = await client.call_tool("ssh_status", {})
             

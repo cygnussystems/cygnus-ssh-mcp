@@ -3,6 +3,7 @@ import asyncio
 import sys
 import os
 import logging
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -35,6 +36,59 @@ SSH_TEST_CONFIG = {
 }
 
 # Make SSH_TEST_PORT global so it can be modified if needed
+
+# Helper functions for SSH connection management
+async def is_ssh_connected(client):
+    """
+    Check if SSH is connected using the ssh_is_connected tool.
+    
+    Args:
+        client: The MCP client instance
+        
+    Returns:
+        bool: True if connected, False otherwise
+    """
+    try:
+        is_connected_result = await client.call_tool("ssh_is_connected", {})
+        is_connected_json = json.loads(is_connected_result[0].text)
+        return is_connected_json
+    except Exception as e:
+        logging.error(f"Error checking SSH connection: {e}")
+        return False
+
+async def ensure_ssh_connection(client):
+    """
+    Ensure an SSH connection exists, creating one if needed.
+    
+    Args:
+        client: The MCP client instance
+        
+    Returns:
+        bool: True if connection was successful
+    """
+    # Check if already connected
+    if await is_ssh_connected(client):
+        logging.info("SSH connection already established")
+        return True
+        
+    # Add host configuration
+    logging.info("Adding test server configuration")
+    await client.call_tool("ssh_add_host", SSH_TEST_CONFIG)
+    
+    # Connect to the test server
+    logging.info("Connecting to test server")
+    connect_result = await client.call_tool("ssh_connect", {
+        "host_name": "test_server"
+    })
+    connect_json = json.loads(connect_result[0].text)
+    
+    # Verify connection was successful
+    if connect_json['status'] == 'success':
+        logging.info("SSH connection established successfully")
+        return True
+    else:
+        logging.error(f"Failed to establish SSH connection: {connect_json}")
+        return False
 
 # This allows running the tests with pytest
 def pytest_configure(config):
