@@ -64,3 +64,56 @@ async def test_ssh_status():
             raise
     
     print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_reconnect():
+    """Test reconnecting to SSH when a connection already exists."""
+    print_test_header("Testing SSH reconnection")
+    logger.info("Starting SSH reconnection test")
+
+    # Use the Client context manager with the imported mcp instance
+    async with Client(mcp) as client:
+        try:
+            # Ensure no connection exists at start
+            assert not await is_ssh_connected(client), "Test started with an existing SSH connection"
+            logger.info("Verified no existing SSH connection")
+
+            # Establish first connection
+            assert await ensure_ssh_connection(client), "Failed to establish initial SSH connection"
+            logger.info("Verified first SSH connection is active")
+            
+            # Get status of first connection
+            first_status = await client.call_tool("ssh_status", {})
+            first_status_json = json.loads(first_status[0].text)
+            logger.info(f"First connection status: {first_status_json}")
+            
+            # Now reconnect to the same host (in a real-world scenario, this could be a different host)
+            logger.info("Attempting to reconnect while existing connection is active")
+            reconnect_result = await client.call_tool("ssh_connect", {
+                "host_name": "test_server"
+            })
+            reconnect_json = json.loads(reconnect_result[0].text)
+            
+            # Verify reconnection was successful
+            assert reconnect_json['status'] == 'success', "Reconnection should succeed"
+            logger.info("Reconnection successful")
+            
+            # Verify we still have an active connection
+            assert await is_ssh_connected(client), "Should have active connection after reconnect"
+            
+            # Get status after reconnection
+            second_status = await client.call_tool("ssh_status", {})
+            second_status_json = json.loads(second_status[0].text)
+            logger.info(f"Second connection status: {second_status_json}")
+            
+            # Even though we're connecting to the same host, the connection object should be different
+            # We can verify this indirectly by checking timestamps are different
+            assert first_status_json['connection']['timestamp'] != second_status_json['connection']['timestamp'], \
+                "Connection timestamps should differ after reconnection"
+                
+            logger.info("SSH reconnection test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SSH reconnection test: {e}")
+            raise
+    
+    print_test_footer()
