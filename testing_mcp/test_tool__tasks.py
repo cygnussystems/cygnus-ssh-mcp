@@ -24,7 +24,7 @@ async def test_ssh_launch_task(mcp_test_environment):
             # Test launching a background task
             logger.info("Launching a background task")
             launch_params = {
-                "command": "sleep 10 && echo 'Task completed' > /tmp/task_output.txt",
+                "command": "sleep 30 && echo 'Task completed' > /tmp/task_output.txt", # Increased sleep duration
                 "stdout_log": "/tmp/task_stdout.log",
                 "stderr_log": "/tmp/task_stderr.log",
                 "log_output": True
@@ -46,7 +46,7 @@ async def test_ssh_launch_task(mcp_test_environment):
             }
             
             # Allow a brief moment for the process to be fully registered
-            time.sleep(0.5)
+            time.sleep(0.5) # This sleep is for local test script, not for the remote command
             
             status_result = await client.call_tool("ssh_task_status", status_params)
             logger.info(f"task_status result: {status_result}")
