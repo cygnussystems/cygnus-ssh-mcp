@@ -168,6 +168,17 @@ except AttributeError:
 # ===================
 
 @mcp.tool()
+async def ssh_is_connected() -> bool:
+    """
+    Check if there is an active SSH connection.
+    
+    Returns:
+        bool: True if an active connection exists, False otherwise.
+    """
+    global ssh_client
+    return ssh_client is not None and ssh_client.is_connected()
+
+@mcp.tool()
 async def ssh_connect(
     host_name: Annotated[str, Field(description="Name of host configuration to use")]
 ) -> dict:

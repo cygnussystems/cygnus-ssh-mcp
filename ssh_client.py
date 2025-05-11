@@ -186,6 +186,17 @@ class SshClient:
             self._logger.error(f"Connection failed: {e}", exc_info=True)
             raise SshError(f"Connection failed: {e}") from e
 
+    def is_connected(self) -> bool:
+        """
+        Check if the SSH client is connected.
+        
+        Returns:
+            bool: True if connected, False otherwise.
+        """
+        return (self._client is not None and 
+                self._client.get_transport() is not None and 
+                self._client.get_transport().is_active())
+
     def close(self):
         """Close the SSH connection and clear status."""
         if self._client:
