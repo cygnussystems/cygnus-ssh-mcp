@@ -56,7 +56,7 @@ async def is_ssh_connected(client):
         logging.error(f"Error checking SSH connection: {e}")
         return False
 
-async def ensure_ssh_connection(client):
+async def make_connection(client):
     """
     Ensure an SSH connection exists, creating one if needed.
     

@@ -6,7 +6,7 @@ from conftest import print_test_header, print_test_footer
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
-from conftest import SSH_TEST_CONFIG, is_ssh_connected, ensure_ssh_connection
+from conftest import SSH_TEST_CONFIG, is_ssh_connected, make_connection
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ async def test_ssh_status():
             logger.info("Verified no existing SSH connection")
 
             # Establish connection
-            assert await ensure_ssh_connection(client), "Failed to establish SSH connection"
+            assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("Verified SSH connection is active")
             
             # Now get the status
@@ -79,7 +79,7 @@ async def test_ssh_reconnect():
                 logger.info("Found existing SSH connection, will use it for the test")
             else:
                 # Establish first connection
-                assert await ensure_ssh_connection(client), "Failed to establish initial SSH connection"
+                assert await make_connection(client), "Failed to establish initial SSH connection"
                 logger.info("Established new SSH connection")
             logger.info("Verified first SSH connection is active")
             
