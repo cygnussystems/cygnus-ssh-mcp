@@ -1,86 +1,94 @@
 import pytest
 import json
 import logging
-from conftest import print_test_header, print_test_footer
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from mcp_ssh_server import mcp
+from fastmcp import Client
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
-async def test_ssh_command_history():
+async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_environment fixture
     """Test retrieving command history."""
     print_test_header("Testing 'ssh_command_history' tool")
     logger.info("Starting SSH command history test")
     
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
-    # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-        # First, add the test server configuration
-        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-        
         try:
-            # Try to run a command first (might fail if no connection)
-            try:
-                # Simple echo command to check connection
-                await client.call_tool("ssh_status", {})
-                logger.info("SSH connection already established")
-            except Exception as e:
-                if "No active SSH connection" in str(e):
-                    # Add the test server configuration
-                    logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
-                        "name": "test_server",
-                        "host": "localhost",
-                        "user": SSH_TEST_USER,
-                        "password": SSH_TEST_PASSWORD,
-                        "port": SSH_TEST_PORT
-                    })
-                    
-                    # Connect to the test server
-                    logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
-                        "host_name": "test_server"
-                    })
-                else:
-                    raise
+            # Ensure we have a connection
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established for command history test")
             
-            # First run a few commands to ensure we have history
+            # Run a few commands to ensure we have history for the current SshClient instance
+            # Each new connection via ssh_connect tool effectively starts a new SshClient with fresh history.
             logger.info("Running commands to build history")
-            for i in range(3):
+            num_commands_to_run = 3
+            for i in range(num_commands_to_run):
                 run_params = {
                     "command": f"echo 'History test {i}'",
                     "io_timeout": 5.0
                 }
-                await client.call_tool("ssh_run", run_params)
-            
+                run_result = await client.call_tool("ssh_run", run_params)
+                # Log the result of ssh_run for debugging if needed
+                logger.debug(f"Ran command 'echo History test {i}', result: {run_result}")
+                # Basic check that the command succeeded
+                run_result_json = json.loads(run_result[0].text)
+                assert run_result_json.get('exit_code') == 0, f"Command 'echo History test {i}' failed"
+
             # Get command history
             logger.info("Retrieving command history")
             history_params = {
-                "limit": 5,
+                "limit": 5,  # Request up to 5 entries
                 "include_output": True,
-                "output_lines": 2
+                "output_lines": 2 # Number of lines for the output snippet
             }
             
-            history_result = await client.call_tool("ssh_command_history", history_params)
+            raw_tool_output = await client.call_tool("ssh_command_history", history_params)
+            logger.info(f"Raw history tool output: {raw_tool_output}")
+
+            # Verify and parse the raw tool output
+            assert raw_tool_output, "Tool call should return a result"
+            assert isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
+                "Tool call should return a non-empty list of content blocks"
+            assert hasattr(raw_tool_output[0], 'text'), \
+                "First content block should have a 'text' attribute"
             
-            logger.info(f"History result: {history_result}")
+            history_list = json.loads(raw_tool_output[0].text)
+            logger.info(f"Parsed history list: {history_list}")
             
-            # Verify the result
-            assert isinstance(history_result, list), "History result should be a list"
-            assert len(history_result) > 0, "History should contain at least one entry"
+            # Verify the structure and content of the parsed history
+            assert isinstance(history_list, list), "Parsed history should be a list of dictionaries"
             
-            # Check the most recent entry
-            latest = history_result[-1]
-            assert 'command' in latest, "History entry should include command"
-            assert 'exit_code' in latest, "History entry should include exit code"
-            assert 'output' in latest, "History entry should include output"
+            # Since ssh_connect creates a new SshClient instance, history should only contain commands from this session.
+            assert len(history_list) == num_commands_to_run, \
+                f"Expected {num_commands_to_run} history entries, got {len(history_list)}"
+            
+            # Check the most recent entry (tool returns oldest to newest by default)
+            latest_entry = history_list[-1]
+            expected_last_command = f"echo 'History test {num_commands_to_run - 1}'"
+            
+            assert 'command' in latest_entry, "History entry should include 'command'"
+            assert latest_entry['command'] == expected_last_command, \
+                f"Unexpected last command: got '{latest_entry['command']}', expected '{expected_last_command}'"
+            
+            assert 'exit_code' in latest_entry, "History entry should include 'exit_code'"
+            assert latest_entry['exit_code'] == 0, \
+                f"Last command '{expected_last_command}' should have succeeded (exit code 0)"
+            
+            assert 'output' in latest_entry, "History entry should include 'output' snippet"
+            assert isinstance(latest_entry['output'], list), "Output snippet should be a list of strings"
+            # The output from "echo 'History test X'" is "History test X\n".
+            # The snippet should contain this.
+            assert len(latest_entry['output']) > 0 and f"History test {num_commands_to_run - 1}" in latest_entry['output'][0], \
+                f"Output snippet incorrect for the last command. Got: {latest_entry['output']}"
             
             logger.info("SSH command history test completed successfully")
         except Exception as e:
-            logger.error(f"Error in SSH command history test: {e}")
+            logger.error(f"Error in SSH command history test: {e}", exc_info=True)
             raise
+        finally:
+            logger.info("Ensuring SSH connection is closed after command history test")
+            await disconnect_ssh(client)
     
     print_test_footer()
