@@ -327,27 +327,30 @@ class SshClient:
 
 
     def output(self, handle_id: int, mode: Literal['tail', 'chunk'] = 'tail',
-              n: int = 50, start: Optional[int] = None) -> List[str]:
+              n: int = 50, start: Optional[int] = None, lines: Optional[int] = None) -> List[str]:
         """Retrieve output from a previous CommandHandle created by run()."""
         try:
             handle = self.history_manager.get_handle(handle_id)
-        except KeyError:
+        except KeyError: # history_manager.get_handle raises KeyError if handle_id not found.
             raise TaskNotFound(handle_id)
+        # CommandHandle.tail() or .chunk() can raise OutputPurged if output is no longer available.
 
-        # Output retrieval works for run() handles.
         if mode == 'tail':
-            return handle.tail(n)
+            num_lines_to_tail = n  # Default to n
+            if lines is not None:  # If lines is provided, it takes precedence for tail mode
+                num_lines_to_tail = lines
+            return handle.tail(num_lines_to_tail)
         elif mode == 'chunk':
             if start is None:
                 raise ValueError("`start` is required for chunk mode")
-            # Ensure start is int
             try:
                 start_idx = int(start)
             except ValueError:
-                raise ValueError("`start` must be an integer.")
+                raise ValueError("`start` must be an integer for chunk mode.")
+            # 'n' is used as length for chunk mode. 'lines' is not typically used here.
             return handle.chunk(start_idx, n)
         else:
-            raise ValueError(f"Unknown mode: {mode}")
+            raise ValueError(f"Unknown mode for output: {mode}")
 
     def get(self, remote_path: str, local_path: str) -> None:
         """Download a file from remote to local."""
