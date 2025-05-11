@@ -126,6 +126,8 @@ try:
         description="MCP server for managing SSH connections and operations",
         version="0.1.0"
     )
+    # Initialize ssh_client as a member variable
+    mcp.ssh_client = None
     logger.info(f"Created MCP server instance '{mcp.name}'")
 except Exception as e:
     logger.critical(f"Failed to create MCP instance: {e}", exc_info=True)
@@ -135,8 +137,7 @@ except Exception as e:
 # Global State
 # ===================
 
-# Global SSH client instance
-ssh_client = None
+# The SSH client will be an instance variable of the MCP server
 
 # ===================
 # Cleanup Handlers
@@ -145,15 +146,14 @@ ssh_client = None
 # Cleanup function - will be called manually at shutdown
 async def cleanup_ssh():
     """Clean up SSH connection when server shuts down."""
-    global ssh_client
-    if ssh_client:
+    if mcp.ssh_client:
         logger.info("Closing SSH connection on shutdown")
         try:
-            ssh_client.close()
+            mcp.ssh_client.close()
         except Exception as e:
             logger.error(f"Error closing SSH connection: {e}")
         finally:
-            ssh_client = None
+            mcp.ssh_client = None
     logger.info("SSH cleanup complete")
 
 # Register shutdown handler if the FastMCP version supports it
@@ -175,8 +175,7 @@ async def ssh_is_connected() -> bool:
     Returns:
         bool: True if an active connection exists, False otherwise.
     """
-    global ssh_client
-    return ssh_client is not None and ssh_client.is_connected()
+    return mcp.ssh_client is not None and mcp.ssh_client.is_connected()
 
 @mcp.tool()
 async def ssh_connect(
@@ -188,18 +187,16 @@ async def ssh_connect(
     Returns:
         Dictionary with connection status
     """
-    global ssh_client
-    
     try:
         host_config = host_manager.get_host(host_name)
         if not host_config:
             raise SshError(f"Host configuration '{host_name}' not found")
             
-        if ssh_client:
+        if mcp.ssh_client:
             logger.warning("Closing existing SSH connection")
-            ssh_client.close()
+            mcp.ssh_client.close()
             
-        ssh_client = SshClient(
+        mcp.ssh_client = SshClient(
             host=host_config['host'],
             user=host_config['user'],
             password=host_config['password'],
@@ -253,11 +250,11 @@ async def ssh_run(
     Returns:
         Dictionary containing command output and metadata
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        handle = ssh_client.run(command, io_timeout, runtime_timeout, sudo)
+        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, sudo)
         output = handle.get_full_output()
         return {
             'command': command,
@@ -284,15 +281,15 @@ async def ssh_file_transfer(
     Returns:
         Dictionary containing transfer status and metadata
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
         if direction == 'upload':
-            ssh_client.put(local_path, remote_path, sudo)
+            mcp.ssh_client.put(local_path, remote_path, sudo)
             operation = f"Uploaded {local_path} to {remote_path}"
         else:
-            ssh_client.get(remote_path, local_path, sudo)
+            mcp.ssh_client.get(remote_path, local_path, sudo)
             operation = f"Downloaded {remote_path} to {local_path}"
             
         return {
@@ -313,12 +310,12 @@ async def ssh_status() -> dict:
     Returns:
         Dictionary containing connection status and system info
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        status = ssh_client.get_connection_status()
-        system_info = ssh_client.full_status()
+        status = mcp.ssh_client.get_connection_status()
+        system_info = mcp.ssh_client.full_status()
         return {
             'connection': status,
             'system': system_info
@@ -335,11 +332,11 @@ async def ssh_verify_sudo() -> bool:
     Returns:
         True if sudo access is available, False otherwise
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        return ssh_client.verify_sudo_access()
+        return mcp.ssh_client.verify_sudo_access()
     except Exception as e:
         logger.error(f"Failed to verify sudo access: {e}")
         raise
@@ -357,11 +354,11 @@ async def ssh_replace_block(
     Returns:
         Dictionary with operation status
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        ssh_client.replace_block(path, old_block, new_block, sudo)
+        mcp.ssh_client.replace_block(path, old_block, new_block, sudo)
         return {
             'status': 'success',
             'path': path,
@@ -382,11 +379,11 @@ async def ssh_output(
     Returns:
         List of output lines from the command
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        return ssh_client.output(handle_id, lines=lines)
+        return mcp.ssh_client.output(handle_id, lines=lines)
     except Exception as e:
         logger.error(f"Failed to retrieve output: {e}")
         raise
@@ -411,11 +408,11 @@ async def ssh_command_history(
         - end_time: Execution end timestamp
         - output: Command output snippet (if include_output=True)
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        history = ssh_client.history()
+        history = mcp.ssh_client.history()
         
         # Apply limit if specified
         if limit is not None:
@@ -438,7 +435,7 @@ async def ssh_command_history(
             
             if include_output:
                 try:
-                    output = ssh_client.output(entry['id'], lines=output_lines)
+                    output = mcp.ssh_client.output(entry['id'], lines=output_lines)
                     history_entry['output'] = output
                 except Exception as e:
                     history_entry['output'] = f"Unable to retrieve output: {str(e)}"
@@ -467,11 +464,11 @@ async def ssh_launch_task(
     Returns:
         Dictionary containing task information including PID
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        handle = ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output)
+        handle = mcp.ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output)
         return {
             'command': command,
             'pid': handle.pid,
@@ -493,11 +490,11 @@ async def ssh_task_status(
     Returns:
         Dictionary containing task status information
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        status = ssh_client.task_status(pid)
+        status = mcp.ssh_client.task_status(pid)
         return {
             'pid': pid,
             'status': status,
@@ -525,12 +522,12 @@ async def ssh_task_kill(
     Returns:
         Dictionary containing kill operation result
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
         force_kill_signal = 9 if force else None
-        result = ssh_client.task_kill(pid, signal, sudo, force_kill_signal, wait_seconds)
+        result = mcp.ssh_client.task_kill(pid, signal, sudo, force_kill_signal, wait_seconds)
         return {
             'pid': pid,
             'result': result,
@@ -558,11 +555,11 @@ async def ssh_mkdir(
     Returns:
         Dictionary with operation status
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        ssh_client.mkdir(path, sudo, mode)
+        mcp.ssh_client.mkdir(path, sudo, mode)
         return {
             'status': 'success',
             'path': path,
@@ -585,11 +582,11 @@ async def ssh_rmdir(
     Returns:
         Dictionary with operation status
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        ssh_client.rmdir(path, sudo, recursive)
+        mcp.ssh_client.rmdir(path, sudo, recursive)
         return {
             'status': 'success',
             'path': path,
@@ -610,11 +607,11 @@ async def ssh_listdir(
     Returns:
         List of filenames in the directory
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        files = ssh_client.listdir(path)
+        files = mcp.ssh_client.listdir(path)
         return files
     except Exception as e:
         logger.error(f"Failed to list directory: {e}")
@@ -630,11 +627,11 @@ async def ssh_stat(
     Returns:
         Dictionary with file/directory metadata
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        stat_info = ssh_client.stat(path)
+        stat_info = mcp.ssh_client.stat(path)
         return stat_info
     except Exception as e:
         logger.error(f"Failed to get file status: {e}")
@@ -655,11 +652,11 @@ async def ssh_replace_line(
     Returns:
         Dictionary with operation status
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        ssh_client.replace_line(path, old_line, new_line, count, sudo, force)
+        mcp.ssh_client.replace_line(path, old_line, new_line, count, sudo, force)
         return {
             'status': 'success',
             'path': path,
@@ -687,11 +684,11 @@ async def ssh_search_files(
     Returns:
         List of dictionaries with file information
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        results = ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs)
+        results = mcp.ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs)
         return results
     except Exception as e:
         logger.error(f"Failed to search files: {e}")
@@ -707,11 +704,11 @@ async def ssh_directory_size(
     Returns:
         Dictionary with size information
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        size_bytes = ssh_client.calculate_directory_size(path)
+        size_bytes = mcp.ssh_client.calculate_directory_size(path)
         return {
             'path': path,
             'size_bytes': size_bytes,
@@ -733,11 +730,11 @@ async def ssh_delete_directory(
     Returns:
         Dictionary with deletion status and details
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        result = ssh_client.delete_directory_recursive(path, dry_run, sudo)
+        result = mcp.ssh_client.delete_directory_recursive(path, dry_run, sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to delete directory: {e}")
@@ -756,11 +753,11 @@ async def ssh_batch_delete(
     Returns:
         Dictionary with deletion status and details
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        result = ssh_client.batch_delete_by_pattern(path, pattern, dry_run, sudo)
+        result = mcp.ssh_client.batch_delete_by_pattern(path, pattern, dry_run, sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to batch delete files: {e}")
@@ -779,11 +776,11 @@ async def ssh_move(
     Returns:
         Dictionary with operation status
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        result = ssh_client.safe_move_or_rename(source, destination, overwrite, sudo)
+        result = mcp.ssh_client.safe_move_or_rename(source, destination, overwrite, sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to move file/directory: {e}")
@@ -801,11 +798,11 @@ async def ssh_list_directory(
     Returns:
         List of dictionaries with file/directory information
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        results = ssh_client.list_directory_recursive(path, max_depth, sudo)
+        results = mcp.ssh_client.list_directory_recursive(path, max_depth, sudo)
         return results
     except Exception as e:
         logger.error(f"Failed to list directory: {e}")
@@ -824,11 +821,11 @@ async def ssh_create_archive(
     Returns:
         Dictionary with archive information
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        result = ssh_client.create_archive_from_directory(source_path, archive_path, format, sudo)
+        result = mcp.ssh_client.create_archive_from_directory(source_path, archive_path, format, sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to create archive: {e}")
@@ -847,11 +844,11 @@ async def ssh_extract_archive(
     Returns:
         Dictionary with extraction information
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        result = ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
+        result = mcp.ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to extract archive: {e}")
@@ -871,11 +868,11 @@ async def ssh_search_content(
     Returns:
         List of dictionaries with search matches
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        results = ssh_client.search_file_contents(path, pattern, regex, case_sensitive, sudo)
+        results = mcp.ssh_client.search_file_contents(path, pattern, regex, case_sensitive, sudo)
         return results
     except Exception as e:
         logger.error(f"Failed to search file contents: {e}")
@@ -896,11 +893,11 @@ async def ssh_copy_directory(
     Returns:
         Dictionary with copy operation details
     """
-    if not ssh_client:
+    if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        result = ssh_client.copy_directory_recursive(
+        result = mcp.ssh_client.copy_directory_recursive(
             source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, sudo
         )
         return result
