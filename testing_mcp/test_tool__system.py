@@ -1,51 +1,25 @@
 import pytest
 import json
 import logging
-from conftest import print_test_header, print_test_footer
-
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
-
-# First, add the test server configuration
-from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
-async def test_ssh_verify_sudo():
+async def test_ssh_verify_sudo(mcp_test_environment):
     """Test verifying sudo access."""
     print_test_header("Testing 'ssh_verify_sudo' tool")
     logger.info("Starting SSH sudo verification test")
 
-    # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-
         try:
-            # Ensure we have a connection
-            try:
-                await client.call_tool("ssh_status", {})
-                logger.info("SSH connection already established")
-            except Exception as e:
-                if "No active SSH connection" in str(e):
-                    # Add the test server configuration
-                    logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
-                        "name": "test_server",
-                        "host": "localhost",
-                        "user": SSH_TEST_USER,
-                        "password": SSH_TEST_PASSWORD,
-                        "port": SSH_TEST_PORT
-                    })
-                    
-                    # Connect to the test server
-                    logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
-                        "host_name": "test_server"
-                    })
-                else:
-                    raise
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established or verified for sudo verification test")
             
             # Test verify_sudo
             logger.info("Verifying sudo access")
@@ -54,61 +28,44 @@ async def test_ssh_verify_sudo():
             
             # Verify the result
             assert sudo_result is not None, "Expected non-empty result"
+            assert isinstance(sudo_result, list), f"Expected list result, got {type(sudo_result)}"
+            assert len(sudo_result) > 0, "Expected non-empty list result"
+            assert hasattr(sudo_result[0], 'text'), "Expected TextContent object with 'text' attribute"
+            
             sudo_json = json.loads(sudo_result[0].text)
             
             # The result should be a boolean
             assert isinstance(sudo_json, bool), f"Expected boolean result, got {type(sudo_json)}"
             
-            # Note: We don't assert the actual value (True/False) since it depends on the test environment
+            # Note: We don't assert the actual value (True/False) since it depends on the test environment's setup
+            # The test container is configured with passwordless sudo for the test user.
+            assert sudo_json is True, "Expected sudo access to be available in the test environment"
             logger.info(f"Sudo access available: {sudo_json}")
             
             logger.info("SSH sudo verification test completed successfully")
         except Exception as e:
             logger.error(f"Error in SSH sudo verification test: {e}")
             raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for sudo verification test cleaned up")
     
     print_test_footer()
 
-
-
-
-
-
 @pytest.mark.asyncio
-async def test_ssh_system_operations():
+async def test_ssh_system_operations(mcp_test_environment):
     """Test various system operations."""
     print_test_header("Testing system operations")
     logger.info("Starting SSH system operations test")
 
-    # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         try:
-            # Ensure we have a connection
-            try:
-                await client.call_tool("ssh_status", {})
-                logger.info("SSH connection already established")
-            except Exception as e:
-                if "No active SSH connection" in str(e):
-                    # Add the test server configuration
-                    logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
-                        "name": "test_server",
-                        "host": "localhost",
-                        "user": SSH_TEST_USER,
-                        "password": SSH_TEST_PASSWORD,
-                        "port": SSH_TEST_PORT
-                    })
-                    
-                    # Connect to the test server
-                    logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
-                        "host_name": "test_server"
-                    })
-                else:
-                    raise
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established or verified for system operations test")
             
             # Test running a command with sudo
-            # This might fail if sudo access is not available, so we'll handle the exception
+            # This should work as the test container has passwordless sudo for the test user.
             try:
                 logger.info("Running a command with sudo")
                 sudo_run_params = {
@@ -118,25 +75,28 @@ async def test_ssh_system_operations():
                 }
                 
                 sudo_run_result = await client.call_tool("ssh_run", sudo_run_params)
+                assert isinstance(sudo_run_result, list) and len(sudo_run_result) > 0
                 sudo_run_json = json.loads(sudo_run_result[0].text)
                 logger.info(f"Sudo command result: {sudo_run_json}")
                 
                 # If sudo works, the output should contain "uid=0(root)"
-                if "uid=0(root)" in sudo_run_json['output']:
-                    logger.info("Sudo command executed successfully as root")
-                else:
-                    logger.warning("Sudo command did not run as root")
+                assert "uid=0(root)" in sudo_run_json['output'], "Sudo command did not run as root or output is unexpected"
+                logger.info("Sudo command executed successfully as root")
             except Exception as e:
-                logger.warning(f"Sudo command failed (this may be expected): {e}")
+                logger.error(f"Sudo command failed unexpectedly: {e}")
+                raise # Re-raise if sudo command fails, as it's expected to work
             
             # Test getting system status
             logger.info("Getting system status")
             status_result = await client.call_tool("ssh_status", {})
+            assert isinstance(status_result, list) and len(status_result) > 0
             status_json = json.loads(status_result[0].text)
             
             # Verify system information
+            assert 'system' in status_json, "Expected 'system' key in status result"
             system_info = status_json['system']
             assert 'os_type' in system_info, "System info should include OS type"
+            assert system_info['os_type'] == 'linux', f"Expected OS type 'linux', got '{system_info['os_type']}'"
             assert 'hostname' in system_info, "System info should include hostname"
             assert 'cpu_count' in system_info, "System info should include CPU count"
             assert 'mem_total_mb' in system_info, "System info should include memory info"
@@ -150,5 +110,8 @@ async def test_ssh_system_operations():
         except Exception as e:
             logger.error(f"Error in SSH system operations test: {e}")
             raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for system operations test cleaned up")
     
     print_test_footer()
