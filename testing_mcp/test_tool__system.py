@@ -3,6 +3,13 @@ import json
 import logging
 from conftest import print_test_header, print_test_footer
 
+# Import necessary modules
+from mcp_ssh_server import mcp
+from fastmcp import Client
+
+# First, add the test server configuration
+from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -11,16 +18,10 @@ async def test_ssh_verify_sudo():
     """Test verifying sudo access."""
     print_test_header("Testing 'ssh_verify_sudo' tool")
     logger.info("Starting SSH sudo verification test")
-    
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
+
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-        # First, add the test server configuration
-        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-        
+
         try:
             # Ensure we have a connection
             try:
@@ -68,21 +69,19 @@ async def test_ssh_verify_sudo():
     
     print_test_footer()
 
+
+
+
+
+
 @pytest.mark.asyncio
 async def test_ssh_system_operations():
     """Test various system operations."""
     print_test_header("Testing system operations")
     logger.info("Starting SSH system operations test")
-    
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
+
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-        # First, add the test server configuration
-        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-        
         try:
             # Ensure we have a connection
             try:
