@@ -38,13 +38,16 @@ async def test_ssh_status():
             
             # Connect to the test server
             logger.info("Connecting to test server")
-            await client.call_tool("ssh_connect", {
+            connect_result = await client.call_tool("ssh_connect", {
                 "host_name": "test_server"
             })
+            connect_json = json.loads(connect_result[0].text)
+            assert connect_json['status'] == 'success', "Connection should be successful"
             
             # Verify connection is now active
-            is_connected = await client.call_tool("ssh_is_connected", {})
-            assert is_connected, "SSH connection should now be active"
+            is_connected_result = await client.call_tool("ssh_is_connected", {})
+            is_connected_json = json.loads(is_connected_result[0].text)
+            assert is_connected_json, "SSH connection should now be active"
             logger.info("Verified SSH connection is active")
 
             # Now get the status
