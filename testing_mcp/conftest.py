@@ -38,6 +38,25 @@ SSH_TEST_CONFIG = {
 # Make SSH_TEST_PORT global so it can be modified if needed
 
 # Helper functions for SSH connection management
+async def disconnect_ssh(client):
+    """
+    Disconnect any existing SSH connection.
+    
+    Args:
+        client: The MCP client instance
+    """
+    if await is_ssh_connected(client):
+        logger = logging.getLogger("test_cleanup")
+        logger.info("Disconnecting existing SSH connection")
+        # Since there's no explicit disconnect tool, we'll close the connection directly
+        try:
+            if mcp.ssh_client:
+                mcp.ssh_client.close()
+                mcp.ssh_client = None
+                logger.info("SSH connection closed successfully")
+        except Exception as e:
+            logger.error(f"Error disconnecting SSH: {e}")
+
 async def is_ssh_connected(client):
     """
     Check if SSH is connected using the ssh_is_connected tool.

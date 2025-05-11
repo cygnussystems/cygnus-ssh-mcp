@@ -6,7 +6,7 @@ from conftest import print_test_header, print_test_footer
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
-from conftest import SSH_TEST_CONFIG, is_ssh_connected, make_connection
+from conftest import SSH_TEST_CONFIG, is_ssh_connected, make_connection, disconnect_ssh
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -62,6 +62,9 @@ async def test_ssh_status():
         except Exception as e:
             logger.error(f"Error in SSH status test: {e}")
             raise
+        finally:
+            # Clean up the connection after the test
+            await disconnect_ssh(client)
     
     print_test_footer()
 
@@ -116,5 +119,8 @@ async def test_ssh_reconnect():
         except Exception as e:
             logger.error(f"Error in SSH reconnection test: {e}")
             raise
+        finally:
+            # Clean up the connection after the test
+            await disconnect_ssh(client)
     
     print_test_footer()
