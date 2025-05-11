@@ -21,8 +21,9 @@ async def test_ssh_status():
     async with Client(mcp) as client:
         try:
             # Ensure no connection exists at start
-            is_connected = await client.call_tool("ssh_is_connected", {})
-            assert not is_connected, "Test started with an existing SSH connection"
+            is_connected_result = await client.call_tool("ssh_is_connected", {})
+            is_connected_json = json.loads(is_connected_result[0].text)
+            assert not is_connected_json, "Test started with an existing SSH connection"
             logger.info("Verified no existing SSH connection")
 
             # Add the test server configuration
