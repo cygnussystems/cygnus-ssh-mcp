@@ -1,63 +1,33 @@
 import pytest
 import json
-import asyncio
+import asyncio # Retained as pytest.mark.asyncio might use it or for general async context
 import logging
-from conftest import print_test_header, print_test_footer
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
-# First, add the test server configuration
-from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 @pytest.mark.asyncio
-async def test_ssh_run_basic():
+async def test_ssh_run_basic(mcp_test_environment):
     """Test basic command execution with ssh_run."""
     print_test_header("Testing 'ssh_run' basic command")
     logger.info("Starting SSH run basic test")
 
-    # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-
         try:
-            # Try to run a command first (might fail if no connection)
-            try:
-                # Simple echo command
-                run_params = {
-                    "command": "echo 'Hello from MCP SSH!'",
-                    "io_timeout": 10.0
-                }
-                run_result = await client.call_tool("ssh_run", run_params)
-                logger.info("SSH connection already established")
-            except Exception as e:
-                if "No active SSH connection" in str(e):
-                    # Add the test server configuration
-                    logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
-                        "name": "test_server",
-                        "host": "localhost",
-                        "user": SSH_TEST_USER,
-                        "password": SSH_TEST_PASSWORD,
-                        "port": SSH_TEST_PORT
-                    })
-                    
-                    # Connect to the test server
-                    logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
-                        "host_name": "test_server"
-                    })
-                    
-                    # Now run the command
-                    run_params = {
-                        "command": "echo 'Hello from MCP SSH!'",
-                        "io_timeout": 10.0
-                    }
-                    run_result = await client.call_tool("ssh_run", run_params)
-                else:
-                    raise
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established or verified for basic test")
+
+            # Simple echo command
+            run_params = {
+                "command": "echo 'Hello from MCP SSH!'",
+                "io_timeout": 10.0
+            }
+            run_result = await client.call_tool("ssh_run", run_params)
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
@@ -79,57 +49,30 @@ async def test_ssh_run_basic():
         except Exception as e:
             logger.error(f"Error in SSH run basic test: {e}")
             raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for basic test cleaned up")
     
     print_test_footer()
 
-
-
-
-
 @pytest.mark.asyncio
-async def test_ssh_run_multiline():
+async def test_ssh_run_multiline(mcp_test_environment):
     """Test command execution with multiple output lines."""
     print_test_header("Testing 'ssh_run' multiline command")
     logger.info("Starting SSH run multiline test")
 
-    # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         try:
-            # Try to run a command first (might fail if no connection)
-            try:
-                # Test with a command that produces multiple lines
-                run_params = {
-                    "command": "for i in {1..5}; do echo \"Line $i\"; done",
-                    "io_timeout": 10.0
-                }
-                run_result = await client.call_tool("ssh_run", run_params)
-                logger.info("SSH connection already established")
-            except Exception as e:
-                if "No active SSH connection" in str(e):
-                    # Add the test server configuration
-                    logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
-                        "name": "test_server",
-                        "host": "localhost",
-                        "user": SSH_TEST_USER,
-                        "password": SSH_TEST_PASSWORD,
-                        "port": SSH_TEST_PORT
-                    })
-                    
-                    # Connect to the test server
-                    logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
-                        "host_name": "test_server"
-                    })
-                    
-                    # Now run the command
-                    run_params = {
-                        "command": "for i in {1..5}; do echo \"Line $i\"; done",
-                        "io_timeout": 10.0
-                    }
-                    run_result = await client.call_tool("ssh_run", run_params)
-                else:
-                    raise
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established or verified for multiline test")
+
+            # Test with a command that produces multiple lines
+            run_params = {
+                "command": "for i in {1..5}; do echo \"Line $i\"; done",
+                "io_timeout": 10.0
+            }
+            run_result = await client.call_tool("ssh_run", run_params)
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
@@ -149,49 +92,23 @@ async def test_ssh_run_multiline():
         except Exception as e:
             logger.error(f"Error in SSH run multiline test: {e}")
             raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for multiline test cleaned up")
     
     print_test_footer()
 
 @pytest.mark.asyncio
-async def test_ssh_run_failure():
+async def test_ssh_run_failure(mcp_test_environment):
     """Test command execution with a failing command."""
     print_test_header("Testing 'ssh_run' failure command")
     logger.info("Starting SSH run failure test")
     
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
-    # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-        # First, add the test server configuration
-        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-        
         try:
-            # Ensure we have a connection first
-            try:
-                # Try a simple command to check connection
-                await client.call_tool("ssh_status", {})
-                logger.info("SSH connection already established")
-            except Exception as e:
-                if "No active SSH connection" in str(e):
-                    # Add the test server configuration
-                    logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
-                        "name": "test_server",
-                        "host": "localhost",
-                        "user": SSH_TEST_USER,
-                        "password": SSH_TEST_PASSWORD,
-                        "port": SSH_TEST_PORT
-                    })
-                    
-                    # Connect to the test server
-                    logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
-                        "host_name": "test_server"
-                    })
-                else:
-                    raise
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established or verified for failure test")
             
             # Now run the failing command
             run_params = {
@@ -213,52 +130,8 @@ async def test_ssh_run_failure():
         except Exception as e:
             logger.error(f"Error in SSH run failure test: {e}")
             raise
-    
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for failure test cleaned up")
+            
     print_test_footer()
-# if __name__ == "__main__":
-#     """
-#     Allow running this test directly without pytest
-#     """
-#     import sys
-#     from conftest import setup_test_environment, teardown_test_environment
-# 
-#     async def run_tests():
-#         """Run all tests in this file"""
-#         logger.info("Setting up test environment")
-#         await setup_test_environment()
-# 
-#         try:
-#             # Run the tests
-#             logger.info("Running tests")
-#             await test_ssh_run_basic()
-#             await test_ssh_run_multiline()
-# 
-#             # The failure test is expected to raise an exception
-#             try:
-#                 await test_ssh_run_failure()
-#                 print("ERROR: Failure test did not raise an exception as expected")
-#             except Exception as e:
-#                 if "exit code 42" in str(e):
-#                     logger.info("Failure test passed with expected exception")
-#                 else:
-#                     logger.error(f"Failure test raised unexpected exception: {e}")
-#                     raise
-# 
-#             logger.info("All tests completed successfully")
-# 
-#         finally:
-#             # Clean up
-#             logger.info("Tearing down test environment")
-#             await teardown_test_environment()
-# 
-#     try:
-#         # Configure logging for direct execution
-#         logging.basicConfig(level=logging.INFO, 
-#                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# 
-#         # Run the tests
-#         asyncio.run(run_tests())
-#         print("All tests completed successfully")
-#     except Exception as e:
-#         print(f"Tests failed: {e}")
-#         sys.exit(1)
