@@ -92,3 +92,107 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
             await disconnect_ssh(client)
     
     print_test_footer()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "test_id, command_to_run, include_output_param, output_lines_param, expected_output_assertion",
+    [
+        (
+            "no_output_snippet", "echo 'Output for no snippet test'", False, 2,
+            lambda output_field: 'output' not in output_field or output_field['output'] is None
+        ),
+        (
+            "zero_output_lines", "echo 'Output for zero lines test'", True, 0,
+            lambda output_field: isinstance(output_field.get('output'), list) and len(output_field['output']) == 0
+        ),
+        (
+            "less_lines_than_actual", "printf 'Line1\nLine2\nLine3'", True, 1,
+            lambda output_field: isinstance(output_field.get('output'), list) and len(output_field['output']) == 1 and "Line3" in output_field['output'][0]
+        ),
+        (
+            "more_lines_than_actual", "echo 'Single line output'", True, 5,
+            lambda output_field: isinstance(output_field.get('output'), list) and len(output_field['output']) == 1 and "Single line output" in output_field['output'][0]
+        ),
+        (
+            "command_with_no_stdout", "true", True, 2, # 'true' command produces no stdout
+            lambda output_field: isinstance(output_field.get('output'), list) and len(output_field['output']) == 0
+        ),
+        (
+            "command_with_stderr_only", "ls /nonexistent_path_for_history_test_stderr > /dev/null", True, 2, 
+            # This command redirects stdout, so only stderr (if captured by run) would be in output.
+            # Assuming 'output' captures combined stdout/stderr or primarily stdout for 'run' command.
+            # If 'run' captures stderr in 'output' field, this test needs adjustment.
+            # For now, assuming 'output' from 'run' is primarily stdout.
+            lambda output_field: isinstance(output_field.get('output'), list) and len(output_field['output']) == 0
+        )
+    ]
+)
+async def test_ssh_command_history_output_control(
+    mcp_test_environment, test_id, command_to_run, include_output_param, output_lines_param, expected_output_assertion
+):
+    """Test 'ssh_command_history' with various output control parameters."""
+    print_test_header(f"Testing 'ssh_command_history' output control: {test_id}")
+    logger.info(f"Starting SSH command history output control test: {test_id}")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info(f"[{test_id}] SSH connection established.")
+
+            # Run the specified command to create a history entry
+            logger.info(f"[{test_id}] Running command: {command_to_run}")
+            run_params = {"command": command_to_run, "io_timeout": 10.0}
+            run_result = await client.call_tool("ssh_run", run_params)
+            run_result_json = json.loads(run_result[0].text)
+            # We don't strictly require success for all test commands (e.g. stderr test)
+            # but log it for context.
+            logger.info(f"[{test_id}] Command exit code: {run_result_json.get('exit_code')}")
+
+
+            # Get command history
+            history_params = {
+                "limit": 1, # We only care about the command we just ran
+                "include_output": include_output_param,
+                "output_lines": output_lines_param
+            }
+            logger.info(f"[{test_id}] Retrieving command history with params: {history_params}")
+            
+            raw_tool_output = await client.call_tool("ssh_command_history", history_params)
+            logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
+
+            assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
+                f"[{test_id}] Tool call should return a non-empty list of content blocks"
+            assert hasattr(raw_tool_output[0], 'text'), \
+                f"[{test_id}] First content block should have a 'text' attribute"
+            
+            history_list = json.loads(raw_tool_output[0].text)
+            logger.info(f"[{test_id}] Parsed history list: {history_list}")
+
+            assert isinstance(history_list, list), f"[{test_id}] Parsed history should be a list"
+            assert len(history_list) == 1, f"[{test_id}] Expected 1 history entry, got {len(history_list)}"
+            
+            latest_entry = history_list[0] # Since limit is 1 and default order is oldest first
+
+            # Verify standard fields
+            assert 'command' in latest_entry and latest_entry['command'] == command_to_run, \
+                f"[{test_id}] Command mismatch in history"
+            assert 'exit_code' in latest_entry, f"[{test_id}] 'exit_code' missing in history entry"
+            assert 'id' in latest_entry, f"[{test_id}] 'id' missing in history entry"
+            assert 'start_time' in latest_entry, f"[{test_id}] 'start_time' missing in history entry"
+            assert 'end_time' in latest_entry, f"[{test_id}] 'end_time' missing in history entry"
+
+
+            # Perform the specific assertion for output field based on the test case
+            assert expected_output_assertion(latest_entry), \
+                f"[{test_id}] Output assertion failed. History entry: {latest_entry}"
+
+            logger.info(f"[{test_id}] SSH command history output control test completed successfully.")
+
+        except Exception as e:
+            logger.error(f"[{test_id}] Error in SSH command history output control test: {e}", exc_info=True)
+            raise
+        finally:
+            logger.info(f"[{test_id}] Ensuring SSH connection is closed.")
+            await disconnect_ssh(client)
+    
+    print_test_footer()
