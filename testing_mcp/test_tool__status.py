@@ -19,35 +19,35 @@ async def test_ssh_status():
 
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-        # First, add the test server configuration
         try:
-            # Try to run a command first (might fail if no connection)
-            try:
-                # Simple status check
-                status_result = await client.call_tool("ssh_status", {})
-                logger.info("SSH connection already established")
-            except Exception as e:
-                if "No active SSH connection" in str(e):
-                    # Add the test server configuration
-                    logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
-                        "name": "test_server",
-                        "host": "localhost",
-                        "user": SSH_TEST_USER,
-                        "password": SSH_TEST_PASSWORD,
-                        "port": SSH_TEST_PORT
-                    })
-                    
-                    # Connect to the test server
-                    logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
-                        "host_name": "test_server"
-                    })
-                    
-                    # Now get the status
-                    status_result = await client.call_tool("ssh_status", {})
-                else:
-                    raise
+            # Ensure no connection exists at start
+            is_connected = await client.call_tool("ssh_is_connected", {})
+            assert not is_connected, "Test started with an existing SSH connection"
+            logger.info("Verified no existing SSH connection")
+
+            # Add the test server configuration
+            logger.info("Adding test server configuration")
+            await client.call_tool("ssh_add_host", {
+                "name": "test_server",
+                "host": "localhost",
+                "user": SSH_TEST_USER,
+                "password": SSH_TEST_PASSWORD,
+                "port": SSH_TEST_PORT
+            })
+            
+            # Connect to the test server
+            logger.info("Connecting to test server")
+            await client.call_tool("ssh_connect", {
+                "host_name": "test_server"
+            })
+            
+            # Verify connection is now active
+            is_connected = await client.call_tool("ssh_is_connected", {})
+            assert is_connected, "SSH connection should now be active"
+            logger.info("Verified SSH connection is active")
+
+            # Now get the status
+            status_result = await client.call_tool("ssh_status", {})
             
             # Verify the result
             assert status_result is not None, "Expected non-empty result"
