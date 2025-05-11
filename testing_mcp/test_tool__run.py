@@ -3,6 +3,12 @@ import json
 import asyncio
 import logging
 from conftest import print_test_header, print_test_footer
+# Import necessary modules
+from mcp_ssh_server import mcp
+from fastmcp import Client
+# First, add the test server configuration
+from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -12,16 +18,10 @@ async def test_ssh_run_basic():
     """Test basic command execution with ssh_run."""
     print_test_header("Testing 'ssh_run' basic command")
     logger.info("Starting SSH run basic test")
-    
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
+
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-        # First, add the test server configuration
-        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-        
+
         try:
             # Try to run a command first (might fail if no connection)
             try:
@@ -82,21 +82,18 @@ async def test_ssh_run_basic():
     
     print_test_footer()
 
+
+
+
+
 @pytest.mark.asyncio
 async def test_ssh_run_multiline():
     """Test command execution with multiple output lines."""
     print_test_header("Testing 'ssh_run' multiline command")
     logger.info("Starting SSH run multiline test")
-    
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
+
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
-        # First, add the test server configuration
-        from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_PORT
-        
         try:
             # Try to run a command first (might fail if no connection)
             try:
