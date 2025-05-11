@@ -77,13 +77,14 @@ async def test_ssh_reconnect():
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         try:
-            # Check if a connection already exists and close it if needed
-            if await is_ssh_connected(client):
-                logger.info("Found existing SSH connection, will use it for the test")
-            else:
-                # Establish first connection
-                assert await make_connection(client), "Failed to establish initial SSH connection"
-                logger.info("Established new SSH connection")
+            # Ensure no connection exists at start
+            await disconnect_ssh(client)
+            assert not await is_ssh_connected(client), "Test started with an existing SSH connection"
+            logger.info("Verified no existing SSH connection")
+            
+            # Establish first connection
+            assert await make_connection(client), "Failed to establish initial SSH connection"
+            logger.info("Established new SSH connection")
             logger.info("Verified first SSH connection is active")
             
             # Get status of first connection
