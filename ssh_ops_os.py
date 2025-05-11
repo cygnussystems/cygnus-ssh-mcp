@@ -329,7 +329,14 @@ class SshOsOperations_Linux:
                     clean_key = key.strip()
                     if clean_key in key_map:
                         result_key = key_map[clean_key]
-                        status_info[result_key] = value.strip() # Overwrite 'n/a' with actual value
+                        processed_value = value.strip() # Get the raw value first
+                        
+                        # Specifically lowercase the 'os_type' field
+                        if result_key == 'os_type':
+                            status_info[result_key] = processed_value.lower()
+                        else:
+                            status_info[result_key] = processed_value
+                            
                         parsed_keys.add(result_key)
             
             # Check if all expected keys were found in the output (after successful command execution)
