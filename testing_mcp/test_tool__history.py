@@ -93,6 +93,11 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
     
     print_test_footer()
 
+
+
+
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "test_id, command_to_run, include_output_param, output_lines_param, expected_output_assertion",
@@ -197,6 +202,11 @@ async def test_ssh_command_history_output_control(
     
     print_test_footer()
 
+
+
+
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "test_id, num_commands_to_run, limit_param, expected_num_entries",
@@ -277,6 +287,10 @@ async def test_ssh_command_history_limit_behaviour(
             await disconnect_ssh(client)
     
     print_test_footer()
+
+
+
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
