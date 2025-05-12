@@ -239,7 +239,7 @@ async def ssh_add_host(
         raise
 
 @mcp.tool()
-async def ssh_run(
+async def ssh_cmd_run(
     command: Annotated[str, Field(description="Command to execute on remote host")],
     io_timeout: Annotated[float, Field(description="I/O timeout in seconds", gt=0)] = 60.0,
     runtime_timeout: Annotated[Optional[float], Field(description="Total runtime timeout in seconds", gt=0)] = None,
@@ -305,7 +305,7 @@ async def ssh_file_transfer(
         raise
 
 @mcp.tool()
-async def ssh_status() -> dict:
+async def ssh_conn_status() -> dict:
     """
     Get current SSH connection status and system information.
     
@@ -371,7 +371,7 @@ async def ssh_replace_block(
         raise
 
 @mcp.tool()
-async def ssh_output(
+async def ssh_cmd_output(
     handle_id: Annotated[int, Field(description="Command handle ID to retrieve output for")],
     lines: Annotated[Optional[int], Field(description="Number of lines to retrieve (None for all)")] = None
 ) -> list:
@@ -391,7 +391,7 @@ async def ssh_output(
         raise
 
 @mcp.tool()
-async def ssh_command_history(
+async def ssh_cmd_history(
     limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
     include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
     output_lines: Annotated[int, Field(description="Number of output lines to include (0 for none)", ge=0)] = 3,
@@ -542,7 +542,7 @@ async def ssh_task_kill(
         raise
 
 @mcp.tool()
-async def ssh_wait_and_check(
+async def ssh_cmd_wait_and_check(
     handle_id: Annotated[int, Field(description="Command handle ID to check status for")],
     wait_seconds: Annotated[float, Field(description="Seconds to wait before checking", gt=0)] = 5.0
 ) -> dict:
