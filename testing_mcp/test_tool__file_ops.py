@@ -101,6 +101,18 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
                 # If it's not valid JSON, the test should fail
                 assert False, f"Invalid JSON response from ssh_stat: {stat_response}"
                 
+            # Print for debugging
+            print(f"stat_info type: {type(stat_info)}")
+            print(f"stat_info content: {stat_info}")
+                
+            # Handle both string and dictionary responses
+            if isinstance(stat_info, str):
+                # Try to parse again if it's still a string
+                try:
+                    stat_info = json.loads(stat_info)
+                except json.JSONDecodeError:
+                    assert False, f"Invalid nested JSON response: {stat_info}"
+                
             assert stat_info.get('exists', False), f"Directory {test_dir} should exist"
             assert stat_info.get('type') == 'directory', f"Path {test_dir} should be a directory"
             

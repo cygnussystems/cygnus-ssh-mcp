@@ -632,19 +632,30 @@ async def ssh_stat(
         
     try:
         stat_info = mcp.ssh_client.stat(path)
+        
         # Ensure we're returning a dictionary, not a string
         if isinstance(stat_info, str):
             # Try to parse as JSON if it's a string
             try:
                 import json
-                return json.loads(stat_info)
+                parsed_info = json.loads(stat_info)
+                # If parsed result is still a string, create a dict
+                if isinstance(parsed_info, str):
+                    return {"message": parsed_info, "exists": False}
+                return parsed_info
             except json.JSONDecodeError:
                 # If it's not JSON, create a simple dict with the string
-                return {"error": stat_info, "exists": False}
+                return {"message": stat_info, "exists": False}
+        
+        # If it's already a dict, ensure it has the 'exists' key
+        if isinstance(stat_info, dict) and 'exists' not in stat_info:
+            stat_info['exists'] = True
+            
         return stat_info
     except Exception as e:
         logger.error(f"Failed to get file status: {e}")
-        raise
+        # Return a structured error response instead of raising
+        return {"error": str(e), "exists": False}
 
 @mcp.tool()
 async def ssh_replace_line(
