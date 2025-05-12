@@ -42,6 +42,7 @@ async def test_ssh_run_basic(mcp_test_environment):
             result_json = json.loads(run_result[0].text)
             logger.info(f"Command result: {result_json}")
             
+            assert result_json['status'] == 'success', f"Expected status 'success', got {result_json.get('status')}"
             assert result_json['exit_code'] == 0, f"Expected exit code 0, got {result_json['exit_code']}"
             assert "Hello from MCP SSH!" in result_json['output'], "Expected output not found"
             assert 'pid' in result_json, "PID should be included in result"
@@ -89,6 +90,7 @@ async def test_ssh_run_multiline(mcp_test_environment):
             logger.info(f"Multi-line command result: {result_json}")
             
             # Verify the result
+            assert result_json['status'] == 'success', f"Expected status 'success', got {result_json.get('status')}"
             assert result_json['exit_code'] == 0, f"Expected exit code 0, got {result_json['exit_code']}"
             assert "Line 1" in result_json['output'], "Expected 'Line 1' not found in output"
             assert "Line 5" in result_json['output'], "Expected 'Line 5' not found in output"
@@ -126,13 +128,17 @@ async def test_ssh_run_failure(mcp_test_environment):
             
             # Run the failing command via MCP
             logger.info("Running command failure test")
-            with pytest.raises(Exception) as excinfo:
-                await client.call_tool("ssh_cmd_run", run_params)
+            run_result = await client.call_tool("ssh_cmd_run", run_params)
             
-            # Verify the exception
-            error_message = str(excinfo.value)
-            logger.info(f"Received expected error: {error_message}")
-            assert "exit code 42" in error_message, "Exception should mention exit code 42"
+            # Verify the result
+            assert run_result is not None, "Expected non-empty result"
+            result_json = json.loads(run_result[0].text)
+            logger.info(f"Command failure result: {result_json}")
+            
+            # Verify the failure status
+            assert result_json['status'] == 'command_failed', f"Expected status 'command_failed', got {result_json.get('status')}"
+            assert result_json['exit_code'] == 42, f"Expected exit code 42, got {result_json.get('exit_code')}"
+            assert "exit code 42" in result_json.get('error', ''), "Error message should mention exit code 42"
             
             logger.info("SSH run failure test completed successfully")
         except Exception as e:
@@ -322,28 +328,27 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             start_time = time.time()
             logger.info("Running command with runtime_timeout=3.0s")
             
-            try:
-                await client.call_tool("ssh_cmd_run", run_params)
-                # If we get here, the test failed
-                assert False, "Expected CommandRuntimeTimeout was not raised"
-            except Exception as e:
-                # Verify that the exception is related to the runtime timeout
-                end_time = time.time()
-                elapsed_time = end_time - start_time
-                
-                error_message = str(e)
-                logger.info(f"Received expected error after {elapsed_time:.2f}s: {error_message}")
-                
-                # Check that the error message mentions runtime timeout
-                assert "runtime timeout" in error_message.lower() or "exceeded" in error_message.lower(), \
-                    f"Expected runtime timeout error, got: {error_message}"
-                
-                # Check that the command was killed within a reasonable time of the timeout
-                # Allow for some overhead in the timeout mechanism
-                assert 2.5 <= elapsed_time <= 5.0, \
-                    f"Command should have been killed after ~3s, but took {elapsed_time:.2f}s"
-                
-                logger.info(f"Command was correctly terminated after {elapsed_time:.2f}s")
+            run_result = await client.call_tool("ssh_cmd_run", run_params)
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            
+            # Verify the result
+            assert run_result is not None, "Expected non-empty result"
+            result_json = json.loads(run_result[0].text)
+            logger.info(f"Runtime timeout result: {result_json}")
+            
+            # Verify the timeout status
+            assert result_json['status'] == 'runtime_timeout', f"Expected status 'runtime_timeout', got {result_json.get('status')}"
+            assert 'id' in result_json, "Handle ID should be included in result"
+            assert 'timeout_seconds' in result_json, "Timeout seconds should be included in result"
+            assert result_json['timeout_seconds'] == 3.0, f"Expected timeout of 3.0s, got {result_json.get('timeout_seconds')}"
+            
+            # Check that the command was killed within a reasonable time of the timeout
+            # Allow for some overhead in the timeout mechanism
+            assert 2.5 <= elapsed_time <= 5.0, \
+                f"Command should have been killed after ~3s, but took {elapsed_time:.2f}s"
+            
+            logger.info(f"Command was correctly terminated after {elapsed_time:.2f}s")
             
             # Verify we can run another command now that the previous one was killed
             logger.info("Verifying we can run another command after timeout")
@@ -355,7 +360,8 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             verify_result = await client.call_tool("ssh_cmd_run", verify_params)
             verify_json = json.loads(verify_result[0].text)
             
-            assert verify_json['exit_code'] == 0, "Follow-up command should succeed"
+            assert verify_json['status'] == 'success', "Follow-up command should succeed"
+            assert verify_json['exit_code'] == 0, "Follow-up command should have exit code 0"
             assert "System is responsive again" in verify_json['output'], "Expected output not found"
             
             logger.info("SSH runtime timeout test completed successfully")
@@ -394,45 +400,24 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             start_time = time.time()
             logger.info("Running command with runtime_timeout=3.0s")
             
-            handle_id = None
-            try:
-                await client.call_tool("ssh_cmd_run", run_params)
-                # If we get here, the test failed
-                assert False, "Expected CommandRuntimeTimeout was not raised"
-            except Exception as e:
-                # Verify that the exception is related to the runtime timeout
-                end_time = time.time()
-                elapsed_time = end_time - start_time
-                
-                error_message = str(e)
-                logger.info(f"Received expected error after {elapsed_time:.2f}s: {error_message}")
-                
-                # Check that the error message mentions runtime timeout
-                assert "runtime timeout" in error_message.lower() or "exceeded" in error_message.lower(), \
-                    f"Expected runtime timeout error, got: {error_message}"
-                
-                # Extract the handle ID from the error message if possible
-                import re
-                handle_match = re.search(r'ID: (\d+)', error_message)
-                if handle_match:
-                    handle_id = int(handle_match.group(1))
-                    logger.info(f"Extracted handle ID from error message: {handle_id}")
-                
-                logger.info(f"Command timed out as expected after {elapsed_time:.2f}s")
+            run_result = await client.call_tool("ssh_cmd_run", run_params)
+            end_time = time.time()
+            elapsed_time = end_time - start_time
             
-            # If we couldn't extract handle ID from error message, get it from command history
-            if handle_id is None:
-                # Get the most recent command from history
-                history_params = {
-                    "limit": 1,
-                    "reverse": True
-                }
-                history_result = await client.call_tool("ssh_cmd_history", history_params)
-                history_json = json.loads(history_result[0].text)
-                
-                if history_json and len(history_json) > 0:
-                    handle_id = history_json[0].get('id')
-                    logger.info(f"Retrieved handle ID from command history: {handle_id}")
+            # Verify the result
+            assert run_result is not None, "Expected non-empty result"
+            result_json = json.loads(run_result[0].text)
+            logger.info(f"Runtime timeout result: {result_json}")
+            
+            # Verify the timeout status
+            assert result_json['status'] == 'runtime_timeout', f"Expected status 'runtime_timeout', got {result_json.get('status')}"
+            
+            # Get the handle ID directly from the result
+            handle_id = result_json.get('id')
+            assert handle_id is not None, "Handle ID should be included in result"
+            logger.info(f"Got handle ID from result: {handle_id}")
+            
+            logger.info(f"Command timed out as expected after {elapsed_time:.2f}s")
             
             # Verify the handle ID was found
             assert handle_id is not None, "Could not determine handle ID of the command"

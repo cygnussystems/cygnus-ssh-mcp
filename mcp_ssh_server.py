@@ -249,16 +249,23 @@ async def ssh_cmd_run(
     Execute a command on the remote host and return the results.
     
     Returns:
-        Dictionary containing command output and metadata
+        Dictionary containing command output, status, and metadata.
+        Status field indicates success or the type of failure (timeout, runtime_timeout, etc.)
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        return {
+            'status': 'error',
+            'error': "No active SSH connection",
+            'command': command,
+            'timestamp': datetime.now(UTC).isoformat()
+        }
         
     try:
         handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, sudo)
         output = handle.get_full_output()
         return {
-            'id': handle.id,  # Use the correct attribute name
+            'status': 'success',
+            'id': handle.id,
             'command': command,
             'exit_code': handle.exit_code,
             'output': output,
@@ -266,9 +273,71 @@ async def ssh_cmd_run(
             'start_time': handle.start_ts.isoformat(),
             'end_time': handle.end_ts.isoformat() if handle.end_ts else None
         }
+    except CommandTimeout as e:
+        logger.warning(f"Command I/O timeout after {e.seconds}s: {command}")
+        # Get the handle from history if available
+        history = mcp.ssh_client.history()
+        handle = next((h for h in history if h.get('cmd') == command), None)
+        handle_id = handle.get('id') if handle else None
+        
+        return {
+            'status': 'io_timeout',
+            'id': handle_id,
+            'command': command,
+            'timeout_seconds': e.seconds,
+            'error': str(e),
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except CommandRuntimeTimeout as e:
+        logger.warning(f"Command runtime timeout after {e.seconds}s: {command}")
+        return {
+            'status': 'runtime_timeout',
+            'id': e.handle.id,
+            'command': command,
+            'timeout_seconds': e.seconds,
+            'pid': e.handle.pid,
+            'output': e.handle.get_full_output() if hasattr(e.handle, 'get_full_output') else None,
+            'start_time': e.handle.start_ts.isoformat() if hasattr(e.handle, 'start_ts') else None,
+            'end_time': e.handle.end_ts.isoformat() if hasattr(e.handle, 'end_ts') else None,
+            'error': str(e),
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except CommandFailed as e:
+        logger.warning(f"Command failed with exit code {e.exit_code}: {command}")
+        return {
+            'status': 'command_failed',
+            'command': command,
+            'exit_code': e.exit_code,
+            'stdout': e.stdout,
+            'stderr': e.stderr,
+            'error': str(e),
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except SudoRequired as e:
+        logger.warning(f"Sudo required but not available: {command}")
+        return {
+            'status': 'sudo_required',
+            'command': command,
+            'error': str(e),
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except BusyError as e:
+        logger.warning(f"Command execution blocked - another command is running: {command}")
+        return {
+            'status': 'busy',
+            'command': command,
+            'error': str(e),
+            'timestamp': datetime.now(UTC).isoformat()
+        }
     except Exception as e:
         logger.error(f"Command execution failed: {e}")
-        raise
+        return {
+            'status': 'error',
+            'command': command,
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'timestamp': datetime.now(UTC).isoformat()
+        }
 
 @mcp.tool()
 async def ssh_file_transfer(
