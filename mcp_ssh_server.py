@@ -258,6 +258,7 @@ async def ssh_run(
         handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, sudo)
         output = handle.get_full_output()
         return {
+            'id': handle.handle_id,  # Add handle_id to the response
             'command': command,
             'exit_code': handle.exit_code,
             'output': output,
