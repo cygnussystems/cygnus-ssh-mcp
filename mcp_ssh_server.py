@@ -632,6 +632,15 @@ async def ssh_stat(
         
     try:
         stat_info = mcp.ssh_client.stat(path)
+        # Ensure we're returning a dictionary, not a string
+        if isinstance(stat_info, str):
+            # Try to parse as JSON if it's a string
+            try:
+                import json
+                return json.loads(stat_info)
+            except json.JSONDecodeError:
+                # If it's not JSON, create a simple dict with the string
+                return {"error": stat_info, "exists": False}
         return stat_info
     except Exception as e:
         logger.error(f"Failed to get file status: {e}")
