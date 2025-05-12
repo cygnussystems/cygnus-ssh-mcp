@@ -135,3 +135,74 @@ async def test_ssh_run_failure(mcp_test_environment):
             logger.info("SSH connection for failure test cleaned up")
             
     print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_wait_and_check(mcp_test_environment):
+    """Test waiting and checking command status."""
+    print_test_header("Testing 'ssh_wait_and_check' tool")
+    logger.info("Starting SSH wait and check test")
+    
+    async with Client(mcp) as client:
+        try:
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established for wait and check test")
+            
+            # First run a long-running command
+            run_params = {
+                "command": "sleep 3 && echo 'Command completed'",
+                "io_timeout": 10.0
+            }
+            
+            # Run the command
+            run_result = await client.call_tool("ssh_run", run_params)
+            assert run_result is not None, "Expected non-empty result"
+            result_json = json.loads(run_result[0].text)
+            logger.info(f"Command executed with handle ID: {result_json['id']}")
+            
+            # Get the handle ID
+            handle_id = result_json.get('id')
+            assert handle_id is not None, "Expected handle ID in result"
+            
+            # Now test the wait_and_check tool with a short wait
+            wait_params = {
+                "handle_id": handle_id,
+                "wait_seconds": 1.0  # Wait for 1 second
+            }
+            
+            # Call the wait_and_check tool
+            wait_result = await client.call_tool("ssh_wait_and_check", wait_params)
+            assert wait_result is not None, "Expected non-empty result"
+            wait_json = json.loads(wait_result[0].text)
+            logger.info(f"Wait and check result: {wait_json}")
+            
+            # Verify the result
+            assert wait_json['handle_id'] == handle_id, "Handle ID should match"
+            assert wait_json['waited_seconds'] == 1.0, "Wait time should be 1.0 seconds"
+            assert 'status' in wait_json, "Status should be included in result"
+            assert 'timestamp' in wait_json, "Timestamp should be included in result"
+            
+            # Wait for the command to complete
+            wait_params = {
+                "handle_id": handle_id,
+                "wait_seconds": 3.0  # Wait for 3 seconds (should be enough for the command to complete)
+            }
+            
+            # Call the wait_and_check tool again
+            wait_result = await client.call_tool("ssh_wait_and_check", wait_params)
+            wait_json = json.loads(wait_result[0].text)
+            logger.info(f"Second wait and check result: {wait_json}")
+            
+            # Verify the command completed
+            assert wait_json['status'] == 'completed', "Command should be completed after waiting"
+            assert wait_json['exit_code'] == 0, "Exit code should be 0"
+            
+            logger.info("SSH wait and check test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SSH wait and check test: {e}")
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for wait and check test cleaned up")
+            
+    print_test_footer()

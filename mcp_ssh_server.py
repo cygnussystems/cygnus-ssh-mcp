@@ -3,6 +3,7 @@ import sys
 import os
 import yaml
 import argparse
+import asyncio
 from pathlib import Path
 from fastmcp import FastMCP
 from pydantic import Field
@@ -538,6 +539,101 @@ async def ssh_task_kill(
     except Exception as e:
         logger.error(f"Failed to kill task: {e}")
         raise
+
+@mcp.tool()
+async def ssh_wait_and_check(
+    handle_id: Annotated[int, Field(description="Command handle ID to check status for")],
+    wait_seconds: Annotated[float, Field(description="Seconds to wait before checking", gt=0)] = 5.0
+) -> dict:
+    """
+    Wait for the specified duration and then check the status of a command.
+    
+    This tool helps with monitoring long-running commands by implementing
+    a wait operation that LLMs cannot perform on their own.
+    
+    Returns:
+        Dictionary containing command status information after waiting
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        # Log the wait operation
+        logger.info(f"Waiting {wait_seconds} seconds before checking status of handle {handle_id}")
+        
+        # Perform the actual wait
+        await asyncio.sleep(wait_seconds)
+        
+        # After waiting, try to get the command handle
+        try:
+            # First try to get output which will tell us if the command is still running
+            output = mcp.ssh_client.output(handle_id)
+            
+            # Get the handle info for metadata
+            handle = mcp.ssh_client.history()
+            handle_info = next((h for h in handle if h.get('id') == handle_id), None)
+            
+            if handle_info:
+                # Command exists in history
+                is_complete = handle_info.get('end_ts') is not None
+                exit_code = handle_info.get('exit_code')
+                
+                return {
+                    'handle_id': handle_id,
+                    'waited_seconds': wait_seconds,
+                    'status': 'completed' if is_complete else 'running',
+                    'exit_code': exit_code if is_complete else None,
+                    'pid': handle_info.get('pid'),
+                    'timestamp': datetime.now(UTC).isoformat(),
+                    'output_available': True,
+                    'output_lines': len(output) if output else 0
+                }
+            else:
+                # Handle exists (since output didn't raise) but not in history
+                return {
+                    'handle_id': handle_id,
+                    'waited_seconds': wait_seconds,
+                    'status': 'unknown',
+                    'timestamp': datetime.now(UTC).isoformat(),
+                    'output_available': True,
+                    'output_lines': len(output) if output else 0
+                }
+                
+        except Exception as inner_e:
+            # If we can't get the output, check if it's a background task by PID
+            if isinstance(inner_e, SshError) and "No command handle" in str(inner_e):
+                # Try to check if this is a PID instead
+                try:
+                    status = mcp.ssh_client.task_status(handle_id)
+                    return {
+                        'pid': handle_id,
+                        'waited_seconds': wait_seconds,
+                        'status': status,
+                        'timestamp': datetime.now(UTC).isoformat(),
+                        'is_background_task': True
+                    }
+                except Exception:
+                    # Not a valid PID either
+                    pass
+            
+            # If we get here, the handle/PID doesn't exist or another error occurred
+            return {
+                'handle_id': handle_id,
+                'waited_seconds': wait_seconds,
+                'status': 'not_found',
+                'error': str(inner_e),
+                'timestamp': datetime.now(UTC).isoformat()
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in wait_and_check: {e}")
+        return {
+            'handle_id': handle_id,
+            'waited_seconds': wait_seconds,
+            'status': 'error',
+            'error': str(e),
+            'timestamp': datetime.now(UTC).isoformat()
+        }
 
 # ===================
 # File Operation Tools
