@@ -30,7 +30,7 @@ async def test_ssh_run_basic(mcp_test_environment):
                 "command": "echo 'Hello from MCP SSH!'",
                 "io_timeout": 10.0
             }
-            run_result = await client.call_tool("ssh_run", run_params)
+            run_result = await client.call_tool("ssh_cmd_run", run_params)
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
@@ -77,7 +77,7 @@ async def test_ssh_run_multiline(mcp_test_environment):
                 "command": "for i in {1..5}; do echo \"Line $i\"; done",
                 "io_timeout": 10.0
             }
-            run_result = await client.call_tool("ssh_run", run_params)
+            run_result = await client.call_tool("ssh_cmd_run", run_params)
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
@@ -127,7 +127,7 @@ async def test_ssh_run_failure(mcp_test_environment):
             # Run the failing command via MCP
             logger.info("Running command failure test")
             with pytest.raises(Exception) as excinfo:
-                await client.call_tool("ssh_run", run_params)
+                await client.call_tool("ssh_cmd_run", run_params)
             
             # Verify the exception
             error_message = str(excinfo.value)
@@ -150,7 +150,7 @@ async def test_ssh_run_failure(mcp_test_environment):
 @pytest.mark.asyncio
 async def test_ssh_wait_and_check(mcp_test_environment):
     """Test waiting and checking command status."""
-    print_test_header("Testing 'ssh_wait_and_check' tool")
+    print_test_header("Testing 'ssh_cmd_wait_and_check' tool")
     logger.info("Starting SSH wait and check test")
     
     async with Client(mcp) as client:
@@ -166,7 +166,7 @@ async def test_ssh_wait_and_check(mcp_test_environment):
             }
             
             # Run the command
-            run_result = await client.call_tool("ssh_run", run_params)
+            run_result = await client.call_tool("ssh_cmd_run", run_params)
             assert run_result is not None, "Expected non-empty result"
             result_json = json.loads(run_result[0].text)
             
@@ -179,7 +179,7 @@ async def test_ssh_wait_and_check(mcp_test_environment):
                 handle_id = result_json['handle_id']
             else:
                 # If we can't find a specific ID field, we can use command history to get the latest command
-                history_result = await client.call_tool("ssh_command_history", {"limit": 1, "reverse": True})
+                history_result = await client.call_tool("ssh_cmd_history", {"limit": 1, "reverse": True})
                 history_json = json.loads(history_result[0].text)
                 if history_json and len(history_json) > 0:
                     handle_id = history_json[0]['id']
@@ -194,7 +194,7 @@ async def test_ssh_wait_and_check(mcp_test_environment):
             }
             
             # Call the wait_and_check tool
-            wait_result = await client.call_tool("ssh_wait_and_check", wait_params)
+            wait_result = await client.call_tool("ssh_cmd_wait_and_check", wait_params)
             assert wait_result is not None, "Expected non-empty result"
             wait_json = json.loads(wait_result[0].text)
             logger.info(f"Wait and check result: {wait_json}")
@@ -212,7 +212,7 @@ async def test_ssh_wait_and_check(mcp_test_environment):
             }
             
             # Call the wait_and_check tool again
-            wait_result = await client.call_tool("ssh_wait_and_check", wait_params)
+            wait_result = await client.call_tool("ssh_cmd_wait_and_check", wait_params)
             wait_json = json.loads(wait_result[0].text)
             logger.info(f"Second wait and check result: {wait_json}")
             
@@ -254,7 +254,7 @@ async def test_ssh_busy_lock(mcp_test_environment):
             }
             
             # Start the long-running command but don't await it
-            long_command_task = asyncio.create_task(client.call_tool("ssh_run", long_command_params))
+            long_command_task = asyncio.create_task(client.call_tool("ssh_cmd_run", long_command_params))
             
             # Give the command a moment to start
             await asyncio.sleep(1.0)
@@ -268,7 +268,7 @@ async def test_ssh_busy_lock(mcp_test_environment):
             # This should raise an exception due to the busy lock
             logger.info("Attempting to run second command while first is still running")
             try:
-                await client.call_tool("ssh_run", second_command_params)
+                await client.call_tool("ssh_cmd_run", second_command_params)
                 # If we get here, the test failed
                 assert False, "Expected BusyError was not raised"
             except Exception as e:
@@ -323,7 +323,7 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             logger.info("Running command with runtime_timeout=3.0s")
             
             try:
-                await client.call_tool("ssh_run", run_params)
+                await client.call_tool("ssh_cmd_run", run_params)
                 # If we get here, the test failed
                 assert False, "Expected CommandRuntimeTimeout was not raised"
             except Exception as e:
@@ -352,7 +352,7 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
                 "io_timeout": 5.0
             }
             
-            verify_result = await client.call_tool("ssh_run", verify_params)
+            verify_result = await client.call_tool("ssh_cmd_run", verify_params)
             verify_json = json.loads(verify_result[0].text)
             
             assert verify_json['exit_code'] == 0, "Follow-up command should succeed"
@@ -396,7 +396,7 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             
             pid = None
             try:
-                await client.call_tool("ssh_run", run_params)
+                await client.call_tool("ssh_cmd_run", run_params)
                 # If we get here, the test failed
                 assert False, "Expected CommandTimeout was not raised"
             except Exception as e:
@@ -427,7 +427,7 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
                     "limit": 1,
                     "reverse": True
                 }
-                history_result = await client.call_tool("ssh_command_history", history_params)
+                history_result = await client.call_tool("ssh_cmd_history", history_params)
                 history_json = json.loads(history_result[0].text)
                 
                 if history_json and len(history_json) > 0:
@@ -475,7 +475,7 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
                 "io_timeout": 5.0
             }
             
-            verify_result = await client.call_tool("ssh_run", verify_params)
+            verify_result = await client.call_tool("ssh_cmd_run", verify_params)
             verify_json = json.loads(verify_result[0].text)
             
             assert verify_json['exit_code'] == 0, "Follow-up command should succeed"
