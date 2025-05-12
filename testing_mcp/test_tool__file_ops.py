@@ -100,32 +100,42 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
             except json.JSONDecodeError:
                 # If it's not valid JSON, create a simple dict based on the string
                 # This handles the case where the response is a directory listing format
-                if stat_response.startswith('d'):
-                    stat_info = {
-                        "exists": True,
-                        "type": "directory",
-                        "raw": stat_response
-                    }
-                elif stat_response.startswith('-'):
-                    stat_info = {
-                        "exists": True,
-                        "type": "file",
-                        "raw": stat_response
-                    }
+                if isinstance(stat_response, str):
+                    if stat_response.startswith('d'):
+                        stat_info = {
+                            "exists": True,
+                            "type": "directory",
+                            "raw": stat_response
+                        }
+                    elif stat_response.startswith('-'):
+                        stat_info = {
+                            "exists": True,
+                            "type": "file",
+                            "raw": stat_response
+                        }
+                    else:
+                        # If we can't determine the type, just check existence
+                        stat_info = {
+                            "exists": True,
+                            "raw": stat_response
+                        }
                 else:
-                    # If we can't determine the type, just check existence
-                    stat_info = {
-                        "exists": True,
-                        "raw": stat_response
-                    }
+                    # If it's not a string, use it as is
+                    stat_info = stat_response
                 
             # Print for debugging
             print(f"stat_info type: {type(stat_info)}")
             print(f"stat_info content: {stat_info}")
                 
-            assert stat_info.get('exists', False), f"Directory {test_dir} should exist"
-            # Only check type if it's provided
-            if 'type' in stat_info:
+            # Handle both string and dict cases
+            if isinstance(stat_info, str):
+                # For string responses, just check if it contains directory info
+                assert 'drwx' in stat_info, f"Directory {test_dir} should exist"
+            else:
+                # For dict responses, use get method
+                assert stat_info.get('exists', False), f"Directory {test_dir} should exist"
+            # Only check type if it's a dict and type is provided
+            if isinstance(stat_info, dict) and 'type' in stat_info:
                 assert stat_info.get('type') == 'directory', f"Path {test_dir} should be a directory"
             
             # Test remove directory
