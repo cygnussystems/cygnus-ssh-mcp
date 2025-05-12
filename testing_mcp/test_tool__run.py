@@ -10,6 +10,8 @@ from fastmcp import Client
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
+
 @pytest.mark.asyncio
 async def test_ssh_run_basic(mcp_test_environment):
     """Test basic command execution with ssh_run."""
@@ -55,6 +57,8 @@ async def test_ssh_run_basic(mcp_test_environment):
     
     print_test_footer()
 
+
+
 @pytest.mark.asyncio
 async def test_ssh_run_multiline(mcp_test_environment):
     """Test command execution with multiple output lines."""
@@ -98,6 +102,9 @@ async def test_ssh_run_multiline(mcp_test_environment):
     
     print_test_footer()
 
+
+
+
 @pytest.mark.asyncio
 async def test_ssh_run_failure(mcp_test_environment):
     """Test command execution with a failing command."""
@@ -135,6 +142,9 @@ async def test_ssh_run_failure(mcp_test_environment):
             logger.info("SSH connection for failure test cleaned up")
             
     print_test_footer()
+
+
+
 
 @pytest.mark.asyncio
 async def test_ssh_wait_and_check(mcp_test_environment):
