@@ -368,3 +368,126 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             logger.info("SSH connection for runtime timeout test cleaned up")
             
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_manual_interrupt(mcp_test_environment):
+    """Test manually interrupting a running command after a timeout."""
+    print_test_header("Testing manual interruption of a running command")
+    logger.info("Starting SSH manual interrupt test")
+    
+    async with Client(mcp) as client:
+        try:
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established for manual interrupt test")
+            
+            # Start a long-running command with a short IO timeout
+            # This will timeout but the process will still be running in the background
+            run_params = {
+                "command": "echo 'Starting long process'; sleep 30; echo 'This should never be printed'",
+                "io_timeout": 2.0,  # Short IO timeout to trigger quickly
+                "runtime_timeout": None  # No runtime timeout so process continues running
+            }
+            
+            # The command should timeout due to IO inactivity
+            start_time = time.time()
+            logger.info("Running command with io_timeout=2.0s")
+            
+            pid = None
+            try:
+                await client.call_tool("ssh_run", run_params)
+                # If we get here, the test failed
+                assert False, "Expected CommandTimeout was not raised"
+            except Exception as e:
+                # Verify that the exception is related to the IO timeout
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                
+                error_message = str(e)
+                logger.info(f"Received expected error after {elapsed_time:.2f}s: {error_message}")
+                
+                # Check that the error message mentions IO timeout
+                assert "timeout" in error_message.lower() or "timed out" in error_message.lower(), \
+                    f"Expected timeout error, got: {error_message}"
+                
+                # Extract the PID from the error message if possible
+                import re
+                pid_match = re.search(r'PID: (\d+)', error_message)
+                if pid_match:
+                    pid = int(pid_match.group(1))
+                    logger.info(f"Extracted PID from error message: {pid}")
+                
+                logger.info(f"Command timed out as expected after {elapsed_time:.2f}s")
+            
+            # If we couldn't extract PID from error message, get it from command history
+            if pid is None:
+                # Get the most recent command from history
+                history_params = {
+                    "limit": 1,
+                    "reverse": True
+                }
+                history_result = await client.call_tool("ssh_command_history", history_params)
+                history_json = json.loads(history_result[0].text)
+                
+                if history_json and len(history_json) > 0:
+                    pid = history_json[0].get('pid')
+                    logger.info(f"Retrieved PID from command history: {pid}")
+            
+            # Verify the process is still running
+            assert pid is not None, "Could not determine PID of the command"
+            
+            # Check if the process is still running
+            status_params = {
+                "pid": pid
+            }
+            status_result = await client.call_tool("ssh_task_status", status_params)
+            status_json = json.loads(status_result[0].text)
+            
+            logger.info(f"Process status before kill: {status_json}")
+            assert status_json['status'] == 'running', "Process should still be running after IO timeout"
+            
+            # Now manually kill the process
+            kill_params = {
+                "pid": pid,
+                "signal": 15,  # SIGTERM
+                "force": True
+            }
+            
+            kill_result = await client.call_tool("ssh_task_kill", kill_params)
+            kill_json = json.loads(kill_result[0].text)
+            
+            logger.info(f"Kill result: {kill_json}")
+            assert kill_json['result'] in ['killed', 'terminated'], "Process should be successfully killed"
+            
+            # Verify the process is no longer running
+            await asyncio.sleep(1)  # Give it a moment to update
+            status_result = await client.call_tool("ssh_task_status", status_params)
+            status_json = json.loads(status_result[0].text)
+            
+            logger.info(f"Process status after kill: {status_json}")
+            assert status_json['status'] != 'running', "Process should no longer be running"
+            
+            # Verify we can run another command now
+            logger.info("Verifying we can run another command after manual kill")
+            verify_params = {
+                "command": "echo 'System is responsive after manual kill'",
+                "io_timeout": 5.0
+            }
+            
+            verify_result = await client.call_tool("ssh_run", verify_params)
+            verify_json = json.loads(verify_result[0].text)
+            
+            assert verify_json['exit_code'] == 0, "Follow-up command should succeed"
+            assert "System is responsive after manual kill" in verify_json['output'], "Expected output not found"
+            
+            logger.info("SSH manual interrupt test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SSH manual interrupt test: {e}")
+            raise
+        finally:
+            # Ensure we disconnect even if there was an error
+            await disconnect_ssh(client)
+            logger.info("SSH connection for manual interrupt test cleaned up")
+            
+    print_test_footer()
