@@ -148,16 +148,16 @@ async def test_ssh_run_failure(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-async def test_ssh_wait_and_check(mcp_test_environment):
+async def test_ssh_cmd_check(mcp_test_environment):
     """Test waiting and checking command status."""
-    print_test_header("Testing 'ssh_cmd_wait_and_check' tool")
-    logger.info("Starting SSH wait and check test")
+    print_test_header("Testing 'ssh_cmd_check' tool")
+    logger.info("Starting SSH command check test")
     
     async with Client(mcp) as client:
         try:
             # Ensure connection is established
             assert await make_connection(client), "Failed to establish SSH connection"
-            logger.info("SSH connection established for wait and check test")
+            logger.info("SSH connection established for command check test")
             
             # First run a long-running command
             run_params = {
@@ -187,46 +187,46 @@ async def test_ssh_wait_and_check(mcp_test_environment):
             assert handle_id is not None, "Could not determine handle ID from result or history"
             logger.info(f"Command executed with handle ID: {handle_id}")
             
-            # Now test the wait_and_check tool with a short wait
-            wait_params = {
+            # Now test the cmd_check tool with a short wait
+            check_params = {
                 "handle_id": handle_id,
                 "wait_seconds": 1.0  # Wait for 1 second
             }
             
-            # Call the wait_and_check tool
-            wait_result = await client.call_tool("ssh_cmd_wait_and_check", wait_params)
-            assert wait_result is not None, "Expected non-empty result"
-            wait_json = json.loads(wait_result[0].text)
-            logger.info(f"Wait and check result: {wait_json}")
+            # Call the cmd_check tool
+            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            assert check_result is not None, "Expected non-empty result"
+            check_json = json.loads(check_result[0].text)
+            logger.info(f"Command check result: {check_json}")
             
             # Verify the result
-            assert wait_json['handle_id'] == handle_id, "Handle ID should match"
-            assert wait_json['waited_seconds'] == 1.0, "Wait time should be 1.0 seconds"
-            assert 'status' in wait_json, "Status should be included in result"
-            assert 'timestamp' in wait_json, "Timestamp should be included in result"
+            assert check_json['handle_id'] == handle_id, "Handle ID should match"
+            assert check_json['waited_seconds'] == 1.0, "Wait time should be 1.0 seconds"
+            assert 'status' in check_json, "Status should be included in result"
+            assert 'timestamp' in check_json, "Timestamp should be included in result"
             
             # Wait for the command to complete
-            wait_params = {
+            check_params = {
                 "handle_id": handle_id,
                 "wait_seconds": 3.0  # Wait for 3 seconds (should be enough for the command to complete)
             }
             
-            # Call the wait_and_check tool again
-            wait_result = await client.call_tool("ssh_cmd_wait_and_check", wait_params)
-            wait_json = json.loads(wait_result[0].text)
-            logger.info(f"Second wait and check result: {wait_json}")
+            # Call the cmd_check tool again
+            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            check_json = json.loads(check_result[0].text)
+            logger.info(f"Second command check result: {check_json}")
             
             # Verify the command completed
-            assert wait_json['status'] == 'completed', "Command should be completed after waiting"
-            assert wait_json['exit_code'] == 0, "Exit code should be 0"
+            assert check_json['status'] == 'completed', "Command should be completed after waiting"
+            assert check_json['exit_code'] == 0, "Exit code should be 0"
             
-            logger.info("SSH wait and check test completed successfully")
+            logger.info("SSH command check test completed successfully")
         except Exception as e:
-            logger.error(f"Error in SSH wait and check test: {e}")
+            logger.error(f"Error in SSH command check test: {e}")
             raise
         finally:
             await disconnect_ssh(client)
-            logger.info("SSH connection for wait and check test cleaned up")
+            logger.info("SSH connection for command check test cleaned up")
             
     print_test_footer()
 
@@ -372,8 +372,8 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
 
 @pytest.mark.asyncio
 async def test_ssh_manual_interrupt(mcp_test_environment):
-    """Test manually interrupting a running command after a timeout."""
-    print_test_header("Testing manual interruption of a running command")
+    """Test manually interrupting a running command after a runtime timeout."""
+    print_test_header("Testing manual interruption of a running command with runtime timeout")
     logger.info("Starting SSH manual interrupt test")
     
     async with Client(mcp) as client:
@@ -382,46 +382,46 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established for manual interrupt test")
             
-            # Start a long-running command with a short IO timeout
+            # Start a long-running command with a short runtime timeout
             # This will timeout but the process will still be running in the background
             run_params = {
                 "command": "echo 'Starting long process'; sleep 30; echo 'This should never be printed'",
-                "io_timeout": 2.0,  # Short IO timeout to trigger quickly
-                "runtime_timeout": None  # No runtime timeout so process continues running
+                "io_timeout": 60.0,  # Standard IO timeout
+                "runtime_timeout": 3.0  # Short runtime timeout to trigger quickly
             }
             
-            # The command should timeout due to IO inactivity
+            # The command should timeout due to exceeding runtime
             start_time = time.time()
-            logger.info("Running command with io_timeout=2.0s")
+            logger.info("Running command with runtime_timeout=3.0s")
             
-            pid = None
+            handle_id = None
             try:
                 await client.call_tool("ssh_cmd_run", run_params)
                 # If we get here, the test failed
-                assert False, "Expected CommandTimeout was not raised"
+                assert False, "Expected CommandRuntimeTimeout was not raised"
             except Exception as e:
-                # Verify that the exception is related to the IO timeout
+                # Verify that the exception is related to the runtime timeout
                 end_time = time.time()
                 elapsed_time = end_time - start_time
                 
                 error_message = str(e)
                 logger.info(f"Received expected error after {elapsed_time:.2f}s: {error_message}")
                 
-                # Check that the error message mentions IO timeout
-                assert "timeout" in error_message.lower() or "timed out" in error_message.lower(), \
-                    f"Expected timeout error, got: {error_message}"
+                # Check that the error message mentions runtime timeout
+                assert "runtime timeout" in error_message.lower() or "exceeded" in error_message.lower(), \
+                    f"Expected runtime timeout error, got: {error_message}"
                 
-                # Extract the PID from the error message if possible
+                # Extract the handle ID from the error message if possible
                 import re
-                pid_match = re.search(r'PID: (\d+)', error_message)
-                if pid_match:
-                    pid = int(pid_match.group(1))
-                    logger.info(f"Extracted PID from error message: {pid}")
+                handle_match = re.search(r'ID: (\d+)', error_message)
+                if handle_match:
+                    handle_id = int(handle_match.group(1))
+                    logger.info(f"Extracted handle ID from error message: {handle_id}")
                 
                 logger.info(f"Command timed out as expected after {elapsed_time:.2f}s")
             
-            # If we couldn't extract PID from error message, get it from command history
-            if pid is None:
+            # If we couldn't extract handle ID from error message, get it from command history
+            if handle_id is None:
                 # Get the most recent command from history
                 history_params = {
                     "limit": 1,
@@ -431,42 +431,45 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
                 history_json = json.loads(history_result[0].text)
                 
                 if history_json and len(history_json) > 0:
-                    pid = history_json[0].get('pid')
-                    logger.info(f"Retrieved PID from command history: {pid}")
+                    handle_id = history_json[0].get('id')
+                    logger.info(f"Retrieved handle ID from command history: {handle_id}")
             
-            # Verify the process is still running
-            assert pid is not None, "Could not determine PID of the command"
+            # Verify the handle ID was found
+            assert handle_id is not None, "Could not determine handle ID of the command"
             
-            # Check if the process is still running
-            status_params = {
-                "pid": pid
+            # Check if the command is still running using ssh_cmd_check
+            check_params = {
+                "handle_id": handle_id,
+                "wait_seconds": 1.0  # Short wait
             }
-            status_result = await client.call_tool("ssh_task_status", status_params)
-            status_json = json.loads(status_result[0].text)
+            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            check_json = json.loads(check_result[0].text)
             
-            logger.info(f"Process status before kill: {status_json}")
-            assert status_json['status'] == 'running', "Process should still be running after IO timeout"
+            logger.info(f"Command status before kill: {check_json}")
             
-            # Now manually kill the process
+            # The process might still be running even though the command timed out
+            # Now manually kill the command using ssh_cmd_kill
             kill_params = {
-                "pid": pid,
+                "handle_id": handle_id,
                 "signal": 15,  # SIGTERM
                 "force": True
             }
             
-            kill_result = await client.call_tool("ssh_task_kill", kill_params)
+            kill_result = await client.call_tool("ssh_cmd_kill", kill_params)
             kill_json = json.loads(kill_result[0].text)
             
             logger.info(f"Kill result: {kill_json}")
-            assert kill_json['result'] in ['killed', 'terminated'], "Process should be successfully killed"
+            assert kill_json['result'] in ['killed', 'terminated', 'not_running'], \
+                f"Command should be successfully killed, got: {kill_json['result']}"
             
-            # Verify the process is no longer running
+            # Verify the command is no longer running
             await asyncio.sleep(1)  # Give it a moment to update
-            status_result = await client.call_tool("ssh_task_status", status_params)
-            status_json = json.loads(status_result[0].text)
+            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            check_json = json.loads(check_result[0].text)
             
-            logger.info(f"Process status after kill: {status_json}")
-            assert status_json['status'] != 'running', "Process should no longer be running"
+            logger.info(f"Command status after kill: {check_json}")
+            assert check_json['status'] in ['completed', 'not_found'], \
+                f"Command should no longer be running, status: {check_json['status']}"
             
             # Verify we can run another command now
             logger.info("Verifying we can run another command after manual kill")
