@@ -258,7 +258,7 @@ async def ssh_run(
         handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, sudo)
         output = handle.get_full_output()
         return {
-            'id': handle.handle_id,  # Add handle_id to the response
+            'id': handle.id,  # Use the correct attribute name
             'command': command,
             'exit_code': handle.exit_code,
             'output': output,
@@ -571,8 +571,8 @@ async def ssh_wait_and_check(
             output = mcp.ssh_client.output(handle_id)
             
             # Get the handle info for metadata
-            handle = mcp.ssh_client.history()
-            handle_info = next((h for h in handle if h.get('id') == handle_id), None)
+            history = mcp.ssh_client.history()
+            handle_info = next((h for h in history if h.get('id') == handle_id), None)
             
             if handle_info:
                 # Command exists in history
