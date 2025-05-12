@@ -286,10 +286,10 @@ async def ssh_file_transfer(
         
     try:
         if direction == 'upload':
-            mcp.ssh_client.put(local_path, remote_path, sudo)
+            mcp.ssh_client.put(local_path, remote_path)
             operation = f"Uploaded {local_path} to {remote_path}"
         else:
-            mcp.ssh_client.get(remote_path, local_path, sudo)
+            mcp.ssh_client.get(remote_path, local_path)
             operation = f"Downloaded {remote_path} to {local_path}"
             
         return {

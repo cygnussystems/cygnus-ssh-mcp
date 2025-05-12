@@ -14,6 +14,10 @@ async def test_ssh_file_transfer(mcp_test_environment):
     print_test_header("Testing 'ssh_file_transfer' tool")
 
     async with Client(mcp) as client:
+        # Initialize variables for cleanup
+        local_path = None
+        download_path = None
+        
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
             
@@ -50,7 +54,7 @@ async def test_ssh_file_transfer(mcp_test_environment):
         finally:
             # Cleanup
             for path in [local_path, download_path]:
-                if path and os.path.exists(path):
+                if path is not None and os.path.exists(path):
                     os.unlink(path)
             await client.call_tool("ssh_run", {
                 "command": f"rm -f {remote_path}",
@@ -88,6 +92,7 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
             
             # Verify directory exists
             listdir_result = await client.call_tool("ssh_listdir", {"path": test_dir})
+            assert listdir_result and len(listdir_result) > 0, "Expected non-empty response from ssh_listdir"
             assert isinstance(json.loads(listdir_result[0].text), list)
             
             # Test remove directory
