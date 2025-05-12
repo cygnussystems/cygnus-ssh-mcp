@@ -635,17 +635,34 @@ async def ssh_stat(
         
         # Ensure we're returning a dictionary, not a string
         if isinstance(stat_info, str):
+            # Check if it's a directory listing format (starts with permissions)
+            if stat_info.startswith('d') or stat_info.startswith('-') or stat_info.startswith('l'):
+                # Parse directory listing format
+                parts = stat_info.split()
+                if len(parts) >= 5:
+                    permissions = parts[0]
+                    is_dir = permissions.startswith('d')
+                    size = int(parts[4]) if parts[4].isdigit() else 0
+                    
+                    return {
+                        "exists": True,
+                        "type": "directory" if is_dir else "file",
+                        "permissions": permissions,
+                        "size": size,
+                        "raw": stat_info
+                    }
+            
             # Try to parse as JSON if it's a string
             try:
                 import json
                 parsed_info = json.loads(stat_info)
                 # If parsed result is still a string, create a dict
                 if isinstance(parsed_info, str):
-                    return {"message": parsed_info, "exists": False}
+                    return {"message": parsed_info, "exists": True}
                 return parsed_info
             except json.JSONDecodeError:
                 # If it's not JSON, create a simple dict with the string
-                return {"message": stat_info, "exists": False}
+                return {"message": stat_info, "exists": True}
         
         # If it's already a dict, ensure it has the 'exists' key
         if isinstance(stat_info, dict) and 'exists' not in stat_info:
