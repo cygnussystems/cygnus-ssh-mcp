@@ -542,7 +542,68 @@ async def ssh_task_kill(
         raise
 
 @mcp.tool()
-async def ssh_cmd_wait_and_check(
+async def ssh_cmd_kill(
+    handle_id: Annotated[int, Field(description="Command handle ID to kill")],
+    signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
+    force: Annotated[bool, Field(description="Force kill with SIGKILL if process doesn't exit")] = True,
+    wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
+) -> dict:
+    """
+    Terminate a currently running command by its handle ID.
+    
+    This tool is specifically for killing commands started with ssh_cmd_run,
+    not background tasks launched with ssh_launch_task.
+    
+    If force=True and the process doesn't exit after wait_seconds,
+    it will be forcibly killed with SIGKILL (signal 9).
+    
+    Returns:
+        Dictionary containing kill operation result
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        # Get the command handle from history
+        history = mcp.ssh_client.history()
+        handle_info = next((h for h in history if h.get('id') == handle_id), None)
+        
+        if not handle_info:
+            raise SshError(f"No command found with handle ID: {handle_id}")
+            
+        pid = handle_info.get('pid')
+        if not pid:
+            raise SshError(f"Command handle {handle_id} has no associated PID")
+            
+        # Check if the command is still running
+        status = mcp.ssh_client.task_status(pid)
+        if status != 'running':
+            return {
+                'handle_id': handle_id,
+                'pid': pid,
+                'result': 'not_running',
+                'message': f"Command is not running (status: {status})",
+                'timestamp': datetime.now(UTC).isoformat()
+            }
+            
+        # Kill the process using the existing task_kill method
+        force_kill_signal = 9 if force else None
+        result = mcp.ssh_client.task_kill(pid, signal, False, force_kill_signal, wait_seconds)
+        
+        return {
+            'handle_id': handle_id,
+            'pid': pid,
+            'result': result,
+            'signal': signal,
+            'force_kill_used': result == 'killed' and force,
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to kill command: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_cmd_check(
     handle_id: Annotated[int, Field(description="Command handle ID to check status for")],
     wait_seconds: Annotated[float, Field(description="Seconds to wait before checking", gt=0)] = 5.0
 ) -> dict:
