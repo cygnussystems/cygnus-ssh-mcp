@@ -93,16 +93,13 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
             # Skip the listdir check and directly verify directory exists using ssh_stat
             stat_result = await client.call_tool("ssh_stat", {"path": test_dir})
             stat_response = stat_result[0].text
-            
-            # Handle both string and JSON responses
-            if isinstance(stat_response, str):
-                try:
-                    stat_info = json.loads(stat_response)
-                except json.JSONDecodeError:
-                    # If it's not valid JSON, the test should fail
-                    assert False, f"Invalid JSON response from ssh_stat: {stat_response}"
-            else:
-                stat_info = stat_response
+                
+            # Always treat the response as a string and parse it
+            try:
+                stat_info = json.loads(stat_response)
+            except json.JSONDecodeError:
+                # If it's not valid JSON, the test should fail
+                assert False, f"Invalid JSON response from ssh_stat: {stat_response}"
                 
             assert stat_info.get('exists', False), f"Directory {test_dir} should exist"
             assert stat_info.get('type') == 'directory', f"Path {test_dir} should be a directory"
