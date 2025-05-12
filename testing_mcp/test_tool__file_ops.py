@@ -1,3 +1,9 @@
+import pytest
+import json
+import os
+import tempfile
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+
 @pytest.mark.asyncio
 async def test_ssh_file_transfer(mcp_test_environment):
     """Test file upload and download operations."""
