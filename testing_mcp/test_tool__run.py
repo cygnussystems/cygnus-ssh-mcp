@@ -296,3 +296,74 @@ async def test_ssh_busy_lock(mcp_test_environment):
             logger.info("SSH connection for busy lock test cleaned up")
             
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_runtime_timeout(mcp_test_environment):
+    """Test that a command is automatically killed when it exceeds runtime_timeout."""
+    print_test_header("Testing SSH runtime timeout mechanism")
+    logger.info("Starting SSH runtime timeout test")
+    
+    async with Client(mcp) as client:
+        try:
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established for runtime timeout test")
+            
+            # Run a command that should take 10 seconds, but set a 3 second runtime timeout
+            run_params = {
+                "command": "echo 'Starting long process'; sleep 10; echo 'This should never be printed'",
+                "io_timeout": 15.0,
+                "runtime_timeout": 3.0  # This should cause the command to be killed after 3 seconds
+            }
+            
+            # The command should be killed automatically due to runtime_timeout
+            start_time = time.time()
+            logger.info("Running command with runtime_timeout=3.0s")
+            
+            try:
+                await client.call_tool("ssh_run", run_params)
+                # If we get here, the test failed
+                assert False, "Expected CommandRuntimeTimeout was not raised"
+            except Exception as e:
+                # Verify that the exception is related to the runtime timeout
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                
+                error_message = str(e)
+                logger.info(f"Received expected error after {elapsed_time:.2f}s: {error_message}")
+                
+                # Check that the error message mentions runtime timeout
+                assert "runtime timeout" in error_message.lower() or "exceeded" in error_message.lower(), \
+                    f"Expected runtime timeout error, got: {error_message}"
+                
+                # Check that the command was killed within a reasonable time of the timeout
+                # Allow for some overhead in the timeout mechanism
+                assert 2.5 <= elapsed_time <= 5.0, \
+                    f"Command should have been killed after ~3s, but took {elapsed_time:.2f}s"
+                
+                logger.info(f"Command was correctly terminated after {elapsed_time:.2f}s")
+            
+            # Verify we can run another command now that the previous one was killed
+            logger.info("Verifying we can run another command after timeout")
+            verify_params = {
+                "command": "echo 'System is responsive again'",
+                "io_timeout": 5.0
+            }
+            
+            verify_result = await client.call_tool("ssh_run", verify_params)
+            verify_json = json.loads(verify_result[0].text)
+            
+            assert verify_json['exit_code'] == 0, "Follow-up command should succeed"
+            assert "System is responsive again" in verify_json['output'], "Expected output not found"
+            
+            logger.info("SSH runtime timeout test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SSH runtime timeout test: {e}")
+            raise
+        finally:
+            # Ensure we disconnect even if there was an error
+            await disconnect_ssh(client)
+            logger.info("SSH connection for runtime timeout test cleaned up")
+            
+    print_test_footer()
