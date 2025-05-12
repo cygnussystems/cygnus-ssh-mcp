@@ -10,7 +10,7 @@ from pydantic import Field
 from typing import Annotated, Optional, Literal, Dict
 from datetime import datetime, UTC
 from ssh_client import SshClient
-from ssh_models import SshError
+from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
 
 def parse_args():
     parser = argparse.ArgumentParser(description="SSH MCP Server")
