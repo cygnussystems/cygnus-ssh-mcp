@@ -3,14 +3,15 @@ import json
 import os
 import tempfile
 from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from mcp_ssh_server import mcp
+from fastmcp import Client
+
+
 
 @pytest.mark.asyncio
 async def test_ssh_file_transfer(mcp_test_environment):
     """Test file upload and download operations."""
     print_test_header("Testing 'ssh_file_transfer' tool")
-    
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
 
     async with Client(mcp) as client:
         try:
@@ -59,13 +60,13 @@ async def test_ssh_file_transfer(mcp_test_environment):
     
     print_test_footer()
 
+
+
+
 @pytest.mark.asyncio
 async def test_ssh_mkdir_rmdir(mcp_test_environment):
     """Test directory creation and removal operations."""
     print_test_header("Testing 'ssh_mkdir' and 'ssh_rmdir' tools")
-    
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
 
     async with Client(mcp) as client:
         try:
@@ -101,13 +102,13 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
     
     print_test_footer()
 
+
+
+
 @pytest.mark.asyncio
 async def test_ssh_replace_line(mcp_test_environment):
     """Test file content replacement operations."""
     print_test_header("Testing 'ssh_replace_line' tool")
-    
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
 
     async with Client(mcp) as client:
         try:
