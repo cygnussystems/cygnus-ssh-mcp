@@ -90,10 +90,19 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
             })
             assert json.loads(mkdir_result[0].text)['status'] == 'success'
             
-            # Verify directory exists
+            # Verify directory exists by checking if the call succeeds
             listdir_result = await client.call_tool("ssh_listdir", {"path": test_dir})
-            assert listdir_result and len(listdir_result) > 0, "Expected non-empty response from ssh_listdir"
-            assert isinstance(json.loads(listdir_result[0].text), list)
+            assert listdir_result and len(listdir_result) > 0, "Expected non-empty response from ssh_listdir tool"
+                
+            # The directory exists but might be empty, which is fine
+            dir_contents = json.loads(listdir_result[0].text)
+            assert isinstance(dir_contents, list), "Expected list response from ssh_listdir"
+                
+            # Additional verification using ssh_stat to confirm directory exists
+            stat_result = await client.call_tool("ssh_stat", {"path": test_dir})
+            stat_info = json.loads(stat_result[0].text)
+            assert stat_info.get('exists', False), f"Directory {test_dir} should exist"
+            assert stat_info.get('type') == 'directory', f"Path {test_dir} should be a directory"
             
             # Test remove directory
             rmdir_result = await client.call_tool("ssh_rmdir", {
