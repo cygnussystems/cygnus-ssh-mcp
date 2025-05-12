@@ -392,7 +392,7 @@ async def ssh_output(
 async def ssh_command_history(
     limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
     include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
-    output_lines: Annotated[int, Field(description="Number of output lines to include", ge=1)] = 3,
+    output_lines: Annotated[int, Field(description="Number of output lines to include (0 for none)", ge=0)] = 3,
     reverse: Annotated[bool, Field(description="Return in reverse order (newest first)")] = False
 ) -> list:
     """
