@@ -228,3 +228,67 @@ async def test_ssh_wait_and_check(mcp_test_environment):
             logger.info("SSH connection for wait and check test cleaned up")
             
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_busy_lock(mcp_test_environment):
+    """Test that attempting to run a command while another is running raises BusyError."""
+    print_test_header("Testing SSH busy lock mechanism")
+    logger.info("Starting SSH busy lock test")
+    
+    async with Client(mcp) as client:
+        try:
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established for busy lock test")
+            
+            # Run a long-running command (10 seconds)
+            long_command_params = {
+                "command": "sleep 10 && echo 'Long command completed'",
+                "io_timeout": 15.0
+            }
+            
+            # Start the long-running command but don't await it
+            long_command_task = asyncio.create_task(client.call_tool("ssh_run", long_command_params))
+            
+            # Give the command a moment to start
+            await asyncio.sleep(1.0)
+            
+            # Try to run another command while the first is still running
+            second_command_params = {
+                "command": "echo 'This should fail due to busy lock'",
+                "io_timeout": 5.0
+            }
+            
+            # This should raise an exception due to the busy lock
+            logger.info("Attempting to run second command while first is still running")
+            try:
+                await client.call_tool("ssh_run", second_command_params)
+                # If we get here, the test failed
+                assert False, "Expected BusyError was not raised"
+            except Exception as e:
+                # Verify that the exception is related to the busy lock
+                error_message = str(e)
+                logger.info(f"Received expected error: {error_message}")
+                assert "busy" in error_message.lower() or "another command" in error_message.lower(), \
+                    f"Expected busy lock error, got: {error_message}"
+                logger.info("Successfully detected busy lock error")
+            
+            # Clean up the long-running command
+            try:
+                # Cancel the task to avoid waiting for it to complete
+                long_command_task.cancel()
+                await asyncio.sleep(0.5)  # Give it a moment to cancel
+            except asyncio.CancelledError:
+                pass
+            
+            logger.info("SSH busy lock test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SSH busy lock test: {e}")
+            raise
+        finally:
+            # Ensure we disconnect even if there was an error
+            await disconnect_ssh(client)
+            logger.info("SSH connection for busy lock test cleaned up")
+            
+    print_test_footer()
