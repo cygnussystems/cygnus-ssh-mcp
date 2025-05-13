@@ -1,7 +1,8 @@
 from __future__ import annotations
 from collections import deque
 from datetime import datetime, UTC
-from typing import Optional, Deque, Any
+from typing import Optional, Deque, Any, List, Literal # Added List and Literal
+
 
 class SshError(Exception):
     """Base exception for SSH manager errors."""
@@ -29,7 +30,7 @@ class CommandFailed(SshError):
         super().__init__(f"Command failed with exit code {exit_code}. Stderr: {stderr_str[:200]}") # Limit stderr in message
         self.exit_code = exit_code
         self.stdout = stdout
-        self.stderr = stderr
+        self.stderr = stderr_str # Assign the processed stderr string
 
 
 class SudoRequired(SshError):
@@ -64,43 +65,70 @@ class CommandHandle:
         self.id = handle_id
         self.cmd = cmd
         self.pid = pid
-        self._buf = deque(maxlen=tail_keep)  # Use deque instead of list
         self._tail_keep = tail_keep
+        
+        self._buf = deque(maxlen=self._tail_keep)      # For stdout
+        self._stderr_buf = deque(maxlen=self._tail_keep) # For stderr
+        
         self.start_ts = datetime.now(UTC)
         self.end_ts = None
         self.exit_code = None
         self.running = True
-        self.total_lines = 0
-        self.truncated = False
         
-    def add_output(self, line):
+        self.total_lines = 0        # For stdout
+        self.truncated = False      # For stdout
+        
+        self.total_stderr_lines = 0 # For stderr
+        self.stderr_truncated = False # For stderr
+        
+    def add_output(self, line): # Stdout
         self._buf.append(line)
         self.total_lines += 1
         if self._tail_keep is not None and self.total_lines > self._tail_keep:
             self.truncated = True
+
+    def add_stderr_output(self, line): # Stderr
+        self._stderr_buf.append(line)
+        self.total_stderr_lines += 1
+        if self._tail_keep is not None and self.total_stderr_lines > self._tail_keep:
+            self.stderr_truncated = True
             
-    def get_full_output(self):
+    def get_full_output(self): # Stdout
         return ''.join(self._buf)
+
+    def get_full_stderr(self): # Stderr
+        return ''.join(self._stderr_buf)
         
-    def tail(self, n=50):
+    def tail(self, n=50): # Stdout
         """Return the last n lines of output captured by run()."""
         if n <= 0:
             return []
-        # If n is greater than buffer size, return all available lines
         if n >= len(self._buf):
             return list(self._buf)
-        # Otherwise return the last n lines
         return list(self._buf)[-n:]
+
+    def tail_stderr(self, n=50): # Stderr
+        """Return the last n lines of stderr captured by run()."""
+        if n <= 0:
+            return []
+        if n >= len(self._stderr_buf):
+            return list(self._stderr_buf)
+        return list(self._stderr_buf)[-n:]
         
     def set_tail_keep(self, n):
         self._tail_keep = n
         if n is not None:
-            # Create a new buffer with the new size
+            # Recreate stdout buffer
             old_buf = list(self._buf)
             self._buf = deque(maxlen=n)
-            # Copy the last n lines from the old buffer
             for line in old_buf[-min(n, len(old_buf)):]:
                 self._buf.append(line)
+            
+            # Recreate stderr buffer
+            old_stderr_buf = list(self._stderr_buf)
+            self._stderr_buf = deque(maxlen=n)
+            for line in old_stderr_buf[-min(n, len(old_stderr_buf)):]:
+                self._stderr_buf.append(line)
             
     def info(self):
         """Return metadata about the command."""
@@ -109,47 +137,32 @@ class CommandHandle:
             'cmd': self.cmd,
             'pid': self.pid,
             'output_lines': len(self._buf),
+            'stderr_lines': len(self._stderr_buf),
             'tail_keep': self._tail_keep,
             'start_ts': self.start_ts.isoformat() + 'Z',
             'end_ts': self.end_ts.isoformat() + 'Z' if self.end_ts else None,
             'exit_code': self.exit_code,
             'running': self.running,
-            'total_lines': self.total_lines,
-            'truncated': self.truncated
+            'total_lines': self.total_lines, # Stdout
+            'truncated': self.truncated,   # Stdout
+            'total_stderr_lines': self.total_stderr_lines,
+            'stderr_truncated': self.stderr_truncated
         }
 
-    def chunk(self, start, length=50):
+    def chunk(self, start, length=50): # Stdout
         """Return `length` lines starting at zero-based index `start` from run()."""
-        # Output chunking works for run() commands.
-        if start < 0: # Allow start=0 even if total_lines is 0
+        if start < 0:
              raise ValueError(f"Start index {start} cannot be negative")
 
-        # Convert deque to list for easier slicing
         buf_list = list(self._buf)
-        
-        # For a buffer with maxlen=10 that has 10 items (Lines 96-105),
-        # if we request start=95, we should raise OutputPurged
-        # if we request start=96, we should return the first item in the buffer
-        
-        # Calculate the absolute index of the first element currently in the buffer
-        # For a command that generated 105 lines with a buffer of 10 lines,
-        # the first line in the buffer would be at index 95 (105-10)
         buf_start_abs_index = max(0, self.total_lines - len(self._buf))
         
-        # Debug output to help diagnose issues
-        # print(f"Buffer start abs index: {buf_start_abs_index}, requested start: {start}")
-        # print(f"Total lines: {self.total_lines}, buffer length: {len(self._buf)}")
-        
         if start < buf_start_abs_index:
-            # Requested start index is before the first line currently stored
             raise OutputPurged(self.id)
             
-        # Calculate the index relative to the start of the current buffer
         relative_start_idx = start - buf_start_abs_index
         
-        # Check if the relative index is within the buffer bounds
         if relative_start_idx >= len(buf_list):
-            # Requested start index is beyond the end of the buffer
             return []
             
         return buf_list[relative_start_idx : relative_start_idx + length]

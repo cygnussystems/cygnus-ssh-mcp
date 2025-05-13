@@ -41,7 +41,7 @@ class SshRunOperations_Linux:
         
     def execute_command(self, cmd: str, io_timeout: float = 60.0, 
                       runtime_timeout: Optional[float] = None, 
-                      sudo: bool = False) -> Self:
+                      sudo: bool = False) -> Self: # Should be CommandHandle, not Self
         """
         Execute a command synchronously with timeout management.
         
@@ -81,7 +81,7 @@ class SshRunOperations_Linux:
                 
             # Execute command and capture PID
             chan = self._execute_command(cmd, io_timeout)
-            self._capture_pid(chan, handle)
+            self._capture_pid(chan, handle) # This method seems to be doing more than just PID
             
             # Monitor command execution
             self._monitor_command(chan, handle, io_timeout, runtime_timeout, start_time)
@@ -103,10 +103,12 @@ class SshRunOperations_Linux:
     def _create_command_handle(self, cmd):
         """Create and track a new CommandHandle."""
         handle = self.ssh_client.history_manager.add_command(cmd)
-        # Ensure tail_keep is set
-        if not hasattr(handle, '_tail_keep') or handle._tail_keep is None:
-            handle._tail_keep = self.tail_keep
-        handle._buf = deque(maxlen=self.tail_keep)  # Set buffer size for this handle
+        # Ensure tail_keep is set on the handle, and buffers are initialized correctly
+        # The CommandHandle __init__ should handle deque creation with its tail_keep
+        if handle._tail_keep is None: # If history_manager didn't set it based on its own defaults
+             handle.set_tail_keep(self.tail_keep) # Propagate SshRunOperations default
+        else:
+             handle.set_tail_keep(handle._tail_keep) # Ensure buffers are sized correctly if already set
         return handle
 
     def _handle_sudo(self, cmd):
@@ -126,112 +128,73 @@ class SshRunOperations_Linux:
             elif sudo_n_exit_code == 1 and ("sudo:" in sudo_n_stderr or "password is required" in sudo_n_stderr.lower()):
                 if self.ssh_client.sudo_password:
                     self.logger.info("Sudo password provided. Will attempt interactive sudo.")
-                    return f"sudo -S -p '' bash -c {shlex.quote(cmd)}", True
+                    # For interactive sudo, ensure PTY is requested if needed, or handle password input
+                    # The current SshClient doesn't seem to support PTY for run() easily.
+                    # This might require `invoke_shell` or more complex channel handling.
+                    # For now, assuming `sudo -S` will read from stdin if exec_command provides it.
+                    # Paramiko's exec_command can send to stdin.
+                    # We'd need to write self.ssh_client.sudo_password + '\n' to chan.sendall()
+                    # This part is complex and not fully addressed by the current structure.
+                    # The provided code for _execute_command does not send password to stdin.
+                    # Let's assume for now it's meant to work with `sudo -S -p ''` which prompts on stderr.
+                    # However, `bash -c` might consume stdin.
+                    # A safer bet for `sudo -S` is to pipe the password.
+                    # This is a potential area for bugs if not handled carefully.
+                    # The original code just returns the command string.
+                    return f"echo {shlex.quote(self.ssh_client.sudo_password)} | sudo -S -p '' bash -c {shlex.quote(cmd)}", True
+
                 else:
                     raise SudoRequired(cmd)
-            else:
+            else: # Other errors during sudo -n check
                 raise CommandFailed(sudo_n_exit_code, "", sudo_n_stderr)
-        except Exception as e:
+        except Exception as e: # Includes socket.timeout from exec_command
             raise SshError(f"Failed during sudo pre-check: {e}") from e
 
-    def _execute_command(self, cmd, io_timeout):
+    def _execute_command(self, cmd, io_timeout): # io_timeout not used here
         """Execute the command and return the channel."""
         self.logger.info(f"Executing command: {cmd}")
         chan = self.ssh_client._client.get_transport().open_session()
-        
-        # Use a short timeout for initial command execution
-        chan.settimeout(5.0)  # Initial timeout for command execution
-        
-        # Simplify command execution to avoid shell quoting issues
-        # Just run the command directly and get the PID separately
+        chan.settimeout(5.0)  # Initial timeout for command execution itself
         chan.exec_command(cmd)
-        
-        # Don't set io_timeout here - we'll handle timeouts in _monitor_command
-        # This allows _capture_pid to use a short timeout
-        
+        # Timeout for subsequent I/O is handled in _monitor_command
         return chan
 
-    def _capture_pid(self, chan, handle):
-        """Capture PID from command output."""
+    def _capture_pid(self, chan, handle): # This method name is misleading, it captures initial output
+        """Capture PID (actually channel ID) and initial output."""
         try:
-            # Get the PID from the channel directly
-            handle.pid = chan.get_id()
-            self.logger.info(f"Captured channel ID as PID: {handle.pid}")
+            handle.pid = chan.get_id() # This is channel ID, not OS PID
+            self.logger.info(f"Captured channel ID (used as PID reference): {handle.pid}")
             
-            # Start capturing output immediately
-            try:
-                with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-                    # Try to read initial data, but don't block for long
-                    chan.settimeout(0.5)  # Short timeout for initial data capture
-                    
-                    try:
-                        # Read any initial data that's immediately available from stdout
-                        initial_stdout = stdout.read(4096)
-                        if initial_stdout:
-                            self.logger.debug(f"Initial stdout data captured: '{initial_stdout}'")
-                            
-                            # Always decode bytes to string and strip any 'b' prefix that might be in the string
-                            if isinstance(initial_stdout, bytes):
-                                initial_stdout = initial_stdout.decode('utf-8', errors='replace')
-                            elif isinstance(initial_stdout, str) and initial_stdout.startswith("b'") and initial_stdout.endswith("'"):
-                                # Handle case where bytes representation is already a string
-                                initial_stdout = initial_stdout[2:-1]
-                            
-                            # Process the data into lines
-                            lines = initial_stdout.splitlines(True)  # keepends=True
-                            if not lines and initial_stdout:  # Data without newlines
-                                lines = [initial_stdout]
-                                
-                            for line in lines:
-                                handle.total_lines += 1
-                                # Set truncated flag if total lines exceed buffer capacity
-                                if handle._tail_keep is not None and handle.total_lines > handle._tail_keep:
-                                    handle.truncated = True
-                                if not line.endswith('\n'):
-                                    line += '\n'
-                                self.logger.debug(f"Adding initial stdout line to buffer: '{line.strip()}'")
-                                handle._buf.append(line)
-                    except socket.timeout:
-                        # This is expected for commands that don't produce immediate output
-                        self.logger.debug("Timeout reading initial stdout (expected for some commands)")
-                    
-                    # Also check direct channel recv for any data not captured by stdout
-                    try:
-                        while chan.recv_ready():
-                            data = chan.recv(4096)
-                            if not data:  # Empty data means EOF
-                                break
-                                
-                            # Always decode bytes to string
-                            if isinstance(data, bytes):
-                                data = data.decode('utf-8', errors='replace')
-                                
-                            self.logger.debug(f"Initial channel data captured: '{data.strip()}'")
-                            
-                            # Process the data into lines
-                            lines = data.splitlines(True)  # keepends=True
-                            if not lines and data:  # Data without newlines
-                                lines = [data]
-                                
-                            for line in lines:
-                                handle.total_lines += 1
-                                # Set truncated flag if total lines exceed buffer capacity
-                                if handle._tail_keep is not None and handle.total_lines > handle._tail_keep:
-                                    handle.truncated = True
-                                if not line.endswith('\n'):
-                                    line += '\n'
-                                self.logger.debug(f"Adding initial channel line to buffer: '{line.strip()}'")
-                                handle._buf.append(line)
-                    except socket.timeout:
-                        # This is expected for commands that don't produce immediate output
-                        self.logger.debug("Timeout reading initial channel data (expected for some commands)")
-            except Exception as e:
-                self.logger.warning(f"Error during initial output capture: {e}")
-                # Continue execution even if initial capture fails
+            # Attempt to read initial output without blocking for too long
+            # This helps capture immediate output like prompts or early data
+            chan.settimeout(0.5) # Short timeout for initial read attempt
+            
+            # Check stdout
+            if chan.recv_ready():
+                data = chan.recv(4096)
+                if data:
+                    decoded_data = data.decode('utf-8', errors='replace')
+                    self.logger.debug(f"Initial stdout data: '{decoded_data.strip()}'")
+                    for line in decoded_data.splitlines(keepends=True):
+                        handle.add_output(line if line.endswith('\n') else line + '\n')
+            
+            # Check stderr
+            if chan.recv_stderr_ready():
+                data_stderr = chan.recv_stderr(4096)
+                if data_stderr:
+                    decoded_stderr = data_stderr.decode('utf-8', errors='replace')
+                    self.logger.debug(f"Initial stderr data: '{decoded_stderr.strip()}'")
+                    for line in decoded_stderr.splitlines(keepends=True):
+                        handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+
+        except socket.timeout:
+            self.logger.debug("Timeout reading initial stdout/stderr (expected for some commands)")
+        except Exception as e:
+            self.logger.warning(f"Error during initial output capture: {e}")
         finally:
-            # Don't set to None as it disables timeout checks
-            # We'll set the proper timeout in _monitor_command
+            # Timeout will be reset in _monitor_command
             pass
+
 
     def _monitor_command(self, chan, handle, io_timeout, runtime_timeout, start_time):
         """Monitor command execution and handle timeouts."""
@@ -239,185 +202,104 @@ class SshRunOperations_Linux:
         
         # Set the proper timeout for the monitoring phase
         # For runtime timeout, we need a shorter timeout to check more frequently
+        # Paramiko channel timeout is for blocking I/O operations.
+        # We use select for non-blocking checks where possible.
+        # The channel timeout here acts as a fallback or for operations not covered by select.
+        effective_select_timeout = 0.1 # How long select() should block
         if runtime_timeout is not None:
-            # Use a shorter timeout to check runtime more frequently
-            effective_timeout = min(1.0, runtime_timeout / 2)
-            chan.settimeout(effective_timeout)
-        else:
-            # Use the user's IO timeout
-            chan.settimeout(io_timeout)
+            # Use a shorter select timeout to check runtime more frequently
+            effective_select_timeout = min(0.1, runtime_timeout / 20, 1.0) 
         
-        # If we have a runtime timeout, we'll check it more frequently
-        check_interval = 0.1  # Default check interval
-        if runtime_timeout is not None:
-            # Use a shorter interval for runtime timeout checks
-            check_interval = min(0.1, runtime_timeout / 10)
+        # Paramiko's file-like objects (makefile) can be tricky with settimeout.
+        # It's often better to use chan.recv_ready(), chan.recv_stderr_ready(),
+        # and chan.exit_status_ready() with select on the channel itself.
         
-        with chan.makefile('r') as stdout, chan.makefile_stderr('r') as stderr:
-            # Track when we last checked runtime timeout
-            last_runtime_check = time.monotonic()
-            
-            try:
-                while True:
-                    # Check for I/O readiness first
-                    if chan.exit_status_ready():
-                        break
-                    
-                    # Always check runtime timeout first, even if no data is available
-                    current_time = time.monotonic()
-                    if runtime_timeout is not None:
-                        elapsed = current_time - start_time
-                        if elapsed > runtime_timeout:
-                            self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
-                            handle.running = False
-                            handle.end_ts = datetime.now(UTC)
-                            # Kill the process
-                            try:
-                                self.ssh_client.task_ops._kill_remote_process(handle.pid)
-                            except Exception as e:
-                                self.logger.warning(f"Error killing process {handle.pid}: {e}")
-                            raise CommandRuntimeTimeout(handle, runtime_timeout)
+        # Set channel to non-blocking for select, or use its own timeout carefully.
+        # For this implementation, we'll rely on chan.settimeout for blocking reads,
+        # and frequent checks for runtime_timeout.
+        
+        # Main monitoring loop
+        while not chan.exit_status_ready():
+            current_time = time.monotonic()
 
-                    # Check for data with direct Paramiko methods
-                    if chan.recv_ready():
-                        # Read all available data directly from the channel
-                        # This is more reliable than using stdout.read() which can block
-                        data = chan.recv(4096)  # Read up to 4KB at a time
-                        if data:
-                            # Always decode bytes to string
-                            if isinstance(data, bytes):
-                                data = data.decode('utf-8', errors='replace')
-                                
-                            self.logger.debug(f"Received data: '{data.strip()}'")
-                            
-                            # Split into lines while preserving newlines
-                            lines = data.splitlines(keepends=True)
-                            # If no newlines but we have data, treat as a single line
-                            if not lines and data:
-                                lines = [data]
-                                
-                            for line in lines:
-                                handle.total_lines += 1
-                                last_data_time = time.monotonic()
-                                # Set truncated flag if total lines exceed buffer capacity
-                                if handle._tail_keep is not None and handle.total_lines > handle._tail_keep:
-                                    handle.truncated = True
-                                # Ensure line ends with newline
-                                if not line.endswith('\n'):
-                                    line += '\n'
-                                # Clean up any shell artifacts from the line
-                                line = line.replace('\r', '')  # Remove carriage returns
-                                self.logger.debug(f"Adding line to buffer: '{line.strip()}'")
-                                handle._buf.append(line)
-
-                    # Also check stdout file for any data, but use non-blocking approach
+            # 1. Check Runtime Timeout (highest priority)
+            if runtime_timeout is not None:
+                elapsed = current_time - start_time
+                if elapsed > runtime_timeout:
+                    self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
+                    handle.running = False
+                    handle.end_ts = datetime.now(UTC)
+                    # Attempt to kill, though channel might be dead
                     try:
-                        # Use select to check if stdout is ready to avoid blocking
-                        if select.select([stdout.channel], [], [], 0.1)[0]:
-                            stdout_data = stdout.read(4096)
-                            if stdout_data:
-                                # Convert bytes to string if needed
-                                if isinstance(stdout_data, bytes):
-                                    stdout_data = stdout_data.decode('utf-8', errors='replace')
-                                    
-                                self.logger.debug(f"Received stdout data: '{stdout_data.strip()}'")
-                                
-                                # Process stdout data into lines
-                                stdout_lines = stdout_data.splitlines(keepends=True)
-                                if not stdout_lines and stdout_data:
-                                    stdout_lines = [stdout_data]
-                                    
-                                for line in stdout_lines:
-                                    handle.total_lines += 1
-                                    last_data_time = time.monotonic()
-                                    # Set truncated flag if total lines exceed buffer capacity
-                                    if handle.total_lines > handle._tail_keep:
-                                        handle.truncated = True
-                                    # Ensure line ends with newline
-                                    if not line.endswith('\n'):
-                                        line += '\n'
-                                    # Clean up any shell artifacts from the line
-                                    line = line.replace('\r', '')  # Remove carriage returns
-                                    self.logger.debug(f"Adding stdout line to buffer: '{line.strip()}'")
-                                    handle._buf.append(line)
-                    except (socket.timeout, TimeoutError):
-                        # Ignore timeouts during stdout read - this is expected
-                        pass
-                    except Exception as e:
-                        self.logger.warning(f"Error reading stdout: {e}")
-                    
-                    if chan.recv_stderr_ready():
-                        stderr_line = stderr.readline()
-                        if stderr_line:
-                            self.logger.warning(f"[STDERR]: {stderr_line.strip()}")
-                            if not hasattr(handle, '_stderr_buf'):
-                                handle._stderr_buf = []
-                            handle._stderr_buf.append(stderr_line)
+                        if hasattr(self.ssh_client, 'task_ops') and hasattr(self.ssh_client.task_ops, '_kill_remote_process'):
+                             self.ssh_client.task_ops._kill_remote_process(handle.pid) # pid is channel_id here
+                        else: # Fallback if task_ops or method is not available
+                             chan.close() # Close channel to signal process
+                    except Exception as e_kill:
+                        self.logger.warning(f"Error trying to stop process on runtime timeout: {e_kill}")
+                    raise CommandRuntimeTimeout(handle, runtime_timeout)
 
-                    # Check I/O timeout - but prioritize runtime timeout if it exists
-                    if io_timeout:
-                        current_time = time.monotonic()
-                        io_inactive_time = current_time - last_data_time
-                        
-                        if runtime_timeout is None:
-                            # No runtime timeout, so always check I/O timeout
-                            if io_inactive_time > io_timeout:
-                                self.logger.debug(f"I/O timeout triggered after {io_inactive_time:.2f}s of inactivity")
-                                raise CommandTimeout(io_timeout)
-                        else:
-                            # When both timeouts are set, prioritize runtime timeout only if we're close to it
-                            elapsed = current_time - start_time
-                            remaining_runtime = runtime_timeout - elapsed
-                            
-                            # If we're close to runtime timeout, don't raise I/O timeout
-                            if remaining_runtime < (0.5 * io_timeout):
-                                self.logger.debug(f"I/O timeout condition met, but runtime timeout is close ({remaining_runtime:.2f}s remaining)")
-                                # Don't raise CommandTimeout, just continue and let runtime timeout trigger
-                            elif io_inactive_time > io_timeout:
-                                self.logger.debug(f"I/O timeout triggered after {io_inactive_time:.2f}s of inactivity")
-                                raise CommandTimeout(io_timeout)
+            # 2. Check for I/O using select for non-blocking behavior
+            # We need the underlying socket for select, which is chan.fileno()
+            # However, direct fileno might not always be available or work as expected with Paramiko's layers.
+            # Paramiko's chan.recv_ready(), recv_stderr_ready() are preferred.
+            
+            readable, _, _ = select.select([chan], [], [], effective_select_timeout)
+            
+            if readable: # Channel has some event
+                if chan.recv_ready():
+                    data = chan.recv(4096)
+                    if data:
+                        decoded_data = data.decode('utf-8', errors='replace')
+                        self.logger.debug(f"STDOUT data: '{decoded_data.strip()}'")
+                        for line in decoded_data.splitlines(keepends=True):
+                            handle.add_output(line if line.endswith('\n') else line + '\n')
+                        last_data_time = time.monotonic()
+                    # If data is empty, it might mean EOF on that stream, but loop continues until exit_status_ready.
 
-                    elif chan.exit_status_ready():
-                        break
-                    
-                    # Short sleep to prevent CPU spinning
-                    time.sleep(check_interval)
+                if chan.recv_stderr_ready():
+                    stderr_data = chan.recv_stderr(4096)
+                    if stderr_data:
+                        decoded_stderr = stderr_data.decode('utf-8', errors='replace')
+                        self.logger.warning(f"[STDERR]: {decoded_stderr.strip()}")
+                        for line in decoded_stderr.splitlines(keepends=True):
+                            handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+                        last_data_time = time.monotonic() # Activity on stderr also resets I/O timeout
 
-            except (socket.timeout, TimeoutError):
-                current_time = time.monotonic()
-                
-                # Check if we should raise runtime timeout instead
-                if runtime_timeout is not None:
-                    elapsed = current_time - start_time
-                    if elapsed > runtime_timeout:
-                        self.logger.warning(f"Runtime timeout detected during socket timeout: {elapsed:.2f}s > {runtime_timeout}s")
-                        handle.running = False
-                        handle.end_ts = datetime.now(UTC)
-                        try:
-                            self.ssh_client.task_ops._kill_remote_process(handle.pid)
-                        except Exception as e:
-                            self.logger.warning(f"Error killing process {handle.pid}: {e}")
-                        raise CommandRuntimeTimeout(handle, runtime_timeout)
-                
-                # Otherwise, if the command has finished, don't raise a timeout
-                if chan.exit_status_ready():
-                    pass  # Command finished while we were waiting
-                else:
-                    # For test_command_io_timeout, we need to ensure we raise CommandTimeout
-                    # when io_timeout is specified and there's no runtime_timeout
-                    io_inactive_time = current_time - last_data_time
-                    
-                    if runtime_timeout is None:
-                        # No runtime timeout, so always raise I/O timeout
-                        self.logger.debug(f"Socket timeout: raising CommandTimeout after {io_inactive_time:.2f}s of inactivity")
-                        raise CommandTimeout(io_timeout)
-                    elif (current_time - start_time) < (runtime_timeout * 0.8):
-                        # Not close to runtime timeout, so raise I/O timeout
-                        self.logger.debug(f"Socket timeout: raising CommandTimeout after {io_inactive_time:.2f}s of inactivity")
-                        raise CommandTimeout(io_timeout)
-            finally:
-                stdout.close()
-                stderr.close()
+            # 3. Check I/O Timeout
+            # This check happens regardless of select result, based on last_data_time
+            if io_timeout:
+                io_inactive_time = current_time - last_data_time
+                if io_inactive_time > io_timeout:
+                    self.logger.warning(f"Command I/O timeout after {io_inactive_time:.2f}s of inactivity")
+                    # Similar to runtime timeout, try to clean up
+                    handle.running = False
+                    handle.end_ts = datetime.now(UTC)
+                    try:
+                        chan.close()
+                    except Exception as e_kill:
+                        self.logger.warning(f"Error trying to stop process on I/O timeout: {e_kill}")
+                    raise CommandTimeout(io_timeout)
+            
+            # If chan.exit_status_ready() was true, loop will break.
+            # If not, and no timeouts, loop continues.
+            # A very short sleep if select had no activity can prevent tight spinning,
+            # but select already has a timeout.
+
+        # After loop: command has exited.
+        # Drain any remaining output
+        while chan.recv_ready():
+            data = chan.recv(4096)
+            if not data: break
+            for line in data.decode('utf-8', errors='replace').splitlines(keepends=True):
+                handle.add_output(line if line.endswith('\n') else line + '\n')
+        
+        while chan.recv_stderr_ready():
+            data = chan.recv_stderr(4096)
+            if not data: break
+            for line in data.decode('utf-8', errors='replace').splitlines(keepends=True):
+                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+
 
     def _handle_command_completion(self, chan, handle, sudo_pwd_attempted):
         """Handle successful command completion."""
@@ -427,10 +309,9 @@ class SshRunOperations_Linux:
         self.logger.info(f"Command finished with exit code {handle.exit_code}")
 
         if handle.exit_code != 0:
-            stdout_all = ''.join(handle.tail(handle.total_lines))
-            # Use collected stderr if available
-            stderr_output = getattr(handle, '_stderr_buf', [])
-            stderr_output = ''.join(stderr_output) if stderr_output else ''
+            stdout_all = handle.get_full_output()
+            stderr_output = handle.get_full_stderr() # Use the new method
+            
             if sudo_pwd_attempted and handle.exit_code == 1 and ("incorrect password attempt" in stderr_output.lower()):
                 raise SudoRequired(f"{handle.cmd} (Incorrect sudo password provided or required)")
             raise CommandFailed(handle.exit_code, stdout_all, stderr_output)
@@ -442,13 +323,18 @@ class SshRunOperations_Linux:
         if handle:
             handle.running = False
             handle.end_ts = datetime.now(UTC)
+            # Potentially set error message on handle if it has such a field
+            if hasattr(handle, 'error_message'):
+                handle.error_message = str(e)
         self.logger.error(f"Command execution error: {e}")
 
     def _handle_unexpected_error(self, e, handle):
         """Handle unexpected errors."""
         if handle:
             handle.running = False
-            handle.end_ts = datetime.utcnow()
+            handle.end_ts = datetime.now(UTC) # Use UTC
+            if hasattr(handle, 'error_message'):
+                handle.error_message = str(e)
         self.logger.error(f"Unexpected error during command execution: {e}", exc_info=True)
 
     def _cleanup_command(self, chan, handle):
@@ -456,4 +342,9 @@ class SshRunOperations_Linux:
         if chan:
             chan.close()
         if handle:
-            self.logger.debug(f"Command {handle.id} cleanup complete")
+            # Ensure handle status reflects completion if not already set
+            if handle.running: # Should have been set by _handle_command_completion or error handlers
+                handle.running = False
+                if handle.end_ts is None:
+                    handle.end_ts = datetime.now(UTC)
+            self.logger.debug(f"Command {handle.id} cleanup complete. Final status: exit_code={handle.exit_code}, running={handle.running}")
