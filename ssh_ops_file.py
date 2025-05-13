@@ -203,6 +203,7 @@ class SshFileOperations_Linux:
         self.logger.info(f"Replacing line by content in {remote_file} (sudo={sudo}, force={force})")
         
         normalized_match_line = match_line.strip()
+        self.logger.info(f"DEBUG: Normalized match_line for comparison: '{normalized_match_line}' (repr: {repr(normalized_match_line)})")
 
         if isinstance(new_lines, str):
             new_lines = [new_lines]
@@ -221,15 +222,24 @@ class SshFileOperations_Linux:
             with self.ssh_client._client.open_sftp() as sftp:
                 with sftp.file(remote_file, 'r') as f:
                     content = f.read().decode('utf-8', errors='replace')
-                    
+            
+            self.logger.info(f"DEBUG: Raw content read from file (repr):\n{repr(content)}")
             file_lines = content.splitlines()
+            self.logger.info(f"DEBUG: Content split into {len(file_lines)} lines.")
+
             match_count = 0
             matched_indices = []
             for idx, line_content in enumerate(file_lines):
-                if line_content.strip() == normalized_match_line:
+                stripped_line_content = line_content.strip()
+                self.logger.info(f"DEBUG: Checking line {idx}: Raw (repr)='{repr(line_content)}', Stripped (repr)='{repr(stripped_line_content)}'")
+                comparison_result = stripped_line_content == normalized_match_line
+                self.logger.info(f"DEBUG: Comparing '{stripped_line_content}' == '{normalized_match_line}' -> {comparison_result}")
+                if comparison_result:
                     match_count += 1
                     matched_indices.append(idx)
             
+            self.logger.info(f"DEBUG: Final match_count: {match_count}, matched_indices: {matched_indices}")
+
             if match_count == 0:
                 self.logger.error(f"Match line not found in file (normalized): '{normalized_match_line}' (original: '{match_line}')")
                 return {"success": False, "error": f"Match line not found in file: {match_line}"}
@@ -244,19 +254,21 @@ class SshFileOperations_Linux:
                 return {"success": False, "error": f"Cannot check for duplicates: {str(e)}"}
         
         def modify_func(text):
-            lines = text.splitlines(keepends=True)
+            # Ensure text uses LF line endings before processing
+            text_normalized = text.replace('\r\n', '\n')
+            lines = text_normalized.splitlines(keepends=True)
             modified = False
             result = []
             
             for line in lines:
                 if line.strip() == normalized_match_line and not modified:
                     for new_line_content in new_lines:
-                        result.append(new_line_content + '\n')
+                        result.append(new_line_content + '\n') # Ensure new lines use LF
                     modified = True
                 else:
-                    result.append(line)
+                    result.append(line) # Original line (with LF if normalized)
             
-            return "".join(result) if modified else text
+            return "".join(result) if modified else text_normalized # Return normalized text if no change
         
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
@@ -271,12 +283,12 @@ class SshFileOperations_Linux:
         else:
             if force: self.logger.warning("force=True has no effect when sudo=False")
             try:
-                if content is not None:
-                    modified_content = modify_func(content)
-                    if modified_content != content:
+                if content is not None: 
+                    modified_content = modify_func(content) 
+                    if modified_content != content.replace('\r\n', '\n'): # Compare with normalized original
                         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
                         try:
-                            with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f:
+                            with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: # Write with LF
                                 f.write(modified_content)
                             self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
                             self.put(local_temp_path, remote_file)
@@ -285,7 +297,7 @@ class SshFileOperations_Linux:
                             if os.path.exists(local_temp_path): os.unlink(local_temp_path)
                     else:
                         return {"success": True, "message": "No changes needed"}
-                else:
+                else: 
                     op_result = self._replace_content_sftp(remote_file, modify_func)
                     if op_result.get("success", False): op_result["lines_written"] = len(new_lines)
                     return op_result
@@ -301,6 +313,7 @@ class SshFileOperations_Linux:
         self.logger.info(f"Inserting lines after match in {remote_file} (sudo={sudo}, force={force})")
 
         normalized_match_line = match_line.strip()
+        self.logger.info(f"DEBUG: Normalized match_line for comparison: '{normalized_match_line}' (repr: {repr(normalized_match_line)})")
 
         if isinstance(lines_to_insert, str):
             lines_to_insert = [lines_to_insert]
@@ -319,14 +332,23 @@ class SshFileOperations_Linux:
             with self.ssh_client._client.open_sftp() as sftp:
                 with sftp.file(remote_file, 'r') as f:
                     content = f.read().decode('utf-8', errors='replace')
-
+            
+            self.logger.info(f"DEBUG: Raw content read from file (repr):\n{repr(content)}")
             file_lines = content.splitlines()
+            self.logger.info(f"DEBUG: Content split into {len(file_lines)} lines.")
+            
             match_count = 0
             matched_indices = []
             for idx, line_content in enumerate(file_lines):
-                if line_content.strip() == normalized_match_line:
+                stripped_line_content = line_content.strip()
+                self.logger.info(f"DEBUG: Checking line {idx}: Raw (repr)='{repr(line_content)}', Stripped (repr)='{repr(stripped_line_content)}'")
+                comparison_result = stripped_line_content == normalized_match_line
+                self.logger.info(f"DEBUG: Comparing '{stripped_line_content}' == '{normalized_match_line}' -> {comparison_result}")
+                if comparison_result:
                     match_count += 1
                     matched_indices.append(idx)
+
+            self.logger.info(f"DEBUG: Final match_count: {match_count}, matched_indices: {matched_indices}")
 
             if match_count == 0:
                 self.logger.error(f"Match line not found in file (normalized): '{normalized_match_line}' (original: '{match_line}')")
@@ -342,7 +364,8 @@ class SshFileOperations_Linux:
                 return {"success": False, "error": f"Cannot check for duplicates: {str(e)}"}
 
         def modify_func(text):
-            lines = text.splitlines(keepends=True)
+            text_normalized = text.replace('\r\n', '\n')
+            lines = text_normalized.splitlines(keepends=True)
             modified = False
             result = []
             
@@ -350,10 +373,10 @@ class SshFileOperations_Linux:
                 result.append(line)
                 if line.strip() == normalized_match_line and not modified:
                     for new_line_content in lines_to_insert:
-                        result.append(new_line_content + '\n')
+                        result.append(new_line_content + '\n') # Ensure new lines use LF
                     modified = True
             
-            return "".join(result) if modified else text
+            return "".join(result) if modified else text_normalized
 
         if sudo:
             remote_temp_path = f"/tmp/insert_after_{os.path.basename(remote_file)}_{int(time.time())}"
@@ -368,12 +391,12 @@ class SshFileOperations_Linux:
         else:
             if force: self.logger.warning("force=True has no effect when sudo=False")
             try:
-                if content is not None:
-                    modified_content = modify_func(content)
-                    if modified_content != content:
+                if content is not None: 
+                    modified_content = modify_func(content) 
+                    if modified_content != content.replace('\r\n', '\n'): 
                         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
                         try:
-                            with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f:
+                            with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: # Write with LF
                                 f.write(modified_content)
                             self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
                             self.put(local_temp_path, remote_file)
@@ -382,7 +405,7 @@ class SshFileOperations_Linux:
                             if os.path.exists(local_temp_path): os.unlink(local_temp_path)
                     else:
                         return {"success": True, "message": "No changes needed"}
-                else:
+                else: 
                     op_result = self._replace_content_sftp(remote_file, modify_func)
                     if op_result.get("success", False): op_result["lines_inserted"] = len(lines_to_insert)
                     return op_result
@@ -398,6 +421,7 @@ class SshFileOperations_Linux:
         self.logger.info(f"Deleting line by content in {remote_file} (sudo={sudo}, force={force})")
 
         normalized_match_line = match_line.strip()
+        self.logger.info(f"DEBUG: Normalized match_line for comparison: '{normalized_match_line}' (repr: {repr(normalized_match_line)})")
         
         try:
             with self.ssh_client._client.open_sftp() as sftp:
@@ -414,14 +438,23 @@ class SshFileOperations_Linux:
                 with sftp.file(remote_file, 'r') as f:
                     content = f.read().decode('utf-8', errors='replace')
 
+            self.logger.info(f"DEBUG: Raw content read from file (repr):\n{repr(content)}")
             file_lines = content.splitlines()
+            self.logger.info(f"DEBUG: Content split into {len(file_lines)} lines.")
+            
             match_count = 0
             matched_indices = []
             for idx, line_content in enumerate(file_lines):
-                if line_content.strip() == normalized_match_line:
+                stripped_line_content = line_content.strip()
+                self.logger.info(f"DEBUG: Checking line {idx}: Raw (repr)='{repr(line_content)}', Stripped (repr)='{repr(stripped_line_content)}'")
+                comparison_result = stripped_line_content == normalized_match_line
+                self.logger.info(f"DEBUG: Comparing '{stripped_line_content}' == '{normalized_match_line}' -> {comparison_result}")
+                if comparison_result:
                     match_count += 1
                     matched_indices.append(idx)
             
+            self.logger.info(f"DEBUG: Final match_count: {match_count}, matched_indices: {matched_indices}")
+
             if match_count == 0:
                 self.logger.error(f"Match line not found in file (normalized): '{normalized_match_line}' (original: '{match_line}')")
                 return {"success": False, "error": f"Match line not found in file: {match_line}"}
@@ -436,18 +469,18 @@ class SshFileOperations_Linux:
                 return {"success": False, "error": f"Cannot check for duplicates: {str(e)}"}
         
         def modify_func(text):
-            text = text.replace('\r\n', '\n')
-            lines = text.splitlines(keepends=True)
+            text_normalized = text.replace('\r\n', '\n')
+            lines = text_normalized.splitlines(keepends=True)
             modified = False
             result = []
             
             for line in lines:
                 if line.strip() == normalized_match_line and not modified:
-                    modified = True
+                    modified = True # Skip appending this line
                 else:
                     result.append(line)
             
-            return "".join(result) if modified else text
+            return "".join(result) if modified else text_normalized
         
         if sudo:
             remote_temp_path = f"/tmp/delete_line_{os.path.basename(remote_file)}_{int(time.time())}"
@@ -462,12 +495,12 @@ class SshFileOperations_Linux:
         else:
             if force: self.logger.warning("force=True has no effect when sudo=False")
             try:
-                if content is not None:
-                    modified_content = modify_func(content)
-                    if modified_content != content:
+                if content is not None: 
+                    modified_content = modify_func(content) 
+                    if modified_content != content.replace('\r\n', '\n'): 
                         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
                         try:
-                            with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f:
+                            with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: # Write with LF
                                 f.write(modified_content)
                             self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
                             self.put(local_temp_path, remote_file)
@@ -476,7 +509,7 @@ class SshFileOperations_Linux:
                             if os.path.exists(local_temp_path): os.unlink(local_temp_path)
                     else:
                         return {"success": True, "message": "No changes needed"}
-                else:
+                else: 
                     op_result = self._replace_content_sftp(remote_file, modify_func)
                     return op_result
             except Exception as e:
@@ -545,14 +578,13 @@ class SshFileOperations_Linux:
                         "success": True,
                         "copied_to": actual_destination
                     }
-                except FileNotFoundError as e: # This was SshError before, but self.get raises SshError wrapping FileNotFoundError
+                except FileNotFoundError as e: 
                     self.logger.error(f"Source file not found: {source_path}")
                     return {"success": False, "error": f"Source file not found: {source_path}"}
                 except Exception as e:
                     self.logger.error(f"Failed to copy file: {e}")
                     return {"success": False, "error": str(e)}
                 finally:
-                    # Clean up temp file
                     if os.path.exists(local_temp_path):
                         os.unlink(local_temp_path)
             except Exception as e:
@@ -571,30 +603,29 @@ class SshFileOperations_Linux:
             Dictionary with success status and error message if applicable
         """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
-        os.close(local_temp_fd) # Close handle, we just need the name
+        os.close(local_temp_fd) 
         self.logger.debug(f"Created local temp file: {local_temp_path}")
 
         try:
-            # 1. Download
             self.get(remote_file, local_temp_path)
 
-            # 2. Read, Modify, Write locally
             with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
-                # Normalize line endings to Unix style (LF)
-                original_text = f.read().replace('\r\n', '\n')
+                original_text = f.read() # Read as is first
                 
             try:
-                modified_text = modify_func(original_text)
+                # modify_func is expected to handle internal normalization if needed
+                # and return content with LF endings.
+                modified_text = modify_func(original_text) 
             except ValueError as e:
                 self.logger.error(f"Modification failed: {str(e)}")
                 return {"success": False, "error": str(e)}
 
-            # Only upload if content changed
-            if modified_text != original_text:
+            # Compare after normalizing original_text to LF for accurate change detection
+            if modified_text != original_text.replace('\r\n', '\n'):
                 self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
+                # Write with LF endings for consistency before upload
                 with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
                     f.write(modified_text)
-                # 3. Upload back
                 self.put(local_temp_path, remote_file)
                 return {"success": True}
             else:
@@ -605,7 +636,6 @@ class SshFileOperations_Linux:
             self.logger.error(f"File operation failed: {str(e)}")
             return {"success": False, "error": str(e)}
         finally:
-            # 4. Cleanup local temp file
             if os.path.exists(local_temp_path):
                 self.logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
@@ -614,28 +644,17 @@ class SshFileOperations_Linux:
                             modify_func: Callable[[str], str], force: bool = False) -> dict:
         """
         Internal helper for sudo-based file modification.
-        
-        Args:
-            remote_file: Path to remote file
-            remote_temp_path: Temporary path on remote system
-            modify_func: Function that takes file content and returns modified content
-            force: Whether to proceed if original file cannot be read
-            
-        Returns:
-            Dictionary with success status and error message if applicable
         """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd)
         self.logger.debug(f"Created local temp file: {local_temp_path}")
-        original_text = None # Initialize
+        original_text = None 
 
         try:
-            # 1. Download original file (best effort, might fail if no read permission)
             try:
                 self.get(remote_file, local_temp_path)
                 with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
-                    # Normalize line endings to Unix style (LF)
-                    original_text = f.read().replace('\r\n', '\n')
+                    original_text = f.read()
                 self.logger.debug(f"Successfully downloaded original file {remote_file}")
             except Exception as e:
                 self.logger.warning(f"Could not download original {remote_file}: {e}. Checking force flag.")
@@ -643,35 +662,31 @@ class SshFileOperations_Linux:
                     raise SshError(f"Cannot read original file {remote_file} and force=False. Aborting replacement.") from e
                 else:
                     self.logger.warning("force=True specified. Proceeding with modification assuming empty or irrelevant original content.")
-                    original_text = "" # Proceed with empty content if forced
+                    original_text = "" 
 
-            # 2. Modify content
             try:
+                # modify_func is expected to handle internal normalization if needed
+                # and return content with LF endings.
                 modified_text = modify_func(original_text)
             except ValueError as e:
                 self.logger.error(f"Modification failed: {str(e)}")
                 return {"success": False, "error": str(e)}
 
-            # 3. Check if content actually changed (important!)
-            if modified_text == original_text:
+            if modified_text == original_text.replace('\r\n', '\n'):
                 self.logger.info(f"Content for {remote_file} not modified, skipping sudo replacement.")
-                return {"success": True, "message": "No changes needed"} # Exit early, no need to upload or move
+                return {"success": True, "message": "No changes needed"}
 
-            # 4. Write modified content to local temp
             self.logger.info(f"Content modified for {remote_file}. Proceeding with sudo replacement.")
+            # Write with LF endings for consistency before upload
             with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(modified_text)
 
-            # 5. Upload modified content to REMOTE temp path
             self.put(local_temp_path, remote_temp_path)
 
-            # 6. Use `sudo mv` to replace the original file atomically
-            #    Also copy permissions and ownership from original if possible
             perms = owner = group = None
-            if original_text is not None: # Only try stat if we could potentially read the original
+            if original_text is not None: 
                 stat_cmd = f"stat -c '%a %u %g' {shlex.quote(remote_file)}"
                 try:
-                    # Use run() for stat, ensure sudo is False for stat command itself
                     stat_handle = self.ssh_client.run(stat_cmd, io_timeout=10, sudo=False)
                     stat_output = stat_handle.tail(1)[0].strip()
                     parts = stat_output.split()
@@ -683,14 +698,12 @@ class SshFileOperations_Linux:
                 except Exception as stat_err:
                     self.logger.warning(f"Could not get permissions/owner for {remote_file}: {stat_err}. Using defaults.")
 
-            # Build the move and permission commands
             mv_cmd = f"mv {shlex.quote(remote_temp_path)} {shlex.quote(remote_file)}"
             chown_cmd = f"chown {owner}:{group} {shlex.quote(remote_file)}" if owner and group else None
             chmod_cmd = f"chmod {perms} {shlex.quote(remote_file)}" if perms else None
 
-            # Execute commands with sudo (original sudo flag for the replace operation)
             self.logger.info(f"Executing sudo mv: {mv_cmd}")
-            self.ssh_client.run(mv_cmd, sudo=True) # run() handles potential sudo errors
+            self.ssh_client.run(mv_cmd, sudo=True) 
             if chown_cmd:
                 try:
                     self.logger.info(f"Executing sudo chown: {chown_cmd}")
@@ -711,14 +724,11 @@ class SshFileOperations_Linux:
             self.logger.error(f"Sudo file operation failed: {str(e)}")
             return {"success": False, "error": str(e)}
         finally:
-            # 7. Cleanup local and remote temp files
             if os.path.exists(local_temp_path):
                 self.logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
-            # Try removing remote temp file, ignore errors, use run()
             try:
                 self.logger.debug(f"Cleaning up remote temp file: {remote_temp_path}")
-                # Use run with short timeout, ignore BusyError. Don't use sudo for /tmp cleanup.
                 self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=False)
             except Exception as cleanup_err:
                 self.logger.warning(f"Failed to cleanup remote temp file {remote_temp_path}: {cleanup_err}")
