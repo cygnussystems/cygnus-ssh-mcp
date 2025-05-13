@@ -1,13 +1,13 @@
 import logging
 import sys
 import os
-import yaml
+import toml  # Changed from yaml to toml
 import argparse
 import asyncio
 from pathlib import Path
 from fastmcp import FastMCP
 from pydantic import Field
-from typing import Annotated, Optional, Literal, Dict
+from typing import Annotated, Optional, Literal, Dict, Any
 from datetime import datetime, UTC
 from ssh_client import SshClient
 from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
@@ -20,24 +20,23 @@ def parse_args():
     parser.add_argument(
         '--config',
         type=str,
-        help="Path to SSH hosts configuration file",
+        help="Path to SSH hosts configuration file (TOML format)",
         default=None
     )
     return parser.parse_args()
-
 
 
 class SshHostManager:
     def __init__(self, config_path: Optional[Path] = None):
         # Try paths in this order:
         # 1. Explicit config_path if provided
-        # 2. ~/.ssh_hosts.yaml
-        # 3. ./ssh_hosts.yaml
+        # 2. ~/.ssh_hosts.toml
+        # 3. ./ssh_hosts.toml
         if config_path:
             self.config_path = config_path
         else:
-            home_config = Path.home() / ".ssh_hosts.yaml"
-            project_config = Path("ssh_hosts.yaml")
+            home_config = Path.home() / ".ssh_hosts.toml"  # Changed extension
+            project_config = Path("ssh_hosts.toml")      # Changed extension
             
             if home_config.exists():
                 self.config_path = home_config
@@ -45,49 +44,98 @@ class SshHostManager:
                 self.config_path = project_config
                 
         self._ensure_config_file()
-        self.hosts = self._load_hosts()
+        self.hosts: Dict[str, Dict[str, Any]] = self._load_hosts()
 
     def _ensure_config_file(self):
         """Create config file if it doesn't exist with secure permissions."""
         if not self.config_path.exists():
             with open(self.config_path, 'w') as f:
-                yaml.safe_dump({'hosts': []}, f)
+                # Create an empty TOML file with a helpful comment
+                f.write("# SSH Host Configurations (TOML format)\n")
+                f.write("# Add your hosts using the [user@hostname] syntax, for example:\n")
+                f.write("#\n")
+                f.write("# [testuser@localhost]\n")
+                f.write("# password = \"yourpassword\"\n")
+                f.write("# port = 2222\n")
+                f.write("#\n")
+                f.write("# [anotheruser@example.com]\n")
+                f.write("# password = \"anothersecret\"\n")
+                f.write("# port = 22\n")
             self.config_path.chmod(0o600)  # rw-------
 
-    def _load_hosts(self) -> Dict[str, Dict]:
-        """Load hosts from config file."""
+    def _load_hosts(self) -> Dict[str, Dict[str, Any]]:
+        """Load hosts from TOML config file."""
+        loaded_hosts: Dict[str, Dict[str, Any]] = {}
         try:
             with open(self.config_path, 'r') as f:
-                data = yaml.safe_load(f) or {}
-            return {h['name']: h for h in data.get('hosts', [])}
+                data = toml.load(f)
+            
+            for key, config_details in data.items():
+                if not isinstance(config_details, dict) or \
+                   'password' not in config_details or \
+                   'port' not in config_details:
+                    logger.warning(f"Skipping malformed configuration for '{key}' in {self.config_path}. "
+                                   "Each host must be a table with 'password' and 'port'.")
+                    continue
+
+                try:
+                    user, host_address = key.rsplit('@', 1)
+                    if not user or not host_address: # Ensure neither part is empty
+                        raise ValueError("User or host part is empty.")
+                except ValueError:
+                    logger.warning(f"Skipping malformed host key '{key}' in {self.config_path}. "
+                                   "Key must be in 'user@hostname' format.")
+                    continue
+                
+                loaded_hosts[key] = {
+                    'password': str(config_details['password']), # Ensure password is a string
+                    'port': int(config_details['port']),         # Ensure port is an int
+                    'parsed_user': user,
+                    'parsed_host': host_address
+                }
+            return loaded_hosts
+        except FileNotFoundError:
+            logger.error(f"Configuration file not found: {self.config_path}")
+            return {} # Should be created by _ensure_config_file, but good to handle
+        except toml.TomlDecodeError as e:
+            logger.error(f"Failed to parse TOML configuration file {self.config_path}: {e}")
+            return {}
         except Exception as e:
-            logger.error(f"Failed to load SSH hosts: {e}")
+            logger.error(f"Failed to load SSH hosts from {self.config_path}: {e}")
             return {}
 
-    def get_host(self, name: str) -> Optional[Dict]:
-        """Get host config by name."""
-        return self.hosts.get(name)
+    def get_host(self, user_at_host_key: str) -> Optional[Dict[str, Any]]:
+        """Get host config by 'user@hostname' key."""
+        return self.hosts.get(user_at_host_key)
 
-    def add_host(self, name: str, host: str, port: int, user: str, password: str):
-        """Add or update a host configuration."""
-        self.hosts[name] = {
-            'name': name,
-            'host': host,
+    def add_host(self, user: str, host: str, port: int, password: str):
+        """Add or update a host configuration. The key will be 'user@host'."""
+        key = f"{user}@{host}"
+        self.hosts[key] = {
+            'password': password,
             'port': port,
-            'user': user,
-            'password': password
+            'parsed_user': user,
+            'parsed_host': host
         }
         self._save_hosts()
 
     def _save_hosts(self):
-        """Save hosts to config file."""
+        """Save hosts to TOML config file."""
+        data_to_save: Dict[str, Dict[str, Any]] = {}
+        for key, details in self.hosts.items():
+            # Only save password and port to the TOML file, as user and host are in the key
+            data_to_save[key] = {
+                'password': details['password'],
+                'port': details['port']
+            }
+        
         try:
             with open(self.config_path, 'w') as f:
-                yaml.safe_dump({'hosts': list(self.hosts.values())}, f)
+                toml.dump(data_to_save, f)
             self.config_path.chmod(0o600)  # Maintain secure permissions
         except Exception as e:
-            logger.error(f"Failed to save SSH hosts: {e}")
-            raise SshError("Failed to save host configuration")
+            logger.error(f"Failed to save SSH hosts to {self.config_path}: {e}")
+            raise SshError(f"Failed to save host configuration to {self.config_path}")
 
 # Only parse command line arguments when run directly
 if __name__ == "__main__":
@@ -101,7 +149,6 @@ if __name__ == "__main__":
 else:
     # When imported as a module (e.g. during testing), use default config
     host_manager = SshHostManager()
-
 
 
 # ===================
@@ -124,7 +171,6 @@ def setup_logging():
 setup_logging()
 
 
-
 # ===================
 # MCP Server Instance
 # ===================
@@ -144,13 +190,11 @@ except Exception as e:
     sys.exit(1)
 
 
-
 # ===================
 # Global State
 # ===================
 
 # The SSH client will be an instance variable of the MCP server
-
 
 
 # ===================
@@ -178,9 +222,6 @@ except AttributeError:
     logger.info("FastMCP version doesn't support on_shutdown, will clean up manually")
 
 
-
-
-
 # ====================================================
 #          Core SSH Tools
 # ====================================================
@@ -197,13 +238,13 @@ async def ssh_conn_is_connected() -> bool:
     return mcp.ssh_client is not None and mcp.ssh_client.is_connected()
 
 
-
 @mcp.tool()
 async def ssh_conn_connect(
-    host_name: Annotated[str, Field(description="Name of host configuration to use")]
+    host_name: Annotated[str, Field(description="The 'user@hostname' identifier of the pre-configured host to use")]
 ) -> dict:
     """
     Establish an SSH connection using a pre-configured host.
+    The host must be defined in the TOML configuration file using the 'user@hostname' format.
     
     Returns:
         Dictionary with connection status
@@ -211,55 +252,59 @@ async def ssh_conn_connect(
     try:
         host_config = host_manager.get_host(host_name)
         if not host_config:
-            raise SshError(f"Host configuration '{host_name}' not found")
+            raise SshError(f"Host configuration for '{host_name}' not found. Ensure it is defined in the TOML config file as '[{host_name}]'.")
             
         if mcp.ssh_client:
             logger.warning("Closing existing SSH connection")
             mcp.ssh_client.close()
             
         mcp.ssh_client = SshClient(
-            host=host_config['host'],
-            user=host_config['user'],
+            host=host_config['parsed_host'],
+            user=host_config['parsed_user'],
             password=host_config['password'],
             port=host_config['port']
         )
         
         return {
             'status': 'success',
-            'host': host_config['host'],
-            'user': host_config['user']
+            'connected_to': host_name, # Reflects the user@host key used
+            'host': host_config['parsed_host'],
+            'user': host_config['parsed_user'],
+            'port': host_config['port']
         }
     except Exception as e:
         logger.error(f"Failed to connect to {host_name}: {e}")
         raise
 
 
-
 @mcp.tool()
 async def ssh_conn_add_host(
-    name: Annotated[str, Field(description="Unique name for this host configuration")],
-    host: Annotated[str, Field(description="Hostname or IP address")],
     user: Annotated[str, Field(description="Username for authentication")],
+    host: Annotated[str, Field(description="Hostname or IP address")],
     password: Annotated[str, Field(description="Password for authentication", secret=True)],
     port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22
 ) -> dict:
     """
-    Add or update a host configuration.
+    Add or update a host configuration in the TOML file.
+    The configuration will be stored under a '[user@host]' key.
     
     Returns:
         Dictionary with operation status
     """
     try:
-        host_manager.add_host(name, host, port, user, password)
+        host_manager.add_host(user, host, port, password)
+        key_added = f"{user}@{host}"
         return {
             'status': 'success',
+            'message': f"Host configuration for '{key_added}' added/updated.",
+            'key': key_added,
             'host': host,
-            'user': user
+            'user': user,
+            'port': port
         }
     except Exception as e:
-        logger.error(f"Failed to add host: {e}")
+        logger.error(f"Failed to add host configuration for {user}@{host}: {e}")
         raise
-
 
 
 @mcp.tool()
@@ -301,7 +346,6 @@ async def ssh_conn_verify_sudo() -> bool:
     except Exception as e:
         logger.error(f"Failed to verify sudo access: {e}")
         raise
-
 
 
 # ===================
@@ -368,7 +412,6 @@ async def ssh_task_kill(
     except Exception as e:
         logger.error(f"Failed to kill task: {e}")
         raise
-
 
 
 # ===================
@@ -478,8 +521,6 @@ async def ssh_cmd_run(
         }
 
 
-
-
 @mcp.tool()
 async def ssh_cmd_kill(
     handle_id: Annotated[int, Field(description="Command handle ID to kill")],
@@ -540,7 +581,6 @@ async def ssh_cmd_kill(
     except Exception as e:
         logger.error(f"Failed to kill command: {e}")
         raise
-
 
 
 @mcp.tool()
@@ -639,7 +679,6 @@ async def ssh_cmd_check_status(
         }
 
 
-
 @mcp.tool()
 async def ssh_cmd_output(
         handle_id: Annotated[int, Field(description="Command handle ID to retrieve output for")],
@@ -659,7 +698,6 @@ async def ssh_cmd_output(
     except Exception as e:
         logger.error(f"Failed to retrieve output: {e}")
         raise
-
 
 
 @mcp.tool()
@@ -790,7 +828,6 @@ async def ssh_dir_mkdir(
         raise
 
 
-
 @mcp.tool()
 async def ssh_dir_remove(
     path: Annotated[str, Field(description="Directory path to remove")],
@@ -817,7 +854,6 @@ async def ssh_dir_remove(
     except Exception as e:
         logger.error(f"Failed to remove directory: {e}")
         raise
-
 
 
 @mcp.tool()
@@ -907,7 +943,6 @@ async def ssh_file_stat(
         return {"exists": False, "path": path, "error": f"Unexpected error: {str(e)}"}
 
 
-
 #
 @mcp.tool()
 async def ssh_file_find_lines_with_pattern(
@@ -975,7 +1010,6 @@ async def ssh_file_replace_line_by_content(
     except Exception as e:
         logger.error(f"Failed to replace line: {e}")
         raise
-
 
 
 @mcp.tool()
@@ -1133,7 +1167,6 @@ async def ssh_dir_search_glob(
         raise
 
 
-
 @mcp.tool()
 async def ssh_dir_calc_size(
     path: Annotated[str, Field(description="Directory path to calculate size for")]
@@ -1159,7 +1192,6 @@ async def ssh_dir_calc_size(
         raise
 
 
-
 @mcp.tool()
 async def ssh_dir_delete(
     path: Annotated[str, Field(description="Directory path to delete")],
@@ -1181,7 +1213,6 @@ async def ssh_dir_delete(
     except Exception as e:
         logger.error(f"Failed to delete directory: {e}")
         raise
-
 
 
 @mcp.tool()
@@ -1206,7 +1237,6 @@ async def ssh_dir_batch_delete_files(
     except Exception as e:
         logger.error(f"Failed to batch delete files: {e}")
         raise
-
 
 
 @mcp.tool()
@@ -1313,8 +1343,6 @@ async def ssh_archive_create(
         raise
 
 
-
-
 @mcp.tool()
 async def ssh_archive_extract(
     archive_path: Annotated[str, Field(description="Path to the archive file")],
@@ -1339,7 +1367,6 @@ async def ssh_archive_extract(
         raise
 
 
-
 # ===================
 # Helper Functions
 # ===================
@@ -1362,10 +1389,10 @@ def _format_size(size_bytes):
 if __name__ == '__main__':
     try:
         logger.info(f"Starting SSH MCP server '{mcp.name}' version {mcp.version}")
-        logger.info(f"Using config file: {host_manager.config_path}")
+        logger.info(f"Using TOML config file: {host_manager.config_path}") # Updated log message
         logger.info("Available tools:")
-        for tool in mcp.list_tools():
-            logger.info(f"  - {tool.name}: {tool.description}")
+        for tool_info in mcp.list_tools(): # FastMCP list_tools returns ToolInfo objects
+            logger.info(f"  - {tool_info.name}: {tool_info.description}")
         mcp.run()
     except KeyboardInterrupt:
         logger.info("Server stopped by user (KeyboardInterrupt)")
