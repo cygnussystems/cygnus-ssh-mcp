@@ -97,7 +97,7 @@ class SshFileOperations_Linux:
             remote_file: Path to remote file
             pattern: Text or regex pattern to search for
             regex: Whether to treat pattern as a regular expression. If True, uses grep -E.
-                   Note: For portability with `grep -E`, avoid PCRE-specific syntax like '`\d`'.
+                   Note: For portability with `grep -E`, avoid PCRE-specific syntax like '`\\d`'.
                    Use POSIX ERE compatible patterns (e.g., `[0-9]` or `[[:digit:]]` for digits).
             sudo: Whether to use sudo for the operation
             
@@ -318,7 +318,8 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force, 
+                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
+                                                       sudo=sudo, force=force, 
                                                        original_content_for_check=content if can_check_duplicates else None)
                 if isinstance(op_result, dict) and not op_result.get("success", False):
                     return op_result
@@ -431,7 +432,8 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/insert_after_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force,
+                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
+                                                       sudo=sudo, force=force,
                                                        original_content_for_check=content if can_check_duplicates else None)
                 if isinstance(op_result, dict) and not op_result.get("success", False):
                     return op_result
@@ -540,7 +542,8 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/delete_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force,
+                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
+                                                       sudo=sudo, force=force,
                                                        original_content_for_check=content if can_check_duplicates else None)
                 if isinstance(op_result, dict) and not op_result.get("success", False):
                     return op_result
@@ -678,7 +681,8 @@ class SshFileOperations_Linux:
                 os.unlink(local_temp_path)
 
     def _replace_content_sudo(self, remote_file: str, remote_temp_path: str, 
-                            modify_func: Callable[[str], str], force: bool = False,
+                            modify_func: Callable[[str], str], sudo: bool, # Added sudo parameter
+                            force: bool = False,
                             original_content_for_check: Optional[str] = None) -> dict:
         """
         Internal helper for sudo-based file modification.
@@ -690,9 +694,6 @@ class SshFileOperations_Linux:
         os.close(local_temp_fd)
         self.logger.debug(f"Created local temp file for sudo operation: {local_temp_path}")
         
-        # This outer try ensures local_temp_path is cleaned up.
-        # The remote_temp_path cleanup is handled within the inner try's finally block if needed,
-        # or can be moved here if it should always run.
         try:
             original_text = original_content_for_check
             if original_text is None: 
@@ -709,8 +710,7 @@ class SshFileOperations_Linux:
                         self.logger.warning("force=True specified. Proceeding with modification assuming empty or irrelevant original content for comparison.")
                         original_text = "" 
 
-            # Main operational block with its own error handling for CommandFailed, SshError, etc.
-            modified_text = modify_func(original_text) # Can raise ValueError
+            modified_text = modify_func(original_text) 
 
             if modified_text == original_text.replace('\r\n', '\n'):
                 self.logger.info(f"Content for {remote_file} not modified by function, skipping sudo replacement.")
@@ -720,7 +720,7 @@ class SshFileOperations_Linux:
             with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(modified_text)
 
-            self.put(local_temp_path, remote_temp_path) # Can raise SshError
+            self.put(local_temp_path, remote_temp_path) 
 
             perms = owner = group = None
             if not (force and original_text == "" and original_content_for_check is None): 
@@ -739,7 +739,7 @@ class SshFileOperations_Linux:
 
             mv_cmd = f"mv {shlex.quote(remote_temp_path)} {shlex.quote(remote_file)}"
             self.logger.info(f"Executing sudo mv: {mv_cmd}")
-            self.ssh_client.run(mv_cmd, sudo=True) # Can raise CommandFailed or SshError
+            self.ssh_client.run(mv_cmd, sudo=True) 
 
             if owner and group:
                 chown_cmd = f"chown {owner}:{group} {shlex.quote(remote_file)}"
@@ -778,19 +778,13 @@ class SshFileOperations_Linux:
                 self.logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
             
-            # Attempt to clean up remote temporary file.
-            # This should run if remote_temp_path was potentially created.
-            # It's generally safe to attempt removal even if 'put' failed, as 'rm -f' handles non-existent files.
             try:
                 self.logger.debug(f"Attempting to clean up remote temp file: {remote_temp_path}")
-                # Check if remote_temp_path is not None or empty, though it should always be set if we reach here.
                 if remote_temp_path: 
                     self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=False) 
             except Exception as cleanup_err:
                 self.logger.warning(f"Failed to cleanup remote temp file {remote_temp_path} (non-sudo): {cleanup_err}. Attempting with sudo if main op was sudo.")
-                # If the main operation was intended to be sudo, or if non-sudo cleanup fails, try with sudo.
-                # The 'sudo' parameter here refers to the overall intended sudo nature of _replace_content_sudo.
-                if sudo and remote_temp_path: 
+                if sudo and remote_temp_path: # Now 'sudo' is correctly defined in this scope
                     try:
                         self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=True)
                     except Exception as sudo_cleanup_err:
