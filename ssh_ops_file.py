@@ -501,6 +501,19 @@ class SshFileOperations_Linux:
         
         self.logger.info(f"Copying file from {source_path} to {actual_destination} (sudo={sudo})")
         
+        # First check if source file exists
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                try:
+                    sftp.stat(source_path)
+                except FileNotFoundError:
+                    self.logger.error(f"Source file not found: {source_path}")
+                    return {"success": False, "error": f"Source file not found: {source_path}"}
+        except Exception as e:
+            if not sudo:
+                self.logger.error(f"Error checking source file: {e}")
+                return {"success": False, "error": f"Error checking source file: {str(e)}"}
+        
         if sudo:
             # Use cp command with sudo
             cmd = f"cp {shlex.quote(source_path)} {shlex.quote(actual_destination)}"
@@ -527,6 +540,12 @@ class SshFileOperations_Linux:
                         "success": True,
                         "copied_to": actual_destination
                     }
+                except FileNotFoundError as e:
+                    self.logger.error(f"Source file not found: {source_path}")
+                    return {"success": False, "error": f"Source file not found: {source_path}"}
+                except Exception as e:
+                    self.logger.error(f"Failed to copy file: {e}")
+                    return {"success": False, "error": str(e)}
                 finally:
                     # Clean up temp file
                     if os.path.exists(local_temp_path):
