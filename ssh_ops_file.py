@@ -241,13 +241,13 @@ class SshFileOperations_Linux:
         except Exception as e:
             if not sudo:
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
-        
+            
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
             match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
             
-            # Check for uniqueness - this should never be reached due to the pre-check above
+            # Check for uniqueness again in case the file changed between checks
             if match_count == 0:
                 raise ValueError(f"Match line not found in file: {match_line}")
             if match_count > 1:
