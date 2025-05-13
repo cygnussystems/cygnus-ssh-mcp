@@ -97,7 +97,7 @@ class SshFileOperations_Linux:
             remote_file: Path to remote file
             pattern: Text or regex pattern to search for
             regex: Whether to treat pattern as a regular expression. If True, uses grep -E.
-                   Note: For portability with `grep -E`, avoid PCRE-specific syntax like `\d`.
+                   Note: For portability with `grep -E`, avoid PCRE-specific syntax like '`\d`'.
                    Use POSIX ERE compatible patterns (e.g., `[0-9]` or `[[:digit:]]` for digits).
             sudo: Whether to use sudo for the operation
             
@@ -255,17 +255,12 @@ class SshFileOperations_Linux:
         except Exception as e:
             if not sudo or not force: # If not sudo, or sudo but not force, this is an error
                 return {"success": False, "error": f"Error accessing file {remote_file}: {str(e)}"}
-            # If sudo and force, we might proceed if reading fails later, but stat failure is still problematic.
-            # However, the original logic implies we might try to proceed if force=True.
-            # For now, let's consider stat failure critical unless forced.
             self.logger.warning(f"Initial stat failed for {remote_file} but sudo and force are set: {e}")
 
 
         content = None
-        # This block tries to read the file to check for unique match if not (sudo and force)
-        # If (sudo and force), it might skip this read or ignore its failure.
         can_check_duplicates = True
-        if not (sudo and force): # If not (sudo and force), we must be able to read to check duplicates
+        if not (sudo and force): 
             try:
                 with self.ssh_client._client.open_sftp() as sftp:
                     with sftp.file(remote_file, 'r') as f:
@@ -273,21 +268,21 @@ class SshFileOperations_Linux:
             except Exception as e:
                 self.logger.error(f"Cannot read file {remote_file} to check for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Cannot read file to check for duplicate lines: {str(e)}"}
-        else: # sudo and force is true
-            try: # Still attempt to read, but don't fail outright if it doesn't work
+        else: 
+            try: 
                 with self.ssh_client._client.open_sftp() as sftp:
                     with sftp.file(remote_file, 'r') as f:
                         content = f.read().decode('utf-8', errors='replace')
             except Exception as e:
                 self.logger.warning(f"Could not read {remote_file} to check duplicates (sudo and force active): {e}. Proceeding without check.")
-                can_check_duplicates = False # Cannot check, will assume unique if we proceed
+                can_check_duplicates = False 
 
         if can_check_duplicates and content is not None:
             file_lines = content.splitlines()
             match_count = 0
             matched_indices = []
-            for idx, line_content in enumerate(file_lines):
-                stripped_line_content = line_content.strip()
+            for idx, line_content_iter in enumerate(file_lines): # Renamed line_content to avoid conflict
+                stripped_line_content = line_content_iter.strip()
                 if stripped_line_content == normalized_match_line:
                     match_count += 1
                     matched_indices.append(idx)
@@ -300,68 +295,56 @@ class SshFileOperations_Linux:
                 return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
         elif not can_check_duplicates and sudo and force:
              self.logger.warning(f"Proceeding with replace operation on {remote_file} without duplicate check due to sudo and force flags and read failure.")
-        elif content is None and not (sudo and force): # Should have been caught by read error above
+        elif content is None and not (sudo and force): 
             return {"success": False, "error": "Internal error: Content is None without sudo and force."}
 
 
         def modify_func(text):
-            # Ensure text uses LF line endings before processing
             text_normalized = text.replace('\r\n', '\n')
             lines = text_normalized.splitlines(keepends=True)
             modified = False
             result = []
             
-            # In case of (sudo and force) and read failure, text might be empty.
-            # The loop will run, find no match, and modified will be false.
-            # _replace_content_sudo will then write the "modified" (empty) text if original was also empty.
-            # Or, if original was not empty but unreadable, it will overwrite. This is the 'force' aspect.
-
-            for line in lines:
-                if line.strip() == normalized_match_line and not modified: # Only replace first unique match
+            for line_iter in lines: # Renamed line to avoid conflict
+                if line_iter.strip() == normalized_match_line and not modified: 
                     for new_line_content in new_lines:
-                        result.append(new_line_content + '\n') # Ensure new lines use LF
+                        result.append(new_line_content + '\n') 
                     modified = True
                 else:
-                    result.append(line) # Original line (with LF if normalized)
+                    result.append(line_iter) 
             
-            # If modified is False, it means the match_line wasn't found (e.g. if content was empty due to read failure + force)
-            # In this case, return the original (potentially empty) text.
             return "".join(result) if modified else text_normalized 
         
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                # Pass content to _replace_content_sudo if it was read, for optimization
-                # Pass can_check_duplicates to inform _replace_content_sudo
                 op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force, 
                                                        original_content_for_check=content if can_check_duplicates else None)
                 if isinstance(op_result, dict) and not op_result.get("success", False):
                     return op_result
-                # Check if modification actually happened based on modify_func's behavior
                 if op_result.get("message") == "No changes needed":
                      return {"success": True, "message": "No changes needed (match line not found or content identical)."}
                 return {"success": True, "lines_written": len(new_lines)}
             except Exception as e:
                 self.logger.error(f"Failed to replace line in {remote_file}: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
-        else: # Not sudo
+        else: 
             if force: self.logger.warning("force=True has no effect when sudo=False for replace_line_by_content")
-            # Content must have been read successfully if not sudo, otherwise earlier error.
-            if content is None: # Should not happen due to checks above
+            if content is None: 
                  return {"success": False, "error": "Internal error: content is None for non-sudo operation."}
             try:
                 modified_content = modify_func(content) 
-                if modified_content != content.replace('\r\n', '\n'): # Compare with normalized original
+                if modified_content != content.replace('\r\n', '\n'): 
                     local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
                     try:
-                        with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: # Write with LF
+                        with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: 
                             f.write(modified_content)
                         self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
                         self.put(local_temp_path, remote_file)
                         return {"success": True, "lines_written": len(new_lines)}
                     finally:
                         if os.path.exists(local_temp_path): os.unlink(local_temp_path)
-                else: # No modification occurred (e.g. match line not found)
+                else: 
                     return {"success": True, "message": "No changes needed (match line not found or content identical)."}
             except Exception as e:
                 self.logger.error(f"Failed to replace line in {remote_file}: {e}", exc_info=True)
@@ -399,7 +382,7 @@ class SshFileOperations_Linux:
             except Exception as e:
                 self.logger.error(f"Cannot read file {remote_file} to check for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Cannot read file to check for duplicate lines: {str(e)}"}
-        else: # sudo and force
+        else: 
             try:
                 with self.ssh_client._client.open_sftp() as sftp:
                     with sftp.file(remote_file, 'r') as f:
@@ -412,8 +395,8 @@ class SshFileOperations_Linux:
             file_lines = content.splitlines()
             match_count = 0
             matched_indices = []
-            for idx, line_content in enumerate(file_lines):
-                stripped_line_content = line_content.strip()
+            for idx, line_content_iter in enumerate(file_lines): # Renamed line_content to avoid conflict
+                stripped_line_content = line_content_iter.strip()
                 if stripped_line_content == normalized_match_line:
                     match_count += 1
                     matched_indices.append(idx)
@@ -436,11 +419,11 @@ class SshFileOperations_Linux:
             modified = False
             result = []
             
-            for line in lines:
-                result.append(line)
-                if line.strip() == normalized_match_line and not modified: # Insert after first unique match
+            for line_iter in lines: # Renamed line to avoid conflict
+                result.append(line_iter)
+                if line_iter.strip() == normalized_match_line and not modified: 
                     for new_line_content in lines_to_insert:
-                        result.append(new_line_content + '\n') # Ensure new lines use LF
+                        result.append(new_line_content + '\n') 
                     modified = True
             
             return "".join(result) if modified else text_normalized
@@ -458,7 +441,7 @@ class SshFileOperations_Linux:
             except Exception as e:
                 self.logger.error(f"Failed to insert lines in {remote_file}: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
-        else: # Not sudo
+        else: 
             if force: self.logger.warning("force=True has no effect when sudo=False for insert_lines_after_match")
             if content is None:
                  return {"success": False, "error": "Internal error: content is None for non-sudo operation."}
@@ -467,7 +450,7 @@ class SshFileOperations_Linux:
                 if modified_content != content.replace('\r\n', '\n'): 
                     local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
                     try:
-                        with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: # Write with LF
+                        with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: 
                             f.write(modified_content)
                         self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
                         self.put(local_temp_path, remote_file)
@@ -509,7 +492,7 @@ class SshFileOperations_Linux:
             except Exception as e:
                 self.logger.error(f"Cannot read file {remote_file} to check for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Cannot read file to check for duplicate lines: {str(e)}"}
-        else: # sudo and force
+        else: 
             try:
                 with self.ssh_client._client.open_sftp() as sftp:
                     with sftp.file(remote_file, 'r') as f:
@@ -522,8 +505,8 @@ class SshFileOperations_Linux:
             file_lines = content.splitlines()
             match_count = 0
             matched_indices = []
-            for idx, line_content in enumerate(file_lines):
-                stripped_line_content = line_content.strip()
+            for idx, line_content_iter in enumerate(file_lines): # Renamed line_content to avoid conflict
+                stripped_line_content = line_content_iter.strip()
                 if stripped_line_content == normalized_match_line:
                     match_count += 1
                     matched_indices.append(idx)
@@ -546,11 +529,11 @@ class SshFileOperations_Linux:
             modified = False
             result = []
             
-            for line in lines:
-                if line.strip() == normalized_match_line and not modified: # Delete first unique match
-                    modified = True # Skip appending this line
+            for line_iter in lines: # Renamed line to avoid conflict
+                if line_iter.strip() == normalized_match_line and not modified: 
+                    modified = True 
                 else:
-                    result.append(line)
+                    result.append(line_iter)
             
             return "".join(result) if modified else text_normalized
         
@@ -567,7 +550,7 @@ class SshFileOperations_Linux:
             except Exception as e:
                 self.logger.error(f"Failed to delete line in {remote_file}: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
-        else: # Not sudo
+        else: 
             if force: self.logger.warning("force=True has no effect when sudo=False for delete_line_by_content")
             if content is None:
                  return {"success": False, "error": "Internal error: content is None for non-sudo operation."}
@@ -576,7 +559,7 @@ class SshFileOperations_Linux:
                 if modified_content != content.replace('\r\n', '\n'): 
                     local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
                     try:
-                        with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: # Write with LF
+                        with os.fdopen(local_temp_fd, 'w', encoding='utf-8', newline='\n') as f: 
                             f.write(modified_content)
                         self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
                         self.put(local_temp_path, remote_file)
@@ -603,7 +586,6 @@ class SshFileOperations_Linux:
         Returns:
             Dictionary with operation status
         """
-        # Generate timestamped destination if requested
         actual_destination = destination_path
         if append_timestamp:
             timestamp = time.strftime("%Y%m%dT%H%M%S")
@@ -612,18 +594,13 @@ class SshFileOperations_Linux:
         
         self.logger.info(f"Copying file from {source_path} to {actual_destination} (sudo={sudo})")
         
-        # First check if source file exists using SFTP stat, which is generally more reliable for existence checks
-        # This check is done without sudo, assuming source_path should be stat-able by the user.
-        # If sudo is required to even stat the source, the cp command with sudo will handle it.
         try:
             with self.ssh_client._client.open_sftp() as sftp:
-                sftp.stat(source_path) # Raises FileNotFoundError if not found
+                sftp.stat(source_path) 
         except FileNotFoundError:
             self.logger.error(f"Source file not found: {source_path}")
             return {"success": False, "error": f"Source file not found: {source_path}"}
-        except Exception as e: # Other SFTP errors (e.g. permission denied on stat)
-            # If we can't stat, and not using sudo for copy, it's an error.
-            # If using sudo for copy, we can let `cp` try and fail.
+        except Exception as e: 
             if not sudo:
                 self.logger.error(f"Error checking source file {source_path}: {e}")
                 return {"success": False, "error": f"Error checking source file: {str(e)}"}
@@ -631,37 +608,35 @@ class SshFileOperations_Linux:
 
         
         if sudo:
-            # Use cp command with sudo
             cmd = f"cp {shlex.quote(source_path)} {shlex.quote(actual_destination)}"
             try:
-                self.ssh_client.run(cmd, sudo=True) # run() will raise CommandFailed on error
+                self.ssh_client.run(cmd, sudo=True) 
                 return {
                     "success": True,
                     "copied_to": actual_destination
                 }
-            except CommandFailed as e: # Catch specific command failure
+            except CommandFailed as e: 
                 stderr_info = f" Stderr: {e.stderr.strip()}" if hasattr(e, 'stderr') and e.stderr else ""
                 error_message = f"sudo cp command failed with exit code {e.exit_code}.{stderr_info}"
                 self.logger.error(f"Failed to copy file with sudo: {error_message} (Full exception: {e})")
                 return {"success": False, "error": error_message}
-            except Exception as e: # Other SshErrors or unexpected errors
+            except Exception as e: 
                 self.logger.error(f"Failed to copy file with sudo: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
         else:
-            # Use SFTP for non-sudo copy
             local_temp_fd, local_temp_path = tempfile.mkstemp()
-            os.close(local_temp_fd) # Closed because get/put will open/close
+            os.close(local_temp_fd) 
             try:
-                self.get(source_path, local_temp_path) # Downloads source to local temp
-                self.put(local_temp_path, actual_destination) # Uploads from local temp to dest
+                self.get(source_path, local_temp_path) 
+                self.put(local_temp_path, actual_destination) 
                 return {
                     "success": True,
                     "copied_to": actual_destination
                 }
-            except FileNotFoundError: # Should be caught by initial stat, but as a safeguard
+            except FileNotFoundError: 
                 self.logger.error(f"Source file not found during SFTP copy: {source_path}")
                 return {"success": False, "error": f"Source file not found: {source_path}"}
-            except Exception as e: # Other SFTP errors
+            except Exception as e: 
                 self.logger.error(f"Failed to copy file via SFTP: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
             finally:
@@ -672,43 +647,22 @@ class SshFileOperations_Linux:
         """
         Internal helper for SFTP-based file modification.
         Downloads, modifies, then uploads. Ensures LF line endings on upload.
-        
-        Args:
-            remote_file: Path to remote file
-            modify_func: Function that takes file content (str) and returns modified content (str).
-                         This function is expected to return content with LF line endings.
-            
-        Returns:
-            Dictionary with success status and error message if applicable
         """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
-        # fdopen immediately after mkstemp to control encoding and newline for reading/writing
-        # However, we download first, then read, then write, then upload.
-        # So, we'll handle file opening/closing carefully.
-        os.close(local_temp_fd) # We'll open it ourselves.
+        os.close(local_temp_fd) 
         self.logger.debug(f"Created local temp file: {local_temp_path}")
 
         try:
-            # Download the remote file to the local temporary path
             self.get(remote_file, local_temp_path)
-
-            # Read the content from the local temporary file
             with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
                 original_text = f.read() 
                 
-            # Apply the modification function
-            # modify_func is expected to handle internal normalization if needed
-            # and return content with LF endings.
             modified_text = modify_func(original_text) 
 
-            # Compare after normalizing original_text to LF for accurate change detection
-            # This ensures we only upload if there's an actual content change.
             if modified_text != original_text.replace('\r\n', '\n'):
                 self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
-                # Write the modified content back to the local temporary file, ensuring LF line endings
                 with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
                     f.write(modified_text)
-                # Upload the modified local temporary file back to the remote path
                 self.put(local_temp_path, remote_file)
                 return {"success": True}
             else:
@@ -736,111 +690,107 @@ class SshFileOperations_Linux:
         os.close(local_temp_fd)
         self.logger.debug(f"Created local temp file for sudo operation: {local_temp_path}")
         
-        # Determine original text: use provided, or download, or empty if forced and download fails.
-        original_text = original_content_for_check
-        if original_text is None: # Not provided (e.g. initial read failed but sudo+force)
-            try:
-                self.get(remote_file, local_temp_path) # Download to local temp
-                with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
-                    original_text = f.read()
-                self.logger.debug(f"Successfully downloaded original file {remote_file} for sudo op.")
-            except Exception as e:
-                self.logger.warning(f"Could not download original {remote_file} for sudo op: {e}.")
-                if not force:
-                    raise SshError(f"Cannot read original file {remote_file} and force=False. Aborting sudo replacement.") from e
-                else:
-                    self.logger.warning("force=True specified. Proceeding with modification assuming empty or irrelevant original content for comparison.")
-                    original_text = "" # Assume empty for comparison if forced and unreadable
-
+        # This outer try ensures local_temp_path is cleaned up.
+        # The remote_temp_path cleanup is handled within the inner try's finally block if needed,
+        # or can be moved here if it should always run.
         try:
-            # Apply modification. modify_func should return content with LF endings.
-            modified_text = modify_func(original_text)
-        except ValueError as e: # If modify_func itself raises an error (e.g. validation)
+            original_text = original_content_for_check
+            if original_text is None: 
+                try:
+                    self.get(remote_file, local_temp_path) 
+                    with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
+                        original_text = f.read()
+                    self.logger.debug(f"Successfully downloaded original file {remote_file} for sudo op.")
+                except Exception as e:
+                    self.logger.warning(f"Could not download original {remote_file} for sudo op: {e}.")
+                    if not force:
+                        raise SshError(f"Cannot read original file {remote_file} and force=False. Aborting sudo replacement.") from e
+                    else:
+                        self.logger.warning("force=True specified. Proceeding with modification assuming empty or irrelevant original content for comparison.")
+                        original_text = "" 
+
+            # Main operational block with its own error handling for CommandFailed, SshError, etc.
+            modified_text = modify_func(original_text) # Can raise ValueError
+
+            if modified_text == original_text.replace('\r\n', '\n'):
+                self.logger.info(f"Content for {remote_file} not modified by function, skipping sudo replacement.")
+                return {"success": True, "message": "No changes needed"}
+
+            self.logger.info(f"Content modified for {remote_file}. Proceeding with sudo replacement.")
+            with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(modified_text)
+
+            self.put(local_temp_path, remote_temp_path) # Can raise SshError
+
+            perms = owner = group = None
+            if not (force and original_text == "" and original_content_for_check is None): 
+                stat_cmd = f"stat -c '%a %u %g' {shlex.quote(remote_file)}"
+                try:
+                    stat_handle = self.ssh_client.run(stat_cmd, io_timeout=10, sudo=False) 
+                    stat_output = stat_handle.get_full_output().strip() 
+                    parts = stat_output.split()
+                    if len(parts) == 3:
+                        perms, owner, group = parts
+                        self.logger.debug(f"Got permissions for {remote_file}: {perms} {owner}:{group}")
+                    else:
+                        self.logger.warning(f"Unexpected output from stat command for {remote_file}: '{stat_output}'. Cannot restore permissions/owner.")
+                except Exception as stat_err: 
+                    self.logger.warning(f"Could not get permissions/owner for {remote_file} (error: {stat_err}). Using defaults if any, or system defaults.")
+
+            mv_cmd = f"mv {shlex.quote(remote_temp_path)} {shlex.quote(remote_file)}"
+            self.logger.info(f"Executing sudo mv: {mv_cmd}")
+            self.ssh_client.run(mv_cmd, sudo=True) # Can raise CommandFailed or SshError
+
+            if owner and group:
+                chown_cmd = f"chown {owner}:{group} {shlex.quote(remote_file)}"
+                try:
+                    self.logger.info(f"Executing sudo chown: {chown_cmd}")
+                    self.ssh_client.run(chown_cmd, sudo=True)
+                except Exception as chown_err: 
+                    self.logger.warning(f"Failed to sudo chown {remote_file} to {owner}:{group}: {chown_err}")
+            if perms:
+                chmod_cmd = f"chmod {perms} {shlex.quote(remote_file)}"
+                try:
+                    self.logger.info(f"Executing sudo chmod: {chmod_cmd}")
+                    self.ssh_client.run(chmod_cmd, sudo=True)
+                except Exception as chmod_err: 
+                    self.logger.warning(f"Failed to sudo chmod {remote_file} to {perms}: {chmod_err}")
+
+            self.logger.info(f"Successfully replaced {remote_file} using sudo.")
+            return {"success": True}
+
+        except ValueError as e: 
             self.logger.error(f"Modification function failed for {remote_file}: {str(e)}")
             return {"success": False, "error": f"Modification logic failed: {str(e)}"}
-
-        # Compare modified_text with original_text (normalized to LF) to see if changes occurred.
-        if modified_text == original_text.replace('\r\n', '\n'):
-            self.logger.info(f"Content for {remote_file} not modified by function, skipping sudo replacement.")
-            # Clean up local temp file as it's not needed for upload
-            if os.path.exists(local_temp_path):
-                 os.unlink(local_temp_path)
-            return {"success": True, "message": "No changes needed"}
-
-        self.logger.info(f"Content modified for {remote_file}. Proceeding with sudo replacement.")
-        # Write modified content (with LF endings) to local temp file for upload
-        with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
-            f.write(modified_text)
-
-        # Upload the modified local file to a temporary remote path
-        self.put(local_temp_path, remote_temp_path)
-
-        # Get permissions and ownership of the original remote file to restore them later
-        perms = owner = group = None
-        # Only try to get stats if original_text was not from a forced empty string (i.e., file was likely readable)
-        if not (force and original_text == "" and original_content_for_check is None): 
-            stat_cmd = f"stat -c '%a %u %g' {shlex.quote(remote_file)}"
-            try:
-                # Run stat without sudo, as the user might own the file or have read perms for stat
-                stat_handle = self.ssh_client.run(stat_cmd, io_timeout=10, sudo=False) 
-                stat_output = stat_handle.get_full_output().strip() # Use get_full_output
-                parts = stat_output.split()
-                if len(parts) == 3:
-                    perms, owner, group = parts
-                    self.logger.debug(f"Got permissions for {remote_file}: {perms} {owner}:{group}")
-                else:
-                    self.logger.warning(f"Unexpected output from stat command for {remote_file}: '{stat_output}'. Cannot restore permissions/owner.")
-            except Exception as stat_err: # Includes CommandFailed if stat fails
-                self.logger.warning(f"Could not get permissions/owner for {remote_file} (error: {stat_err}). Using defaults if any, or system defaults.")
-
-        # Atomically replace the original file with the temporary file using sudo mv
-        mv_cmd = f"mv {shlex.quote(remote_temp_path)} {shlex.quote(remote_file)}"
-        self.logger.info(f"Executing sudo mv: {mv_cmd}")
-        self.ssh_client.run(mv_cmd, sudo=True) # run() will raise CommandFailed on error
-
-        # Restore ownership and permissions if obtained
-        if owner and group:
-            chown_cmd = f"chown {owner}:{group} {shlex.quote(remote_file)}"
-            try:
-                self.logger.info(f"Executing sudo chown: {chown_cmd}")
-                self.ssh_client.run(chown_cmd, sudo=True)
-            except Exception as chown_err: # Includes CommandFailed
-                self.logger.warning(f"Failed to sudo chown {remote_file} to {owner}:{group}: {chown_err}")
-        if perms:
-            chmod_cmd = f"chmod {perms} {shlex.quote(remote_file)}"
-            try:
-                self.logger.info(f"Executing sudo chmod: {chmod_cmd}")
-                self.ssh_client.run(chmod_cmd, sudo=True)
-            except Exception as chmod_err: # Includes CommandFailed
-                self.logger.warning(f"Failed to sudo chmod {remote_file} to {perms}: {chmod_err}")
-
-        self.logger.info(f"Successfully replaced {remote_file} using sudo.")
-        return {"success": True}
-
-        # Catch CommandFailed from mv/chown/chmod, or other SshErrors
         except CommandFailed as e:
             stderr_info = f" Stderr: {e.stderr.strip()}" if hasattr(e, 'stderr') and e.stderr else ""
-            error_message = f"Sudo file operation (mv/chown/chmod) failed with exit code {e.exit_code}.{stderr_info}"
+            error_message = f"Sudo file operation (mv/chown/chmod/stat) failed with exit code {e.exit_code}.{stderr_info}"
             self.logger.error(f"{error_message} (Full exception: {e})")
             return {"success": False, "error": error_message}
-        except Exception as e: # Catch other unexpected errors during sudo sequence
-            self.logger.error(f"Sudo file operation failed for {remote_file}: {str(e)}", exc_info=True)
-            return {"success": False, "error": str(e)}
+        except SshError as e: 
+            self.logger.error(f"SshError during sudo file operation for {remote_file}: {str(e)}", exc_info=True)
+            return {"success": False, "error": f"SSH operation failed: {str(e)}"}
+        except Exception as e: 
+            self.logger.error(f"Unexpected error during sudo file operation for {remote_file}: {str(e)}", exc_info=True)
+            return {"success": False, "error": f"An unexpected error occurred: {str(e)}"}
         finally:
-            # Clean up local temporary file
             if os.path.exists(local_temp_path):
                 self.logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
-            # Clean up remote temporary file (attempt with sudo=False first, then sudo=True if needed, or just sudo=True if perms are strict)
-            # For simplicity, using sudo=True for cleanup if the operation itself was sudo.
-            # If remote_temp_path was created by user (put), then user can rm. If by sudo, then sudo rm.
-            # Since `put` is by user, `rm` by user should be fine.
+            
+            # Attempt to clean up remote temporary file.
+            # This should run if remote_temp_path was potentially created.
+            # It's generally safe to attempt removal even if 'put' failed, as 'rm -f' handles non-existent files.
             try:
-                self.logger.debug(f"Cleaning up remote temp file: {remote_temp_path}")
-                self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=False) # Try non-sudo first
+                self.logger.debug(f"Attempting to clean up remote temp file: {remote_temp_path}")
+                # Check if remote_temp_path is not None or empty, though it should always be set if we reach here.
+                if remote_temp_path: 
+                    self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=False) 
             except Exception as cleanup_err:
                 self.logger.warning(f"Failed to cleanup remote temp file {remote_temp_path} (non-sudo): {cleanup_err}. Attempting with sudo if main op was sudo.")
-                if sudo: # If main operation was sudo, temp file might need sudo to delete if ownership changed.
+                # If the main operation was intended to be sudo, or if non-sudo cleanup fails, try with sudo.
+                # The 'sudo' parameter here refers to the overall intended sudo nature of _replace_content_sudo.
+                if sudo and remote_temp_path: 
                     try:
                         self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=True)
                     except Exception as sudo_cleanup_err:
