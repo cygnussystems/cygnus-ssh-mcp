@@ -241,19 +241,22 @@ async def list_tools() -> list:
     """
     logger.info("Request received to list available tools.")
     available_tools = []
-    # The mcp.list_tools() method should provide ToolInfo objects
-    # (or similar) that have .name and .description attributes.
-    for tool_spec in mcp.list_tools():
-        tool_details = {
-            "name": tool_spec.name,
-            "description": tool_spec.description
-        }
-        # If tool_spec contains more information, like parameters,
-        # you could consider adding that here as well.
-        # For example:
-        # if hasattr(tool_spec, 'parameters'):
-        #     tool_details["parameters"] = tool_spec.parameters
-        available_tools.append(tool_details)
+    # mcp.get_tools() returns a dictionary; iterate over its values (tool_spec objects)
+    # which are expected to have .name and .description attributes.
+    try:
+        for tool_spec in mcp.get_tools().values():
+            tool_details = {
+                "name": getattr(tool_spec, 'name', 'Unknown Tool'),
+                "description": getattr(tool_spec, 'description', 'No description available.')
+            }
+            # If tool_spec contains more information, like parameters,
+            # you could consider adding that here as well.
+            # For example:
+            # if hasattr(tool_spec, 'parameters'):
+            #     tool_details["parameters"] = tool_spec.parameters
+            available_tools.append(tool_details)
+    except Exception as e:
+        logger.error(f"Error accessing mcp.get_tools() to list tools: {e}", exc_info=True)
 
     return available_tools
 
@@ -1422,7 +1425,9 @@ if __name__ == '__main__':
         logger.info(f"Starting SSH MCP server '{mcp.name}' version {mcp.version}")
         logger.info(f"Using TOML config file: {host_manager.config_path}") # Updated log message
         logger.info("Available tools:")
-        for tool_info in mcp.list_tools(): # FastMCP list_tools returns ToolInfo objects
+        # Iterate over the values of the dictionary returned by mcp.get_tools()
+        # tool_info objects are expected to have .name and .description attributes
+        for tool_info in mcp.get_tools().values(): 
             logger.info(f"  - {tool_info.name}: {tool_info.description}")
         mcp.run()
     except KeyboardInterrupt:
