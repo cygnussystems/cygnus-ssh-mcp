@@ -29,7 +29,7 @@ async def test_ssh_status():
             logger.info("Verified SSH connection is active")
             
             # Now get the status
-            status_result = await client.call_tool("ssh_status", {})
+            status_result = await client.call_tool("ssh_conn_status", {})
             
             # Verify the result
             assert status_result is not None, "Expected non-empty result"
@@ -88,13 +88,13 @@ async def test_ssh_reconnect():
             logger.info("Verified first SSH connection is active")
             
             # Get status of first connection
-            first_status = await client.call_tool("ssh_status", {})
+            first_status = await client.call_tool("ssh_conn_status", {})
             first_status_json = json.loads(first_status[0].text)
             logger.info(f"First connection status: {first_status_json}")
             
             # Now reconnect to the same host (in a real-world scenario, this could be a different host)
             logger.info("Attempting to reconnect while existing connection is active")
-            reconnect_result = await client.call_tool("ssh_connect", {
+            reconnect_result = await client.call_tool("ssh_conn_connect", {
                 "host_name": "test_server"
             })
             reconnect_json = json.loads(reconnect_result[0].text)
@@ -107,7 +107,7 @@ async def test_ssh_reconnect():
             assert await is_ssh_connected(client), "Should have active connection after reconnect"
             
             # Get status after reconnection
-            second_status = await client.call_tool("ssh_status", {})
+            second_status = await client.call_tool("ssh_conn_status", {})
             second_status_json = json.loads(second_status[0].text)
             logger.info(f"Second connection status: {second_status_json}")
             
