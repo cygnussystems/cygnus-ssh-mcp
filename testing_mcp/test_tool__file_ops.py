@@ -277,7 +277,18 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            assert "Line 2: This line has been replaced" in json.loads(cat_result[0].text)['output']
+            output = json.loads(cat_result[0].text)['output']
+            assert "Line 2: This line has been replaced" in output
+            assert "Line 2: This line will be replaced" not in output
+            
+            # Test non-existent line
+            replace_nonexistent = await client.call_tool("ssh_file_replace_line_by_content", {
+                "file_path": test_file,
+                "match_line": "This line does not exist",
+                "new_lines": ["New line"]
+            })
+            nonexistent_result = json.loads(replace_nonexistent[0].text)
+            assert nonexistent_result['success'] == False, "Should fail when line doesn't exist"
             
         finally:
             await client.call_tool("ssh_cmd_run", {
@@ -334,6 +345,15 @@ Line 3: This is the last line"""
             assert lines[2] == "Line 2.5: This is an inserted line"
             assert lines[3] == "Line 3: This is the last line"
             
+            # Test non-existent line
+            insert_nonexistent = await client.call_tool("ssh_file_insert_lines_after_match", {
+                "file_path": test_file,
+                "match_line": "This line does not exist",
+                "lines_to_insert": ["New line"]
+            })
+            nonexistent_result = json.loads(insert_nonexistent[0].text)
+            assert nonexistent_result['success'] == False, "Should fail when line doesn't exist"
+            
         finally:
             await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -f {test_file}",
@@ -385,6 +405,14 @@ Line 3: This is the last line"""
             assert len(lines) == 2
             assert lines[0] == "Line 1: This is a test file"
             assert lines[1] == "Line 3: This is the last line"
+            
+            # Test non-existent line
+            delete_nonexistent = await client.call_tool("ssh_file_delete_line_by_content", {
+                "file_path": test_file,
+                "match_line": "This line does not exist"
+            })
+            nonexistent_result = json.loads(delete_nonexistent[0].text)
+            assert nonexistent_result['success'] == False, "Should fail when line doesn't exist"
             
         finally:
             await client.call_tool("ssh_cmd_run", {
@@ -452,12 +480,218 @@ async def test_ssh_file_copy(mcp_test_environment):
             })
             assert timestamped_result['copied_to'] in json.loads(ls_result[0].text)['output']
             
+            # Test non-existent source file
+            nonexistent_copy = await client.call_tool("ssh_file_copy", {
+                "source_path": "/tmp/nonexistent_file.txt",
+                "destination_path": dest_file,
+                "append_timestamp": False
+            })
+            nonexistent_result = json.loads(nonexistent_copy[0].text)
+            assert nonexistent_result['success'] == False, "Should fail when source file doesn't exist"
+            
         finally:
             # Clean up all test files
             await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -f {test_file} {dest_file} /tmp/ssh_test_dest.txt.*",
                 "io_timeout": 5.0
             })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+@pytest.mark.asyncio
+async def test_ssh_file_move(mcp_test_environment):
+    """Test moving a file."""
+    print_test_header("Testing 'ssh_file_move' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            source_file = "/tmp/ssh_test_source_move.txt"
+            dest_file = "/tmp/ssh_test_dest_move.txt"
+            file_content = "This is a test file for moving"
+            
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {source_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Move file
+            move_result = await client.call_tool("ssh_file_move", {
+                "source": source_file,
+                "destination": dest_file,
+                "overwrite": False
+            })
+            result = json.loads(move_result[0].text)
+            assert result['success'] == True
+            
+            # Verify source file no longer exists
+            source_check = await client.call_tool("ssh_cmd_run", {
+                "command": f"ls {source_file} 2>/dev/null || echo 'File not found'",
+                "io_timeout": 5.0
+            })
+            assert "File not found" in json.loads(source_check[0].text)['output']
+            
+            # Verify destination file exists with correct content
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {dest_file}",
+                "io_timeout": 5.0
+            })
+            assert file_content in json.loads(cat_result[0].text)['output']
+            
+            # Test overwrite behavior
+            # Create a new source file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo 'New content' > {source_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Try to move without overwrite (should fail)
+            move_no_overwrite = await client.call_tool("ssh_file_move", {
+                "source": source_file,
+                "destination": dest_file,
+                "overwrite": False
+            })
+            no_overwrite_result = json.loads(move_no_overwrite[0].text)
+            assert no_overwrite_result['success'] == False, "Should fail when destination exists and overwrite=False"
+            
+            # Move with overwrite
+            move_with_overwrite = await client.call_tool("ssh_file_move", {
+                "source": source_file,
+                "destination": dest_file,
+                "overwrite": True
+            })
+            overwrite_result = json.loads(move_with_overwrite[0].text)
+            assert overwrite_result['success'] == True
+            
+            # Verify content was updated
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {dest_file}",
+                "io_timeout": 5.0
+            })
+            assert "New content" in json.loads(cat_result[0].text)['output']
+            
+        finally:
+            # Clean up test files
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {source_file} {dest_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+@pytest.mark.asyncio
+async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
+    """Test file operations with duplicate lines to ensure they fail appropriately."""
+    print_test_header("Testing file operations with duplicate lines")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_duplicate_lines.txt"
+            file_content = """Line 1: This is a test file
+Line 2: This is a duplicate line
+Line 3: Some other content
+Line 4: This is a duplicate line
+Line 5: This is the last line"""
+            
+            # Create test file with duplicate lines
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Test replace line with duplicate match
+            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+                "file_path": test_file,
+                "match_line": "Line 2: This is a duplicate line",
+                "new_lines": ["Line 2: This has been replaced"]
+            })
+            result = json.loads(replace_result[0].text)
+            assert result['success'] == False, "Should fail when match line is not unique"
+            
+            # Test insert after line with duplicate match
+            insert_result = await client.call_tool("ssh_file_insert_lines_after_match", {
+                "file_path": test_file,
+                "match_line": "Line 2: This is a duplicate line",
+                "lines_to_insert": ["New inserted line"]
+            })
+            insert_json = json.loads(insert_result[0].text)
+            assert insert_json['success'] == False, "Should fail when match line is not unique"
+            
+            # Test delete line with duplicate match
+            delete_result = await client.call_tool("ssh_file_delete_line_by_content", {
+                "file_path": test_file,
+                "match_line": "Line 2: This is a duplicate line"
+            })
+            delete_json = json.loads(delete_result[0].text)
+            assert delete_json['success'] == False, "Should fail when match line is not unique"
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+@pytest.mark.asyncio
+async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
+    """Test file operations with a non-existent file to ensure they fail appropriately."""
+    print_test_header("Testing file operations with non-existent file")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            nonexistent_file = "/tmp/this_file_does_not_exist.txt"
+            
+            # Test find lines in non-existent file
+            find_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
+                "file_path": nonexistent_file,
+                "pattern": "any pattern",
+                "regex": False
+            })
+            find_json = json.loads(find_result[0].text)
+            assert find_json['total_matches'] == 0
+            assert 'error' in find_json
+            
+            # Test get context in non-existent file
+            context_result = await client.call_tool("ssh_file_get_context_around_line", {
+                "file_path": nonexistent_file,
+                "match_line": "any line",
+                "context": 1
+            })
+            context_json = json.loads(context_result[0].text)
+            assert context_json['match_found'] == False
+            assert 'error' in context_json
+            
+            # Test replace line in non-existent file
+            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+                "file_path": nonexistent_file,
+                "match_line": "any line",
+                "new_lines": ["new line"]
+            })
+            replace_json = json.loads(replace_result[0].text)
+            assert replace_json['success'] == False
+            
+            # Test insert line in non-existent file
+            insert_result = await client.call_tool("ssh_file_insert_lines_after_match", {
+                "file_path": nonexistent_file,
+                "match_line": "any line",
+                "lines_to_insert": ["new line"]
+            })
+            insert_json = json.loads(insert_result[0].text)
+            assert insert_json['success'] == False
+            
+            # Test delete line in non-existent file
+            delete_result = await client.call_tool("ssh_file_delete_line_by_content", {
+                "file_path": nonexistent_file,
+                "match_line": "any line"
+            })
+            delete_json = json.loads(delete_result[0].text)
+            assert delete_json['success'] == False
+            
+        finally:
             await disconnect_ssh(client)
     
     print_test_footer()

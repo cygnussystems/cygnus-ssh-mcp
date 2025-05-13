@@ -216,9 +216,27 @@ class SshFileOperations_Linux:
         if isinstance(new_lines, str):
             new_lines = [new_lines]
         
+        # First check if the file exists
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                sftp.stat(remote_file)
+        except FileNotFoundError:
+            return {"success": False, "error": f"File not found: {remote_file}"}
+        except Exception as e:
+            if not sudo or not force:
+                return {"success": False, "error": f"Error accessing file: {str(e)}"}
+        
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
+            match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
+            
+            # Check for uniqueness
+            if match_count == 0:
+                raise ValueError(f"Match line not found in file: {match_line}")
+            if match_count > 1:
+                raise ValueError(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
+            
             modified = False
             result = []
             
@@ -275,9 +293,27 @@ class SshFileOperations_Linux:
         if isinstance(lines_to_insert, str):
             lines_to_insert = [lines_to_insert]
         
+        # First check if the file exists
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                sftp.stat(remote_file)
+        except FileNotFoundError:
+            return {"success": False, "error": f"File not found: {remote_file}"}
+        except Exception as e:
+            if not sudo or not force:
+                return {"success": False, "error": f"Error accessing file: {str(e)}"}
+        
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
+            match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
+            
+            # Check for uniqueness
+            if match_count == 0:
+                raise ValueError(f"Match line not found in file: {match_line}")
+            if match_count > 1:
+                raise ValueError(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
+            
             modified = False
             result = []
             
@@ -330,11 +366,29 @@ class SshFileOperations_Linux:
         """
         self.logger.info(f"Deleting line by content in {remote_file} (sudo={sudo}, force={force})")
         
+        # First check if the file exists
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                sftp.stat(remote_file)
+        except FileNotFoundError:
+            return {"success": False, "error": f"File not found: {remote_file}"}
+        except Exception as e:
+            if not sudo or not force:
+                return {"success": False, "error": f"Error accessing file: {str(e)}"}
+        
         # Define the modification function
         def modify_func(text):
             # Normalize line endings to Unix style
             text = text.replace('\r\n', '\n')
             lines = text.splitlines(keepends=True)
+            match_count = sum(1 for line in lines if line.rstrip('\n') == match_line)
+            
+            # Check for uniqueness
+            if match_count == 0:
+                raise ValueError(f"Match line not found in file: {match_line}")
+            if match_count > 1:
+                raise ValueError(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
+            
             modified = False
             result = []
             
@@ -447,7 +501,12 @@ class SshFileOperations_Linux:
             with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
                 # Normalize line endings to Unix style (LF)
                 original_text = f.read().replace('\r\n', '\n')
-            modified_text = modify_func(original_text)
+                
+            try:
+                modified_text = modify_func(original_text)
+            except ValueError as e:
+                self.logger.error(f"Modification failed: {str(e)}")
+                return {"success": False, "error": str(e)}
 
             # Only upload if content changed
             if modified_text != original_text:
@@ -461,6 +520,9 @@ class SshFileOperations_Linux:
                 self.logger.info(f"Content for {remote_file} not modified, skipping upload.")
                 return False
 
+        except Exception as e:
+            self.logger.error(f"File operation failed: {str(e)}")
+            return {"success": False, "error": str(e)}
         finally:
             # 4. Cleanup local temp file
             if os.path.exists(local_temp_path):
@@ -503,7 +565,11 @@ class SshFileOperations_Linux:
                     original_text = "" # Proceed with empty content if forced
 
             # 2. Modify content
-            modified_text = modify_func(original_text)
+            try:
+                modified_text = modify_func(original_text)
+            except ValueError as e:
+                self.logger.error(f"Modification failed: {str(e)}")
+                return {"success": False, "error": str(e)}
 
             # 3. Check if content actually changed (important!)
             if modified_text == original_text:
@@ -560,6 +626,9 @@ class SshFileOperations_Linux:
             self.logger.info(f"Successfully replaced {remote_file} using sudo.")
             return True
 
+        except Exception as e:
+            self.logger.error(f"Sudo file operation failed: {str(e)}")
+            return {"success": False, "error": str(e)}
         finally:
             # 7. Cleanup local and remote temp files
             if os.path.exists(local_temp_path):
