@@ -238,9 +238,15 @@ class SshFileOperations_Linux:
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
+                    
+                    # If we get here, we've confirmed the line exists exactly once
         except Exception as e:
             if not sudo:
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
+            
+        # If we're using sudo and couldn't check for duplicates, we'll rely on the modify_func check
+            
+        # If we're using sudo and couldn't check for duplicates, we'll rely on the modify_func check
             
         # Define the modification function
         def modify_func(text):
@@ -335,10 +341,12 @@ class SshFileOperations_Linux:
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
+                    
+                    # If we get here, we've confirmed the line exists exactly once
         except Exception as e:
             if not sudo:
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
-        
+            
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
@@ -428,6 +436,8 @@ class SshFileOperations_Linux:
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
+                    
+                    # If we get here, we've confirmed the line exists exactly once
         except Exception as e:
             if not sudo:
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
