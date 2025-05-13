@@ -601,10 +601,10 @@ Line 5: This is the last line"""
             
             # Create test file with duplicate lines
             await client.call_tool("ssh_cmd_run", {
-                "command": f"echo '{file_content}' > {test_file}",
+                "command": f"cat > {test_file} << 'EOF'\n{file_content}\nEOF",
                 "io_timeout": 5.0
             })
-            
+                
             # Test replace line with duplicate match
             replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
                 "file_path": test_file,

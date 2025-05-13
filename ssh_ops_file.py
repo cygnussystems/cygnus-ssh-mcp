@@ -246,8 +246,6 @@ class SshFileOperations_Linux:
             
         # If we're using sudo and couldn't check for duplicates, we'll rely on the modify_func check
             
-        # If we're using sudo and couldn't check for duplicates, we'll rely on the modify_func check
-            
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
