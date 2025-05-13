@@ -227,6 +227,37 @@ except AttributeError:
 # ====================================================
 
 
+# Add this within your mcp_ssh_server.py file, similar to other tools
+
+@mcp.tool()
+async def list_tools() -> list:
+    """
+    Retrieves a list of all available tools on this MCP server,
+    along with their descriptions.
+
+    Returns:
+        A list of dictionaries, where each dictionary contains the 'name'
+        and 'description' of an available tool.
+    """
+    logger.info("Request received to list available tools.")
+    available_tools = []
+    # The mcp.list_tools() method should provide ToolInfo objects
+    # (or similar) that have .name and .description attributes.
+    for tool_spec in mcp.list_tools():
+        tool_details = {
+            "name": tool_spec.name,
+            "description": tool_spec.description
+        }
+        # If tool_spec contains more information, like parameters,
+        # you could consider adding that here as well.
+        # For example:
+        # if hasattr(tool_spec, 'parameters'):
+        #     tool_details["parameters"] = tool_spec.parameters
+        available_tools.append(tool_details)
+
+    return available_tools
+
+
 @mcp.tool()
 async def ssh_conn_is_connected() -> bool:
     """
