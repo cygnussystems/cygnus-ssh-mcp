@@ -227,6 +227,9 @@ class SshFileOperations_Linux:
                 return {"success": False, "error": f"Error accessing file: {str(e)}"}
         
         # Check for duplicate lines before attempting modification
+        duplicate_check_failed = False
+        match_count = 0
+        
         try:
             with self.ssh_client._client.open_sftp() as sftp:
                 with sftp.file(remote_file, 'r') as f:
@@ -239,6 +242,7 @@ class SshFileOperations_Linux:
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
                         self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
+                        duplicate_check_failed = True
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
                     
                     # If we get here, we've confirmed the line exists exactly once
@@ -246,17 +250,31 @@ class SshFileOperations_Linux:
             if not sudo:
                 self.logger.error(f"Error checking for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
-            
-        # If we're using sudo and couldn't check for duplicates, we'll rely on the modify_func check
+            duplicate_check_failed = True
+        
+        # If duplicate check failed, don't proceed with modification
+        if duplicate_check_failed:
+            return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
             
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
-            # We've already checked for uniqueness, so we don't need to check again
             
             modified = False
             result = []
+            match_count = 0
             
+            # Count matches first to ensure uniqueness
+            for line in lines:
+                stripped_line = line.rstrip('\r\n')
+                if stripped_line == match_line:
+                    match_count += 1
+            
+            # If not unique, don't modify and raise an error
+            if match_count != 1:
+                raise ValueError(f"Match line is not unique in file (found {match_count} occurrences)")
+            
+            # Now do the actual replacement
             for line in lines:
                 stripped_line = line.rstrip('\r\n')
                 if stripped_line == match_line and not modified:
@@ -275,11 +293,13 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                # We've already checked for duplicates, so we can proceed with the modification
                 result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
                 if isinstance(result, dict) and not result.get("success", False):
                     return result
                 return {"success": True, "lines_written": len(new_lines)}
+            except ValueError as e:
+                self.logger.error(f"Failed to replace line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 self.logger.error(f"Failed to replace line in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -287,11 +307,13 @@ class SshFileOperations_Linux:
             if force:
                 self.logger.warning("force=True has no effect when sudo=False")
             try:
-                # We've already checked for duplicates, so we can proceed with the modification
                 result = self._replace_content_sftp(remote_file, modify_func)
                 if result.get("success", False):
                     result["lines_written"] = len(new_lines)
                 return result
+            except ValueError as e:
+                self.logger.error(f"Failed to replace line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 self.logger.error(f"Failed to replace line in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -328,6 +350,9 @@ class SshFileOperations_Linux:
                 return {"success": False, "error": f"Error accessing file: {str(e)}"}
         
         # Check for duplicate lines before attempting modification
+        duplicate_check_failed = False
+        match_count = 0
+        
         try:
             with self.ssh_client._client.open_sftp() as sftp:
                 with sftp.file(remote_file, 'r') as f:
@@ -340,6 +365,7 @@ class SshFileOperations_Linux:
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
                         self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
+                        duplicate_check_failed = True
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
                     
                     # If we get here, we've confirmed the line exists exactly once
@@ -347,15 +373,31 @@ class SshFileOperations_Linux:
             if not sudo:
                 self.logger.error(f"Error checking for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
+            duplicate_check_failed = True
+        
+        # If duplicate check failed, don't proceed with modification
+        if duplicate_check_failed:
+            return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
             
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
-            # We've already checked for uniqueness, so we don't need to check again
             
             modified = False
             result = []
+            match_count = 0
             
+            # Count matches first to ensure uniqueness
+            for line in lines:
+                stripped_line = line.rstrip('\r\n')
+                if stripped_line == match_line:
+                    match_count += 1
+            
+            # If not unique, don't modify and raise an error
+            if match_count != 1:
+                raise ValueError(f"Match line is not unique in file (found {match_count} occurrences)")
+            
+            # Now do the actual insertion
             for line in lines:
                 result.append(line)  # Always keep the original line
                 
@@ -378,6 +420,9 @@ class SshFileOperations_Linux:
                 if isinstance(result, dict) and not result.get("success", False):
                     return result
                 return {"success": True, "lines_inserted": len(lines_to_insert)}
+            except ValueError as e:
+                self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -389,6 +434,9 @@ class SshFileOperations_Linux:
                 if result.get("success", False):
                     result["lines_inserted"] = len(lines_to_insert)
                 return result
+            except ValueError as e:
+                self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -420,6 +468,9 @@ class SshFileOperations_Linux:
                 return {"success": False, "error": f"Error accessing file: {str(e)}"}
         
         # Check for duplicate lines before attempting modification
+        duplicate_check_failed = False
+        match_count = 0
+        
         try:
             with self.ssh_client._client.open_sftp() as sftp:
                 with sftp.file(remote_file, 'r') as f:
@@ -432,6 +483,7 @@ class SshFileOperations_Linux:
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
                         self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
+                        duplicate_check_failed = True
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
                     
                     # If we get here, we've confirmed the line exists exactly once
@@ -439,17 +491,33 @@ class SshFileOperations_Linux:
             if not sudo:
                 self.logger.error(f"Error checking for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
+            duplicate_check_failed = True
+        
+        # If duplicate check failed, don't proceed with modification
+        if duplicate_check_failed:
+            return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
         
         # Define the modification function
         def modify_func(text):
             # Normalize line endings to Unix style
             text = text.replace('\r\n', '\n')
             lines = text.splitlines(keepends=True)
-            # We've already checked for uniqueness, so we don't need to check again
             
             modified = False
             result = []
+            match_count = 0
             
+            # Count matches first to ensure uniqueness
+            for line in lines:
+                stripped_line = line.rstrip('\n')
+                if stripped_line == match_line:
+                    match_count += 1
+            
+            # If not unique, don't modify and raise an error
+            if match_count != 1:
+                raise ValueError(f"Match line is not unique in file (found {match_count} occurrences)")
+            
+            # Now do the actual deletion
             for line in lines:
                 stripped_line = line.rstrip('\n')
                 if stripped_line == match_line and not modified:
@@ -468,6 +536,9 @@ class SshFileOperations_Linux:
                 if isinstance(result, dict) and not result.get("success", False):
                     return result
                 return {"success": True}
+            except ValueError as e:
+                self.logger.error(f"Failed to delete line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 self.logger.error(f"Failed to delete line in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -475,7 +546,11 @@ class SshFileOperations_Linux:
             if force:
                 self.logger.warning("force=True has no effect when sudo=False")
             try:
-                return self._replace_content_sftp(remote_file, modify_func)
+                result = self._replace_content_sftp(remote_file, modify_func)
+                return result
+            except ValueError as e:
+                self.logger.error(f"Failed to delete line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
             except Exception as e:
                 self.logger.error(f"Failed to delete line in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
