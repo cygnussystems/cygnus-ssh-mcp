@@ -146,3 +146,55 @@ async def test_ssh_reconnect():
             await disconnect_ssh(client)
     
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_list_tools():
+    """Test the 'list_tools' tool to ensure it returns available tools."""
+    print_test_header("Testing 'list_tools' tool")
+    logger.info("Starting list_tools test")
+
+    async with Client(mcp) as client:
+        try:
+            # Call the list_tools tool
+            result = await client.call_tool("list_tools", {})
+            logger.info(f"Raw result from list_tools: {result}")
+
+            # Verify the result structure from client.call_tool
+            assert result is not None, "Expected non-empty result from call_tool"
+            assert isinstance(result, list), f"Expected list result from call_tool, got {type(result)}"
+            assert len(result) > 0, "Expected non-empty list from call_tool"
+            assert hasattr(result[0], 'text'), "Expected TextContent object with 'text' attribute"
+
+            # Parse the JSON response
+            tools_list = json.loads(result[0].text)
+            logger.info(f"Parsed tools list: {tools_list}")
+
+            # Verify the parsed list
+            assert isinstance(tools_list, list), f"Expected parsed data to be a list, got {type(tools_list)}"
+            assert len(tools_list) > 0, "Expected a non-empty list of tools"
+
+            # Verify the structure of each item in the list
+            known_tool_names = []
+            for tool_info in tools_list:
+                assert isinstance(tool_info, dict), f"Expected tool_info to be a dict, got {type(tool_info)}"
+                assert 'name' in tool_info, "Expected 'name' key in tool_info"
+                assert isinstance(tool_info['name'], str), "Expected 'name' to be a string"
+                assert 'description' in tool_info, "Expected 'description' key in tool_info"
+                assert isinstance(tool_info['description'], str), "Expected 'description' to be a string"
+                known_tool_names.append(tool_info['name'])
+
+            # Verify that some essential tools are listed
+            assert "list_tools" in known_tool_names, "'list_tools' itself should be in the list"
+            assert "ssh_conn_status" in known_tool_names, "'ssh_conn_status' should be in the list"
+            assert "ssh_cmd_run" in known_tool_names, "'ssh_cmd_run' should be in the list"
+            
+            logger.info(f"Found {len(tools_list)} tools. Verified presence of essential tools.")
+            logger.info("list_tools test completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in list_tools test: {e}", exc_info=True)
+            raise
+        # No specific cleanup like disconnect_ssh is needed as this tool doesn't manage connections
+    
+    print_test_footer()
