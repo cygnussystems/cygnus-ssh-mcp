@@ -593,13 +593,22 @@ async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
             test_file = "/tmp/ssh_test_duplicate_lines.txt"
-            file_content = """Line 1: This is a test file
-Line 2: This is a duplicate line
-Line 3: Some other content
-Line 4: This is a duplicate line
-Line 5: This is the last line"""
+            # Define file content explicitly to ensure no ambiguity with whitespace or newlines
+            file_content_lines = [
+                "Line 1: This is a test file",
+                "Line 2: This is a duplicate line",
+                "Line 3: Some other content",
+                "Line 4: This is a duplicate line",
+                "Line 5: This is the last line"
+            ]
+            file_content = "\n".join(file_content_lines)
             
+            # The line we expect to be duplicated
+            match_line_for_test = "Line 2: This is a duplicate line"
+
             # Create test file with duplicate lines
+            # Using printf for more robust line handling than echo with here-doc for complex content
+            # However, for this simple content, cat with here-doc is fine if file_content is well-defined.
             await client.call_tool("ssh_cmd_run", {
                 "command": f"cat > {test_file} << 'EOF'\n{file_content}\nEOF",
                 "io_timeout": 5.0
@@ -608,7 +617,7 @@ Line 5: This is the last line"""
             # Test replace line with duplicate match
             replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
                 "file_path": test_file,
-                "match_line": "Line 2: This is a duplicate line",
+                "match_line": match_line_for_test,
                 "new_lines": ["Line 2: This has been replaced"]
             })
             result = json.loads(replace_result[0].text)
@@ -617,7 +626,7 @@ Line 5: This is the last line"""
             # Test insert after line with duplicate match
             insert_result = await client.call_tool("ssh_file_insert_lines_after_match", {
                 "file_path": test_file,
-                "match_line": "Line 2: This is a duplicate line",
+                "match_line": match_line_for_test,
                 "lines_to_insert": ["New inserted line"]
             })
             insert_json = json.loads(insert_result[0].text)
@@ -626,7 +635,7 @@ Line 5: This is the last line"""
             # Test delete line with duplicate match
             delete_result = await client.call_tool("ssh_file_delete_line_by_content", {
                 "file_path": test_file,
-                "match_line": "Line 2: This is a duplicate line"
+                "match_line": match_line_for_test
             })
             delete_json = json.loads(delete_result[0].text)
             assert delete_json['success'] == False, "Should fail when match line is not unique"
