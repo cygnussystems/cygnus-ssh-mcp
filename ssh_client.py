@@ -376,26 +376,103 @@ class SshClient:
         """Get file/directory status info."""
         return self.file_ops.stat(path)
 
-    def replace_line(self, remote_file: str, old_line: str, new_line: str, 
-                    count: int = 1, sudo: bool = False, force: bool = False) -> None:
+    def find_lines_with_pattern(self, remote_file: str, pattern: str, 
+                               regex: bool = False, sudo: bool = False) -> dict:
         """
-        Replace occurrences of a line in a remote text file.
-        Uses temporary local file. Requires write permissions on remote dir/file.
-        If sudo=True, attempts to use sudo for the final 'mv' command.
-        If force=True, proceeds even if original file cannot be read (sudo only).
+        Search for a pattern in a remote file and return matching lines.
+        
+        Args:
+            remote_file: Path to remote file
+            pattern: Text or regex pattern to search for
+            regex: Whether to treat pattern as a regular expression
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dictionary with total matches and list of matches (line number and content)
         """
-        return self.file_ops.replace_line(remote_file, old_line, new_line, count, sudo, force)
-
-
-    def replace_block(self, remote_file: str, old_block: str, new_block: str,
-                     sudo: bool = False, force: bool = False) -> None:
+        return self.file_ops.find_lines_with_pattern(remote_file, pattern, regex, sudo)
+    
+    def get_context_around_line(self, remote_file: str, match_line: str, 
+                               context: int = 3, sudo: bool = False) -> dict:
         """
-        Replace a block of text in a remote text file.
-        Uses temporary local file. Requires write permissions on remote dir/file.
-        If sudo=True, attempts to use sudo for the final 'mv' command.
-        If force=True, proceeds even if original file cannot be read (sudo only).
+        Get lines before and after a line that matches exactly.
+        
+        Args:
+            remote_file: Path to remote file
+            match_line: Exact line content to match
+            context: Number of lines before and after to include
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dictionary with match line number and context block
         """
-        return self.file_ops.replace_block(remote_file, old_block, new_block, sudo, force)
+        return self.file_ops.get_context_around_line(remote_file, match_line, context, sudo)
+    
+    def replace_line_by_content(self, remote_file: str, match_line: str, new_lines: list,
+                               sudo: bool = False, force: bool = False) -> dict:
+        """
+        Replace a unique line (by exact content) with new lines.
+        
+        Args:
+            remote_file: Path to remote file
+            match_line: Exact line content to match and replace
+            new_lines: List of new lines to insert in place of the match
+            sudo: Whether to use sudo for the operation
+            force: Whether to proceed if original file cannot be read (sudo only)
+            
+        Returns:
+            Dictionary with operation status
+        """
+        return self.file_ops.replace_line_by_content(remote_file, match_line, new_lines, sudo, force)
+    
+    def insert_lines_after_match(self, remote_file: str, match_line: str, lines_to_insert: list,
+                                sudo: bool = False, force: bool = False) -> dict:
+        """
+        Insert lines after a unique line match.
+        
+        Args:
+            remote_file: Path to remote file
+            match_line: Exact line content to match
+            lines_to_insert: List of lines to insert after the match
+            sudo: Whether to use sudo for the operation
+            force: Whether to proceed if original file cannot be read (sudo only)
+            
+        Returns:
+            Dictionary with operation status
+        """
+        return self.file_ops.insert_lines_after_match(remote_file, match_line, lines_to_insert, sudo, force)
+    
+    def delete_line_by_content(self, remote_file: str, match_line: str,
+                              sudo: bool = False, force: bool = False) -> dict:
+        """
+        Delete a line matching a unique content string.
+        
+        Args:
+            remote_file: Path to remote file
+            match_line: Exact line content to match and delete
+            sudo: Whether to use sudo for the operation
+            force: Whether to proceed if original file cannot be read (sudo only)
+            
+        Returns:
+            Dictionary with operation status
+        """
+        return self.file_ops.delete_line_by_content(remote_file, match_line, sudo, force)
+    
+    def copy_file(self, source_path: str, destination_path: str, 
+                 append_timestamp: bool = False, sudo: bool = False) -> dict:
+        """
+        Copy a file with optional timestamp appended to the destination.
+        
+        Args:
+            source_path: Source file path
+            destination_path: Destination file path
+            append_timestamp: Whether to append a timestamp to the destination
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dictionary with operation status
+        """
+        return self.file_ops.copy_file(source_path, destination_path, append_timestamp, sudo)
 
 
 

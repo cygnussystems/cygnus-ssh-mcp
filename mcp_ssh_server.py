@@ -904,35 +904,72 @@ async def ssh_file_stat(
 
 
 #
-# @mcp.tool()
-# async def ssh_file_replace_line(
-#     path: Annotated[str, Field(description="File path to modify")],
-#     old_line: Annotated[str, Field(description="Line of text to replace")],
-#     new_line: Annotated[str, Field(description="New line of text")],
-#     count: Annotated[int, Field(description="Number of occurrences to replace (0=all)", ge=0)] = 1,
-#     sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
-#     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
-# ) -> dict:
-#     """
-#     Replace specific lines in a remote file.
-#
-#     Returns:
-#         Dictionary with operation status
-#     """
-#     if not mcp.ssh_client:
-#         raise SshError("No active SSH connection")
-#
-#     try:
-#         mcp.ssh_client.replace_line(path, old_line, new_line, count, sudo, force)
-#         return {
-#             'status': 'success',
-#             'path': path,
-#             'count': count,
-#             'message': f"Replaced {'all occurrences' if count == 0 else count} of the specified line in {path}"
-#         }
-#     except Exception as e:
-#         logger.error(f"Failed to replace line: {e}")
-#         raise
+@mcp.tool()
+async def ssh_file_find_lines_with_pattern(
+    file_path: Annotated[str, Field(description="Path to the file to search")],
+    pattern: Annotated[str, Field(description="Text or regex pattern to search for")],
+    regex: Annotated[bool, Field(description="Whether to treat pattern as a regular expression")] = False,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Search for a pattern in a remote file and return matching lines.
+    
+    Returns:
+        Dictionary with total matches and list of matches (line number and content)
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return mcp.ssh_client.find_lines_with_pattern(file_path, pattern, regex, sudo)
+    except Exception as e:
+        logger.error(f"Failed to search file: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_file_get_context_around_line(
+    file_path: Annotated[str, Field(description="Path to the file")],
+    match_line: Annotated[str, Field(description="Exact line content to match")],
+    context: Annotated[int, Field(description="Number of lines before and after to include", ge=0)] = 3,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Get lines before and after a line that matches exactly.
+    
+    Returns:
+        Dictionary with match line number and context block
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return mcp.ssh_client.get_context_around_line(file_path, match_line, context, sudo)
+    except Exception as e:
+        logger.error(f"Failed to get context: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_file_replace_line_by_content(
+    file_path: Annotated[str, Field(description="Path to the file to modify")],
+    match_line: Annotated[str, Field(description="Exact line content to match and replace")],
+    new_lines: Annotated[list, Field(description="New line(s) to insert in place of the match")],
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+) -> dict:
+    """
+    Replace a unique line (by exact content) with new lines.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, sudo, force)
+    except Exception as e:
+        logger.error(f"Failed to replace line: {e}")
+        raise
 
 
 
@@ -971,32 +1008,72 @@ async def ssh_file_transfer(
         raise
 
 #
-# @mcp.tool()
-# async def ssh_file_replace_block(
-#         path: Annotated[str, Field(description="File path to modify")],
-#         old_block: Annotated[str, Field(description="Block of text to replace")],
-#         new_block: Annotated[str, Field(description="New block of text")],
-#         sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
-# ) -> dict:
-#     """
-#     Replace a block of text in a remote file.
-#
-#     Returns:
-#         Dictionary with operation status
-#     """
-#     if not mcp.ssh_client:
-#         raise SshError("No active SSH connection")
-#
-#     try:
-#         mcp.ssh_client.replace_block(path, old_block, new_block, sudo)
-#         return {
-#             'status': 'success',
-#             'path': path,
-#             'message': f"Replaced block of text in {path}"
-#         }
-#     except Exception as e:
-#         logger.error(f"Failed to replace block: {e}")
-#         raise
+@mcp.tool()
+async def ssh_file_insert_lines_after_match(
+    file_path: Annotated[str, Field(description="Path to the file to modify")],
+    match_line: Annotated[str, Field(description="Exact line content to match")],
+    lines_to_insert: Annotated[list, Field(description="Line(s) to insert after the match")],
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+) -> dict:
+    """
+    Insert lines after a unique line match.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return mcp.ssh_client.insert_lines_after_match(file_path, match_line, lines_to_insert, sudo, force)
+    except Exception as e:
+        logger.error(f"Failed to insert lines: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_file_delete_line_by_content(
+    file_path: Annotated[str, Field(description="Path to the file to modify")],
+    match_line: Annotated[str, Field(description="Exact line content to match and delete")],
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+) -> dict:
+    """
+    Delete a line matching a unique content string.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return mcp.ssh_client.delete_line_by_content(file_path, match_line, sudo, force)
+    except Exception as e:
+        logger.error(f"Failed to delete line: {e}")
+        raise
+
+@mcp.tool()
+async def ssh_file_copy(
+    source_path: Annotated[str, Field(description="Source file path")],
+    destination_path: Annotated[str, Field(description="Destination file path")],
+    append_timestamp: Annotated[bool, Field(description="Whether to append a timestamp to the destination")] = False,
+    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Copy a file with optional timestamp appended to the destination.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return mcp.ssh_client.copy_file(source_path, destination_path, append_timestamp, sudo)
+    except Exception as e:
+        logger.error(f"Failed to copy file: {e}")
+        raise
 
 
 @mcp.tool()
