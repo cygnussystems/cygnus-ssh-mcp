@@ -235,13 +235,16 @@ class SshFileOperations_Linux:
                     match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
                     
                     if match_count == 0:
+                        self.logger.error(f"Match line not found in file: {match_line}")
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
+                        self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
                     
                     # If we get here, we've confirmed the line exists exactly once
         except Exception as e:
             if not sudo:
+                self.logger.error(f"Error checking for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
             
         # If we're using sudo and couldn't check for duplicates, we'll rely on the modify_func check
@@ -293,6 +296,7 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
+                # We've already checked for duplicates, so we can proceed with the modification
                 result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
                 if isinstance(result, dict) and not result.get("success", False):
                     return result
@@ -304,6 +308,7 @@ class SshFileOperations_Linux:
             if force:
                 self.logger.warning("force=True has no effect when sudo=False")
             try:
+                # We've already checked for duplicates, so we can proceed with the modification
                 result = self._replace_content_sftp(remote_file, modify_func)
                 if result.get("success", False):
                     result["lines_written"] = len(new_lines)
@@ -352,13 +357,16 @@ class SshFileOperations_Linux:
                     match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
                     
                     if match_count == 0:
+                        self.logger.error(f"Match line not found in file: {match_line}")
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
+                        self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
                     
                     # If we get here, we've confirmed the line exists exactly once
         except Exception as e:
             if not sudo:
+                self.logger.error(f"Error checking for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
             
         # Define the modification function
@@ -447,13 +455,16 @@ class SshFileOperations_Linux:
                     match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
                     
                     if match_count == 0:
+                        self.logger.error(f"Match line not found in file: {match_line}")
                         return {"success": False, "error": f"Match line not found in file: {match_line}"}
                     if match_count > 1:
+                        self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
                         return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
                     
                     # If we get here, we've confirmed the line exists exactly once
         except Exception as e:
             if not sudo:
+                self.logger.error(f"Error checking for duplicate lines: {str(e)}")
                 return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
         
         # Define the modification function
