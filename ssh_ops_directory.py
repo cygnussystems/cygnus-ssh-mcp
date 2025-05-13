@@ -324,7 +324,7 @@ class SshDirectoryOperations_Linux:
         if not source_exists:
             self.logger.error(f"Source does not exist: {source}")
             return {
-                'status': 'error',
+                'success': False,
                 'message': f"Source does not exist: {source}"
             }
         
@@ -341,7 +341,7 @@ class SshDirectoryOperations_Linux:
             if destination_exists and not overwrite:
                 self.logger.warning(f"Destination exists and overwrite=False: {destination}")
                 return {
-                    'status': 'error',
+                    'success': False,
                     'message': f"Destination exists and overwrite not allowed: {destination}"
                 }
             
@@ -352,20 +352,20 @@ class SshDirectoryOperations_Linux:
             if move_handle.exit_code != 0:
                 self.logger.error(f"Failed to move/rename: {move_handle.tail(5)}")
                 return {
-                    'status': 'error',
+                    'success': False,
                     'message': f"Failed to move/rename, exit code: {move_handle.exit_code}"
                 }
             
             self.logger.info(f"Successfully moved {source} to {destination}")
             return {
-                'status': 'success',
+                'success': True,
                 'message': f"Successfully moved {source} to {destination}"
             }
             
         except Exception as e:
             self.logger.error(f"Error moving/renaming: {e}", exc_info=True)
             return {
-                'status': 'error',
+                'success': False,
                 'message': str(e)
             }
     
