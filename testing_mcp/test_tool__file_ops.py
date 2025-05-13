@@ -56,7 +56,7 @@ async def test_ssh_file_transfer(mcp_test_environment):
             for path in [local_path, download_path]:
                 if path is not None and os.path.exists(path):
                     os.unlink(path)
-            await client.call_tool("ssh_run", {
+            await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -f {remote_path}",
                 "io_timeout": 5.0
             })
@@ -70,7 +70,7 @@ async def test_ssh_file_transfer(mcp_test_environment):
 @pytest.mark.asyncio
 async def test_ssh_mkdir_rmdir(mcp_test_environment):
     """Test directory creation and removal operations."""
-    print_test_header("Testing 'ssh_mkdir' and 'ssh_rmdir' tools")
+    print_test_header("Testing 'ssh_dir_mkdir' and 'ssh_dir_remove' tools")
 
     async with Client(mcp) as client:
         try:
@@ -78,20 +78,20 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
             test_dir = "/tmp/ssh_test_dir"
             
             # Cleanup any existing dir
-            await client.call_tool("ssh_rmdir", {
+            await client.call_tool("ssh_dir_remove", {
                 "path": test_dir,
                 "recursive": True
             })
             
             # Test create directory
-            mkdir_result = await client.call_tool("ssh_mkdir", {
+            mkdir_result = await client.call_tool("ssh_dir_mkdir", {
                 "path": test_dir,
                 "mode": 0o755
             })
             assert json.loads(mkdir_result[0].text)['status'] == 'success'
             
-            # Skip the listdir check and directly verify directory exists using ssh_stat
-            stat_result = await client.call_tool("ssh_stat", {"path": test_dir})
+            # Skip the listdir check and directly verify directory exists using ssh_file_stat
+            stat_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
             stat_response = stat_result[0].text
                 
             # Always treat the response as a string and parse it
@@ -139,7 +139,7 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
                 assert stat_info.get('type') == 'directory', f"Path {test_dir} should be a directory"
             
             # Test remove directory
-            rmdir_result = await client.call_tool("ssh_rmdir", {
+            rmdir_result = await client.call_tool("ssh_dir_remove", {
                 "path": test_dir,
                 "recursive": False
             })
@@ -156,7 +156,7 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
 @pytest.mark.asyncio
 async def test_ssh_replace_line(mcp_test_environment):
     """Test file content replacement operations."""
-    print_test_header("Testing 'ssh_replace_line' tool")
+    print_test_header("Testing 'ssh_file_replace_line' tool")
 
     async with Client(mcp) as client:
         try:
@@ -167,13 +167,13 @@ Line 2: This line will be replaced
 Line 3: This is the last line"""
             
             # Create test file
-            await client.call_tool("ssh_run", {
+            await client.call_tool("ssh_cmd_run", {
                 "command": f"echo '{file_content}' > {test_file}",
                 "io_timeout": 5.0
             })
             
             # Replace line
-            replace_result = await client.call_tool("ssh_replace_line", {
+            replace_result = await client.call_tool("ssh_file_replace_line", {
                 "path": test_file,
                 "old_line": "Line 2: This line will be replaced",
                 "new_line": "Line 2: This line has been replaced",
@@ -182,14 +182,14 @@ Line 3: This is the last line"""
             assert json.loads(replace_result[0].text)['status'] == 'success'
             
             # Verify content
-            cat_result = await client.call_tool("ssh_run", {
+            cat_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
             assert "Line 2: This line has been replaced" in json.loads(cat_result[0].text)['output']
             
         finally:
-            await client.call_tool("ssh_run", {
+            await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -f {test_file}",
                 "io_timeout": 5.0
             })
