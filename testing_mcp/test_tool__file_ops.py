@@ -580,6 +580,10 @@ async def test_ssh_file_move(mcp_test_environment):
             await disconnect_ssh(client)
     
     print_test_footer()
+
+
+
+
 @pytest.mark.asyncio
 async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
     """Test file operations with duplicate lines to ensure they fail appropriately."""
@@ -635,6 +639,10 @@ Line 5: This is the last line"""
             await disconnect_ssh(client)
     
     print_test_footer()
+
+
+
+
 @pytest.mark.asyncio
 async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
     """Test file operations with a non-existent file to ensure they fail appropriately."""
