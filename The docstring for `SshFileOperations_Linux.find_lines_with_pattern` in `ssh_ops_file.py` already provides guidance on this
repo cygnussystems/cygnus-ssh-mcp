@@ -1,0 +1,2 @@
+                   Note: For portability with `grep -E`, avoid PCRE-specific syntax like '`\\d`'.
+                   Use POSIX ERE compatible patterns (e.g., `[0-9]` or `[[:digit:]]` for digits).
