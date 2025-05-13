@@ -90,62 +90,35 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
             })
             assert json.loads(mkdir_result[0].text)['status'] == 'success'
             
-            # Skip the listdir check and directly verify directory exists using ssh_file_stat
+            # Verify directory exists using ssh_file_stat
             stat_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
-            stat_response = stat_result[0].text
-                
-            # Always treat the response as a string and parse it
-            try:
-                stat_info = json.loads(stat_response)
-            except json.JSONDecodeError:
-                # If it's not valid JSON, create a simple dict based on the string
-                # This handles the case where the response is a directory listing format
-                if isinstance(stat_response, str):
-                    if stat_response.startswith('d'):
-                        stat_info = {
-                            "exists": True,
-                            "type": "directory",
-                            "raw": stat_response
-                        }
-                    elif stat_response.startswith('-'):
-                        stat_info = {
-                            "exists": True,
-                            "type": "file",
-                            "raw": stat_response
-                        }
-                    else:
-                        # If we can't determine the type, just check existence
-                        stat_info = {
-                            "exists": True,
-                            "raw": stat_response
-                        }
-                else:
-                    # If it's not a string, use it as is
-                    stat_info = stat_response
+            stat_info = json.loads(stat_result[0].text) # Should be valid JSON from the tool
                 
             # Print for debugging
             print(f"stat_info type: {type(stat_info)}")
             print(f"stat_info content: {stat_info}")
                 
-            # Handle both string and dict cases
-            if isinstance(stat_info, str):
-                # For string responses, just check if it contains directory info
-                assert 'drwx' in stat_info, f"Directory {test_dir} should exist"
-            else:
-                # For dict responses, use get method
-                assert stat_info.get('exists', False), f"Directory {test_dir} should exist"
-            # Only check type if it's a dict and type is provided
-            if isinstance(stat_info, dict) and 'type' in stat_info:
-                assert stat_info.get('type') == 'directory', f"Path {test_dir} should be a directory"
+            assert stat_info.get('exists') == True, f"Directory {test_dir} should exist. Stat info: {stat_info}"
+            assert stat_info.get('type') == 'directory', f"Path {test_dir} should be a directory. Stat info: {stat_info}"
             
             # Test remove directory
             rmdir_result = await client.call_tool("ssh_dir_remove", {
                 "path": test_dir,
-                "recursive": False
+                "recursive": False # Should succeed as it's empty
             })
             assert json.loads(rmdir_result[0].text)['status'] == 'success'
+
+            # Verify directory no longer exists
+            stat_after_rm_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
+            stat_info_after_rm = json.loads(stat_after_rm_result[0].text)
+            assert stat_info_after_rm.get('exists') == False, f"Directory {test_dir} should not exist after rmdir. Stat info: {stat_info_after_rm}"
             
         finally:
+            # Additional cleanup just in case, though the test should handle it
+            stat_check_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
+            stat_check_info = json.loads(stat_check_result[0].text)
+            if stat_check_info.get('exists'):
+                await client.call_tool("ssh_dir_remove", {"path": test_dir, "recursive": True})
             await disconnect_ssh(client)
     
     print_test_footer()

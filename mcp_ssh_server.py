@@ -11,6 +11,8 @@ from typing import Annotated, Optional, Literal, Dict
 from datetime import datetime, UTC
 from ssh_client import SshClient
 from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
+import stat as stat_module # Added import
+import errno # Added import
 
 
 def parse_args():
@@ -852,54 +854,57 @@ async def ssh_file_stat(
     Get status information about a file or directory.
     
     Returns:
-        Dictionary with file/directory metadata
+        Dictionary with file/directory metadata.
+        Includes 'exists': True/False.
+        If exists, includes 'type': ('file', 'directory', 'symlink', 'unknown'),
+        'mode' (octal string), 'uid', 'gid', 'size', 'atime', 'mtime'.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        stat_info = mcp.ssh_client.stat(path)
+        # SshClient.stat() itself returns SFTPAttributes object from Paramiko
+        # or raises an error (e.g., IOError for not found / permission denied)
+        sftp_attrs = mcp.ssh_client.stat(path) 
         
-        # Ensure we're returning a dictionary, not a string
-        if isinstance(stat_info, str):
-            # Check if it's a directory listing format (starts with permissions)
-            if stat_info.startswith('d') or stat_info.startswith('-') or stat_info.startswith('l'):
-                # Parse directory listing format
-                parts = stat_info.split()
-                if len(parts) >= 5:
-                    permissions = parts[0]
-                    is_dir = permissions.startswith('d')
-                    size = int(parts[4]) if parts[4].isdigit() else 0
-                    
-                    return {
-                        "exists": True,
-                        "type": "directory" if is_dir else "file",
-                        "permissions": permissions,
-                        "size": size,
-                        "raw": stat_info
-                    }
-            
-            # Try to parse as JSON if it's a string
-            try:
-                import json
-                parsed_info = json.loads(stat_info)
-                # If parsed result is still a string, create a dict
-                if isinstance(parsed_info, str):
-                    return {"message": parsed_info, "exists": True}
-                return parsed_info
-            except json.JSONDecodeError:
-                # If it's not JSON, create a simple dict with the string
-                return {"message": stat_info, "exists": True}
-        
-        # If it's already a dict, ensure it has the 'exists' key
-        if isinstance(stat_info, dict) and 'exists' not in stat_info:
-            stat_info['exists'] = True
-            
-        return stat_info
-    except Exception as e:
-        logger.error(f"Failed to get file status: {e}")
-        # Return a structured error response instead of raising
-        return {"error": str(e), "exists": False}
+        mode_val = sftp_attrs.st_mode
+        file_type = "unknown"
+        if stat_module.S_ISDIR(mode_val):
+            file_type = "directory"
+        elif stat_module.S_ISREG(mode_val):
+            file_type = "file"
+        elif stat_module.S_ISLNK(mode_val):
+            file_type = "symlink"
+        # Could add S_ISCHR, S_ISBLK, S_ISFIFO, S_ISSOCK if needed
+
+        return {
+            "exists": True,
+            "path": path,
+            "type": file_type,
+            "mode": oct(mode_val), # e.g., "0o40755" for drwxr-xr-x
+            "uid": sftp_attrs.st_uid,
+            "gid": sftp_attrs.st_gid,
+            "size": sftp_attrs.st_size,
+            "atime": sftp_attrs.st_atime, # Unix timestamp
+            "mtime": sftp_attrs.st_mtime, # Unix timestamp
+        }
+    except IOError as e: 
+        # errno.ENOENT is 2 (os.strerror(2) is 'No such file or directory').
+        # Check if this IOError means "No such file or directory".
+        if hasattr(e, 'errno') and e.errno == errno.ENOENT:
+            logger.debug(f"File not found for stat({path}) (ENOENT): {e}")
+            return {"exists": False, "path": path, "error": "File or directory not found."}
+        # Paramiko also sometimes just puts "No such file" in the message without specific errno
+        elif "no such file" in str(e).lower():
+            logger.debug(f"File not found for stat({path}) (text match): {e}")
+            return {"exists": False, "path": path, "error": "File or directory not found."}
+        else:
+            # Other IOErrors (e.g., permission denied on stat itself)
+            logger.error(f"IOError getting file status for {path}: {e}")
+            return {"exists": False, "path": path, "error": f"Permission denied or other IOError: {str(e)}"}
+    except Exception as e: # Catch-all for other unexpected errors
+        logger.error(f"Unexpected error in ssh_file_stat for {path}: {e} (type: {type(e).__name__})")
+        return {"exists": False, "path": path, "error": f"Unexpected error: {str(e)}"}
 
 
 
