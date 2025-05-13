@@ -88,93 +88,356 @@ class SshFileOperations_Linux:
         with self.ssh_client._client.open_sftp() as sftp:
             return sftp.stat(path)
 
-    def replace_line(self, remote_file: str, old_line: str, new_line: str, 
-                    count: int = 1, sudo: bool = False, force: bool = False) -> None:
+    def find_lines_with_pattern(self, remote_file: str, pattern: str, 
+                               regex: bool = False, sudo: bool = False) -> dict:
         """
-        Replace occurrences of a line in a remote text file.
+        Search for a pattern in a remote file and return matching lines.
         
         Args:
             remote_file: Path to remote file
-            old_line: Line content to replace
-            new_line: New line content
-            count: Maximum number of replacements to make
+            pattern: Text or regex pattern to search for
+            regex: Whether to treat pattern as a regular expression
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dictionary with total matches and list of matches (line number and content)
+        """
+        self.logger.info(f"Searching for pattern in {remote_file} (regex={regex}, sudo={sudo})")
+        
+        # Escape pattern for grep if not using regex
+        grep_pattern = pattern if regex else pattern.replace("'", "'\\''")
+        grep_option = "-E" if regex else "-F"
+        
+        # Build grep command with line numbers
+        cmd = f"grep {grep_option} -n '{grep_pattern}' {shlex.quote(remote_file)}"
+        
+        try:
+            # Execute grep command
+            handle = self.ssh_client.run(cmd, sudo=sudo)
+            output = handle.get_full_output()
+            
+            # Parse grep output (format: "line_number:content")
+            matches = []
+            for line in output.splitlines():
+                if ":" in line:
+                    line_num_str, content = line.split(":", 1)
+                    try:
+                        line_num = int(line_num_str)
+                        matches.append({"line_number": line_num, "content": content})
+                    except ValueError:
+                        self.logger.warning(f"Could not parse line number from grep output: {line}")
+            
+            return {
+                "total_matches": len(matches),
+                "matches": matches
+            }
+        except Exception as e:
+            if "No such file or directory" in str(e):
+                return {"total_matches": 0, "matches": [], "error": "File not found"}
+            elif "Permission denied" in str(e) and not sudo:
+                return {"total_matches": 0, "matches": [], "error": "Permission denied, try with sudo=True"}
+            else:
+                self.logger.error(f"Error searching file {remote_file}: {e}")
+                return {"total_matches": 0, "matches": [], "error": str(e)}
+
+    def get_context_around_line(self, remote_file: str, match_line: str, 
+                               context: int = 3, sudo: bool = False) -> dict:
+        """
+        Get lines before and after a line that matches exactly.
+        
+        Args:
+            remote_file: Path to remote file
+            match_line: Exact line content to match
+            context: Number of lines before and after to include
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dictionary with match line number and context block
+        """
+        self.logger.info(f"Getting context around line in {remote_file} (context={context}, sudo={sudo})")
+        
+        # First find the exact line number
+        find_result = self.find_lines_with_pattern(remote_file, match_line, regex=False, sudo=sudo)
+        
+        if find_result["total_matches"] == 0:
+            return {"match_found": False, "error": "Match line not found in file"}
+        
+        if find_result["total_matches"] > 1:
+            return {"match_found": False, "error": "Multiple matches found for the line", "matches": find_result["matches"]}
+        
+        # Get the line number of the match
+        match_line_number = find_result["matches"][0]["line_number"]
+        
+        # Calculate the range of lines to extract
+        start_line = max(1, match_line_number - context)
+        end_line = match_line_number + context
+        
+        # Use sed to extract the range of lines
+        cmd = f"sed -n '{start_line},{end_line}p' {shlex.quote(remote_file)}"
+        
+        try:
+            handle = self.ssh_client.run(cmd, sudo=sudo)
+            output = handle.get_full_output()
+            
+            # Build the context block with line numbers
+            context_block = []
+            current_line = start_line
+            for line in output.splitlines():
+                context_block.append({"line_number": current_line, "content": line})
+                current_line += 1
+            
+            return {
+                "match_found": True,
+                "match_line_number": match_line_number,
+                "context_block": context_block
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting context around line in {remote_file}: {e}")
+            return {"match_found": False, "error": str(e)}
+
+    def replace_line_by_content(self, remote_file: str, match_line: str, new_lines: list,
+                               sudo: bool = False, force: bool = False) -> dict:
+        """
+        Replace a unique line (by exact content) with new lines.
+        
+        Args:
+            remote_file: Path to remote file
+            match_line: Exact line content to match and replace
+            new_lines: List of new lines to insert in place of the match
             sudo: Whether to use sudo for the operation
             force: Whether to proceed if original file cannot be read (sudo only)
+            
+        Returns:
+            Dictionary with operation status
         """
-        self.logger.info(f"Replacing line in {remote_file} (sudo={sudo}, force={force})")
+        self.logger.info(f"Replacing line by content in {remote_file} (sudo={sudo}, force={force})")
+        
+        # Ensure new_lines is a list
+        if isinstance(new_lines, str):
+            new_lines = [new_lines]
+        
+        # Define the modification function
+        def modify_func(text):
+            lines = text.splitlines(keepends=True)
+            modified = False
+            result = []
+            
+            for line in lines:
+                stripped_line = line.rstrip('\r\n')
+                if stripped_line == match_line and not modified:
+                    # Found the match, replace with new lines
+                    ending = line[len(stripped_line):] if line != stripped_line else '\n'
+                    for i, new_line in enumerate(new_lines):
+                        # Add original line ending to each new line
+                        if i < len(new_lines) - 1:
+                            result.append(new_line + ending)
+                        else:
+                            # Last line gets the original ending
+                            result.append(new_line + ending)
+                    modified = True
+                else:
+                    result.append(line)
+            
+            return "".join(result) if modified else text
+        
+        # Use existing helpers for file modification
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
-            self._replace_content_sudo(
-                remote_file, 
-                remote_temp_path,
-                lambda text: self._perform_replace_line(text, old_line, new_line, count),
-                force=force
-            )
+            try:
+                self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                return {"success": True, "lines_written": len(new_lines)}
+            except Exception as e:
+                self.logger.error(f"Failed to replace line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
         else:
             if force:
-                self.logger.warning("force=True has no effect when sudo=False for replace_line.")
-            self._replace_content_sftp(
-                remote_file,
-                lambda text: self._perform_replace_line(text, old_line, new_line, count)
-            )
+                self.logger.warning("force=True has no effect when sudo=False")
+            try:
+                self._replace_content_sftp(remote_file, modify_func)
+                return {"success": True, "lines_written": len(new_lines)}
+            except Exception as e:
+                self.logger.error(f"Failed to replace line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
 
-    def replace_block(self, remote_file: str, old_block: str, new_block: str, 
-                     sudo: bool = False, force: bool = False) -> None:
+    def insert_lines_after_match(self, remote_file: str, match_line: str, lines_to_insert: list,
+                                sudo: bool = False, force: bool = False) -> dict:
         """
-        Replace a block of text in a remote text file.
+        Insert lines after a unique line match.
         
         Args:
             remote_file: Path to remote file
-            old_block: Block content to replace
-            new_block: New block content
+            match_line: Exact line content to match
+            lines_to_insert: List of lines to insert after the match
             sudo: Whether to use sudo for the operation
             force: Whether to proceed if original file cannot be read (sudo only)
+            
+        Returns:
+            Dictionary with operation status
         """
-        self.logger.info(f"Replacing block in {remote_file} (sudo={sudo}, force={force})")
-        # Ensure blocks are strings
-        old_block_str = "".join(old_block) if isinstance(old_block, (list, tuple)) else str(old_block)
-        new_block_str = "".join(new_block) if isinstance(new_block, (list, tuple)) else str(new_block)
-
-        modify_func = lambda text: text.replace(old_block_str, new_block_str)
-
+        self.logger.info(f"Inserting lines after match in {remote_file} (sudo={sudo}, force={force})")
+        
+        # Ensure lines_to_insert is a list
+        if isinstance(lines_to_insert, str):
+            lines_to_insert = [lines_to_insert]
+        
+        # Define the modification function
+        def modify_func(text):
+            lines = text.splitlines(keepends=True)
+            modified = False
+            result = []
+            
+            for line in lines:
+                result.append(line)  # Always keep the original line
+                
+                # Check if this is the match line
+                stripped_line = line.rstrip('\r\n')
+                if stripped_line == match_line and not modified:
+                    # Insert new lines after the match
+                    ending = line[len(stripped_line):] if line != stripped_line else '\n'
+                    for new_line in lines_to_insert:
+                        result.append(new_line + ending)
+                    modified = True
+            
+            return "".join(result) if modified else text
+        
+        # Use existing helpers for file modification
         if sudo:
-            remote_temp_path = f"/tmp/replace_block_{os.path.basename(remote_file)}_{int(time.time())}"
-            self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+            remote_temp_path = f"/tmp/insert_after_{os.path.basename(remote_file)}_{int(time.time())}"
+            try:
+                self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                return {"success": True, "lines_inserted": len(lines_to_insert)}
+            except Exception as e:
+                self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
         else:
             if force:
-                self.logger.warning("force=True has no effect when sudo=False for replace_block.")
-            self._replace_content_sftp(remote_file, modify_func)
+                self.logger.warning("force=True has no effect when sudo=False")
+            try:
+                self._replace_content_sftp(remote_file, modify_func)
+                return {"success": True, "lines_inserted": len(lines_to_insert)}
+            except Exception as e:
+                self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
 
-    def _perform_replace_line(self, text: str, old_line: str, new_line: str, count: int) -> str:
-        """Helper function containing the actual line replacement logic."""
-        self.logger.debug(f"Replacing line: '{old_line}' with '{new_line}', count={count}")
-        self.logger.debug(f"Original text length: {len(text)}, lines: {len(text.splitlines())}")
+    def delete_line_by_content(self, remote_file: str, match_line: str,
+                              sudo: bool = False, force: bool = False) -> dict:
+        """
+        Delete a line matching a unique content string.
         
-        lines = text.splitlines(keepends=True)
-        replaced_count = 0
-        modified = False
-        new_lines = []
-        
-        for i, line in enumerate(lines):
-            stripped_line = line.rstrip('\r\n')
-            self.logger.debug(f"Line {i}: '{stripped_line}' (len={len(stripped_line)}), original: '{line!r}'")
+        Args:
+            remote_file: Path to remote file
+            match_line: Exact line content to match and delete
+            sudo: Whether to use sudo for the operation
+            force: Whether to proceed if original file cannot be read (sudo only)
             
-            if stripped_line == old_line and replaced_count < count:
-                # Preserve the original line ending
-                ending = line[len(stripped_line):]
-                new_lines.append(new_line + ending)
-                self.logger.debug(f"  Replaced line {i}: '{new_line + ending!r}'")
-                replaced_count += 1
-                modified = True
-            else:
-                new_lines.append(line)
+        Returns:
+            Dictionary with operation status
+        """
+        self.logger.info(f"Deleting line by content in {remote_file} (sudo={sudo}, force={force})")
         
-        result = "".join(new_lines) if modified else text
-        self.logger.debug(f"Modified: {modified}, replaced: {replaced_count}, result length: {len(result)}")
-        return result
+        # Define the modification function
+        def modify_func(text):
+            lines = text.splitlines(keepends=True)
+            modified = False
+            result = []
+            
+            for line in lines:
+                stripped_line = line.rstrip('\r\n')
+                if stripped_line == match_line and not modified:
+                    # Skip this line (delete it)
+                    modified = True
+                else:
+                    result.append(line)
+            
+            return "".join(result) if modified else text
+        
+        # Use existing helpers for file modification
+        if sudo:
+            remote_temp_path = f"/tmp/delete_line_{os.path.basename(remote_file)}_{int(time.time())}"
+            try:
+                self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                return {"success": True}
+            except Exception as e:
+                self.logger.error(f"Failed to delete line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
+        else:
+            if force:
+                self.logger.warning("force=True has no effect when sudo=False")
+            try:
+                self._replace_content_sftp(remote_file, modify_func)
+                return {"success": True}
+            except Exception as e:
+                self.logger.error(f"Failed to delete line in {remote_file}: {e}")
+                return {"success": False, "error": str(e)}
 
-    def _replace_content_sftp(self, remote_file: str, modify_func: Callable[[str], str]) -> None:
-        """Internal helper for SFTP-based file modification."""
+    def copy_file(self, source_path: str, destination_path: str, 
+                 append_timestamp: bool = False, sudo: bool = False) -> dict:
+        """
+        Copy a file with optional timestamp appended to the destination.
+        
+        Args:
+            source_path: Source file path
+            destination_path: Destination file path
+            append_timestamp: Whether to append a timestamp to the destination
+            sudo: Whether to use sudo for the operation
+            
+        Returns:
+            Dictionary with operation status
+        """
+        # Generate timestamped destination if requested
+        actual_destination = destination_path
+        if append_timestamp:
+            timestamp = time.strftime("%Y%m%dT%H%M%S")
+            base, ext = os.path.splitext(destination_path)
+            actual_destination = f"{base}.{timestamp}{ext}"
+        
+        self.logger.info(f"Copying file from {source_path} to {actual_destination} (sudo={sudo})")
+        
+        if sudo:
+            # Use cp command with sudo
+            cmd = f"cp {shlex.quote(source_path)} {shlex.quote(actual_destination)}"
+            try:
+                self.ssh_client.run(cmd, sudo=True)
+                return {
+                    "success": True,
+                    "copied_to": actual_destination
+                }
+            except Exception as e:
+                self.logger.error(f"Failed to copy file with sudo: {e}")
+                return {"success": False, "error": str(e)}
+        else:
+            # Use SFTP for non-sudo copy
+            try:
+                # First get the source file
+                local_temp_fd, local_temp_path = tempfile.mkstemp()
+                os.close(local_temp_fd)
+                
+                try:
+                    self.get(source_path, local_temp_path)
+                    self.put(local_temp_path, actual_destination)
+                    return {
+                        "success": True,
+                        "copied_to": actual_destination
+                    }
+                finally:
+                    # Clean up temp file
+                    if os.path.exists(local_temp_path):
+                        os.unlink(local_temp_path)
+            except Exception as e:
+                self.logger.error(f"Failed to copy file via SFTP: {e}")
+                return {"success": False, "error": str(e)}
+
+    def _replace_content_sftp(self, remote_file: str, modify_func: Callable[[str], str]) -> bool:
+        """
+        Internal helper for SFTP-based file modification.
+        
+        Args:
+            remote_file: Path to remote file
+            modify_func: Function that takes file content and returns modified content
+            
+        Returns:
+            True if file was modified, False otherwise
+        """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd) # Close handle, we just need the name
         self.logger.debug(f"Created local temp file: {local_temp_path}")
@@ -195,8 +458,10 @@ class SshFileOperations_Linux:
                     f.write(modified_text)
                 # 3. Upload back
                 self.put(local_temp_path, remote_file)
+                return True
             else:
                 self.logger.info(f"Content for {remote_file} not modified, skipping upload.")
+                return False
 
         finally:
             # 4. Cleanup local temp file
@@ -205,8 +470,19 @@ class SshFileOperations_Linux:
                 os.unlink(local_temp_path)
 
     def _replace_content_sudo(self, remote_file: str, remote_temp_path: str, 
-                            modify_func: Callable[[str], str], force: bool = False) -> None:
-        """Internal helper for sudo-based file modification."""
+                            modify_func: Callable[[str], str], force: bool = False) -> bool:
+        """
+        Internal helper for sudo-based file modification.
+        
+        Args:
+            remote_file: Path to remote file
+            remote_temp_path: Temporary path on remote system
+            modify_func: Function that takes file content and returns modified content
+            force: Whether to proceed if original file cannot be read
+            
+        Returns:
+            True if file was modified, False otherwise
+        """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd)
         self.logger.debug(f"Created local temp file: {local_temp_path}")
@@ -233,7 +509,7 @@ class SshFileOperations_Linux:
             # 3. Check if content actually changed (important!)
             if modified_text == original_text:
                 self.logger.info(f"Content for {remote_file} not modified, skipping sudo replacement.")
-                return # Exit early, no need to upload or move
+                return False # Exit early, no need to upload or move
 
             # 4. Write modified content to local temp
             self.logger.info(f"Content modified for {remote_file}. Proceeding with sudo replacement.")
@@ -283,6 +559,7 @@ class SshFileOperations_Linux:
                     self.logger.warning(f"Failed to sudo chmod {remote_file}: {chmod_err}")
 
             self.logger.info(f"Successfully replaced {remote_file} using sudo.")
+            return True
 
         finally:
             # 7. Cleanup local and remote temp files
