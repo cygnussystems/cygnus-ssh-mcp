@@ -154,9 +154,98 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-async def test_ssh_replace_line(mcp_test_environment):
-    """Test file content replacement operations."""
-    print_test_header("Testing 'ssh_file_replace_line' tool")
+async def test_ssh_file_find_lines_with_pattern(mcp_test_environment):
+    """Test finding lines with pattern in a file."""
+    print_test_header("Testing 'ssh_file_find_lines_with_pattern' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_file.txt"
+            file_content = """Line 1: This is a test file
+Line 2: This line contains a pattern
+Line 3: This line also has the pattern
+Line 4: This is the last line"""
+            
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Find lines with pattern
+            find_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
+                "file_path": test_file,
+                "pattern": "pattern",
+                "regex": False
+            })
+            result = json.loads(find_result[0].text)
+            
+            # Verify results
+            assert result['total_matches'] == 2
+            assert len(result['matches']) == 2
+            assert "pattern" in result['matches'][0]['content']
+            assert "pattern" in result['matches'][1]['content']
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_file_get_context_around_line(mcp_test_environment):
+    """Test getting context around a line in a file."""
+    print_test_header("Testing 'ssh_file_get_context_around_line' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_file.txt"
+            file_content = """Line 1: This is a test file
+Line 2: This is some context before
+Line 3: This is the target line
+Line 4: This is some context after
+Line 5: This is the last line"""
+            
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Get context around line
+            context_result = await client.call_tool("ssh_file_get_context_around_line", {
+                "file_path": test_file,
+                "match_line": "Line 3: This is the target line",
+                "context": 1
+            })
+            result = json.loads(context_result[0].text)
+            
+            # Verify results
+            assert result['match_found'] == True
+            assert result['match_line_number'] == 3
+            assert len(result['context_block']) == 3  # Target line + 1 before + 1 after
+            assert result['context_block'][0]['content'] == "Line 2: This is some context before"
+            assert result['context_block'][1]['content'] == "Line 3: This is the target line"
+            assert result['context_block'][2]['content'] == "Line 4: This is some context after"
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_file_replace_line_by_content(mcp_test_environment):
+    """Test replacing a line by content in a file."""
+    print_test_header("Testing 'ssh_file_replace_line_by_content' tool")
 
     async with Client(mcp) as client:
         try:
@@ -172,14 +261,14 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
             
-            # Replace line
-            replace_result = await client.call_tool("ssh_file_replace_line", {
-                "path": test_file,
-                "old_line": "Line 2: This line will be replaced",
-                "new_line": "Line 2: This line has been replaced",
-                "count": 1
+            # Replace line by content
+            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+                "file_path": test_file,
+                "match_line": "Line 2: This line will be replaced",
+                "new_lines": ["Line 2: This line has been replaced"]
             })
-            assert json.loads(replace_result[0].text)['status'] == 'success'
+            result = json.loads(replace_result[0].text)
+            assert result['success'] == True
             
             # Verify content
             cat_result = await client.call_tool("ssh_cmd_run", {
@@ -191,6 +280,170 @@ Line 3: This is the last line"""
         finally:
             await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+@pytest.mark.asyncio
+async def test_ssh_file_insert_lines_after_match(mcp_test_environment):
+    """Test inserting lines after a match in a file."""
+    print_test_header("Testing 'ssh_file_insert_lines_after_match' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_file.txt"
+            file_content = """Line 1: This is a test file
+Line 2: This is the target line
+Line 3: This is the last line"""
+            
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Insert lines after match
+            insert_result = await client.call_tool("ssh_file_insert_lines_after_match", {
+                "file_path": test_file,
+                "match_line": "Line 2: This is the target line",
+                "lines_to_insert": ["Line 2.5: This is an inserted line"]
+            })
+            result = json.loads(insert_result[0].text)
+            assert result['success'] == True
+            
+            # Verify content
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert "Line 2.5: This is an inserted line" in output
+            
+            # Check order of lines
+            lines = output.strip().split('\n')
+            assert lines[0] == "Line 1: This is a test file"
+            assert lines[1] == "Line 2: This is the target line"
+            assert lines[2] == "Line 2.5: This is an inserted line"
+            assert lines[3] == "Line 3: This is the last line"
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_file_delete_line_by_content(mcp_test_environment):
+    """Test deleting a line by content from a file."""
+    print_test_header("Testing 'ssh_file_delete_line_by_content' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_file.txt"
+            file_content = """Line 1: This is a test file
+Line 2: This line will be deleted
+Line 3: This is the last line"""
+            
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Delete line by content
+            delete_result = await client.call_tool("ssh_file_delete_line_by_content", {
+                "file_path": test_file,
+                "match_line": "Line 2: This line will be deleted"
+            })
+            result = json.loads(delete_result[0].text)
+            assert result['success'] == True
+            
+            # Verify content
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert "Line 2: This line will be deleted" not in output
+            
+            # Check remaining lines
+            lines = output.strip().split('\n')
+            assert len(lines) == 2
+            assert lines[0] == "Line 1: This is a test file"
+            assert lines[1] == "Line 3: This is the last line"
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_file_copy(mcp_test_environment):
+    """Test copying a file with timestamp option."""
+    print_test_header("Testing 'ssh_file_copy' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_source.txt"
+            dest_file = "/tmp/ssh_test_dest.txt"
+            file_content = "This is a test file for copying"
+            
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Copy file without timestamp
+            copy_result = await client.call_tool("ssh_file_copy", {
+                "source_path": test_file,
+                "destination_path": dest_file,
+                "append_timestamp": False
+            })
+            result = json.loads(copy_result[0].text)
+            assert result['success'] == True
+            assert result['copied_to'] == dest_file
+            
+            # Verify content
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {dest_file}",
+                "io_timeout": 5.0
+            })
+            assert file_content in json.loads(cat_result[0].text)['output']
+            
+            # Copy file with timestamp
+            timestamped_copy_result = await client.call_tool("ssh_file_copy", {
+                "source_path": test_file,
+                "destination_path": dest_file,
+                "append_timestamp": True
+            })
+            timestamped_result = json.loads(timestamped_copy_result[0].text)
+            assert timestamped_result['success'] == True
+            assert dest_file in timestamped_result['copied_to']
+            assert dest_file != timestamped_result['copied_to']  # Should have timestamp appended
+            
+            # Verify timestamped file exists
+            ls_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"ls -la {timestamped_result['copied_to']}",
+                "io_timeout": 5.0
+            })
+            assert timestamped_result['copied_to'] in json.loads(ls_result[0].text)['output']
+            
+        finally:
+            # Clean up all test files
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file} {dest_file} /tmp/ssh_test_dest.txt.*",
                 "io_timeout": 5.0
             })
             await disconnect_ssh(client)
