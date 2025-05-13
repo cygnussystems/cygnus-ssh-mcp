@@ -3,10 +3,16 @@ import json
 import logging
 from conftest import print_test_header, print_test_footer
 
-# Import necessary modules
+# Import necessary modules and constants from conftest
 from mcp_ssh_server import mcp
 from fastmcp import Client
-from conftest import SSH_TEST_CONFIG, is_ssh_connected, make_connection, disconnect_ssh
+from conftest import (
+    SSH_TEST_USER, 
+    SSH_TEST_HOST, 
+    is_ssh_connected, 
+    make_connection, 
+    disconnect_ssh
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -14,19 +20,20 @@ logger = logging.getLogger(__name__)
 @pytest.mark.asyncio
 async def test_ssh_status():
     """Test retrieving SSH connection status."""
-    print_test_header("Testing 'ssh_status' tool")
+    print_test_header("Testing 'ssh_conn_status' tool")
     logger.info("Starting SSH status test")
 
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         try:
             # Ensure no connection exists at start
+            await disconnect_ssh(client) # Ensure clean state
             assert not await is_ssh_connected(client), "Test started with an existing SSH connection"
             logger.info("Verified no existing SSH connection")
 
-            # Establish connection
+            # Establish connection using the helper from conftest
             assert await make_connection(client), "Failed to establish SSH connection"
-            logger.info("Verified SSH connection is active")
+            logger.info("Verified SSH connection is active via make_connection")
             
             # Now get the status
             status_result = await client.call_tool("ssh_conn_status", {})
@@ -46,21 +53,22 @@ async def test_ssh_status():
             assert 'system' in result_json, "Expected 'system' key in result"
             
             # Verify connection details
-            connection = result_json['connection']
-            # Check for essential connection fields instead of 'connected' flag
-            assert 'host' in connection, "Expected 'host' in connection info"
-            assert 'user' in connection, "Expected 'user' in connection info"
-            assert 'os_type' in connection, "Expected 'os_type' in connection info"
-            # Verify the host matches what we expect
-            assert connection['host'] == 'localhost', "Expected host to be 'localhost'"
+            connection_info = result_json['connection']
+            assert 'host' in connection_info, "Expected 'host' in connection info"
+            assert 'user' in connection_info, "Expected 'user' in connection info"
+            assert 'os_type' in connection_info, "Expected 'os_type' in connection info"
+            
+            # Verify the host and user match what we expect from conftest defaults
+            assert connection_info['host'] == SSH_TEST_HOST, f"Expected host to be '{SSH_TEST_HOST}'"
+            assert connection_info['user'] == SSH_TEST_USER, f"Expected user to be '{SSH_TEST_USER}'"
             
             # Verify system information is present
-            system = result_json['system']
-            assert isinstance(system, dict), "Expected system info to be a dictionary"
+            system_info = result_json['system']
+            assert isinstance(system_info, dict), "Expected system info to be a dictionary"
             
             logger.info("SSH status test completed successfully")
         except Exception as e:
-            logger.error(f"Error in SSH status test: {e}")
+            logger.error(f"Error in SSH status test: {e}", exc_info=True)
             raise
         finally:
             # Clean up the connection after the test
@@ -74,51 +82,62 @@ async def test_ssh_reconnect():
     print_test_header("Testing SSH reconnection")
     logger.info("Starting SSH reconnection test")
 
+    # Construct the user@hostname key that make_connection will use
+    host_key_for_connection = f"{SSH_TEST_USER}@{SSH_TEST_HOST}"
+
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         try:
             # Ensure no connection exists at start
-            await disconnect_ssh(client)
+            await disconnect_ssh(client) # Ensure clean state
             assert not await is_ssh_connected(client), "Test started with an existing SSH connection"
             logger.info("Verified no existing SSH connection")
             
-            # Establish first connection
+            # Establish first connection using the helper
+            # make_connection will add the host config for host_key_for_connection
             assert await make_connection(client), "Failed to establish initial SSH connection"
-            logger.info("Established new SSH connection")
-            logger.info("Verified first SSH connection is active")
+            logger.info(f"Established initial SSH connection to {host_key_for_connection}")
             
             # Get status of first connection
-            first_status = await client.call_tool("ssh_conn_status", {})
-            first_status_json = json.loads(first_status[0].text)
+            first_status_result = await client.call_tool("ssh_conn_status", {})
+            first_status_json = json.loads(first_status_result[0].text)
             logger.info(f"First connection status: {first_status_json}")
             
-            # Now reconnect to the same host (in a real-world scenario, this could be a different host)
-            logger.info("Attempting to reconnect while existing connection is active")
-            reconnect_result = await client.call_tool("ssh_conn_connect", {
-                "host_name": "test_server"
-            })
+            # Now attempt to reconnect to the same host using its user@hostname key
+            logger.info(f"Attempting to reconnect to {host_key_for_connection} while existing connection is active")
+            reconnect_params = {
+                "host_name": host_key_for_connection
+            }
+            reconnect_result = await client.call_tool("ssh_conn_connect", reconnect_params)
             reconnect_json = json.loads(reconnect_result[0].text)
             
             # Verify reconnection was successful
-            assert reconnect_json['status'] == 'success', "Reconnection should succeed"
-            logger.info("Reconnection successful")
+            assert reconnect_json.get('status') == 'success', f"Reconnection should succeed, got: {reconnect_json}"
+            assert reconnect_json.get('connected_to') == host_key_for_connection, \
+                f"Reconnection should be to '{host_key_for_connection}', got: {reconnect_json.get('connected_to')}"
+            logger.info(f"Reconnection to {host_key_for_connection} successful")
             
             # Verify we still have an active connection
             assert await is_ssh_connected(client), "Should have active connection after reconnect"
             
             # Get status after reconnection
-            second_status = await client.call_tool("ssh_conn_status", {})
-            second_status_json = json.loads(second_status[0].text)
+            second_status_result = await client.call_tool("ssh_conn_status", {})
+            second_status_json = json.loads(second_status_result[0].text)
             logger.info(f"Second connection status: {second_status_json}")
             
-            # Even though we're connecting to the same host, the connection object should be different
-            # We can verify this indirectly by checking timestamps are different
+            # The connection details (host, user, port) should be the same
+            assert second_status_json['connection']['host'] == SSH_TEST_HOST
+            assert second_status_json['connection']['user'] == SSH_TEST_USER
+            
+            # Timestamps should differ as a new SshClient instance is created upon reconnection
+            assert 'timestamp' in first_status_json['connection'], "Timestamp missing in first status"
+            assert 'timestamp' in second_status_json['connection'], "Timestamp missing in second status"
             assert first_status_json['connection']['timestamp'] != second_status_json['connection']['timestamp'], \
-                "Connection timestamps should differ after reconnection"
+                "Connection timestamps should differ after reconnection, indicating a new connection object"
                 
             logger.info("SSH reconnection test completed successfully")
         except Exception as e:
-            logger.error(f"Error in SSH reconnection test: {e}")
+            logger.error(f"Error in SSH reconnection test: {e}", exc_info=True)
             raise
         finally:
             # Clean up the connection after the test
