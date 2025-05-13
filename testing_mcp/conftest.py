@@ -59,7 +59,7 @@ async def disconnect_ssh(client):
 
 async def is_ssh_connected(client):
     """
-    Check if SSH is connected using the ssh_is_connected tool.
+    Check if SSH is connected using the ssh_conn_is_connected tool.
     
     Args:
         client: The MCP client instance
@@ -68,7 +68,7 @@ async def is_ssh_connected(client):
         bool: True if connected, False otherwise
     """
     try:
-        is_connected_result = await client.call_tool("ssh_is_connected", {})
+        is_connected_result = await client.call_tool("ssh_conn_is_connected", {})
         is_connected_json = json.loads(is_connected_result[0].text)
         return is_connected_json
     except Exception as e:
@@ -92,11 +92,11 @@ async def make_connection(client):
         
     # Add host configuration
     logging.info("Adding test server configuration")
-    await client.call_tool("ssh_add_host", SSH_TEST_CONFIG)
+    await client.call_tool("ssh_conn_add_host", SSH_TEST_CONFIG)
     
     # Connect to the test server
     logging.info("Connecting to test server")
-    connect_result = await client.call_tool("ssh_connect", {
+    connect_result = await client.call_tool("ssh_conn_connect", {
         "host_name": "test_server"
     })
     connect_json = json.loads(connect_result[0].text)
