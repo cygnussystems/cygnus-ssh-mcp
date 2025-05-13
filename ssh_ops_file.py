@@ -203,7 +203,6 @@ class SshFileOperations_Linux:
         self.logger.info(f"Replacing line by content in {remote_file} (sudo={sudo}, force={force})")
         
         normalized_match_line = match_line.strip()
-        self.logger.info(f"DEBUG: Normalized match_line for comparison: '{normalized_match_line}' (repr: {repr(normalized_match_line)})")
 
         if isinstance(new_lines, str):
             new_lines = [new_lines]
@@ -223,23 +222,16 @@ class SshFileOperations_Linux:
                 with sftp.file(remote_file, 'r') as f:
                     content = f.read().decode('utf-8', errors='replace')
             
-            self.logger.info(f"DEBUG: Raw content read from file (repr):\n{repr(content)}")
             file_lines = content.splitlines()
-            self.logger.info(f"DEBUG: Content split into {len(file_lines)} lines.")
 
             match_count = 0
             matched_indices = []
             for idx, line_content in enumerate(file_lines):
                 stripped_line_content = line_content.strip()
-                self.logger.info(f"DEBUG: Checking line {idx}: Raw (repr)='{repr(line_content)}', Stripped (repr)='{repr(stripped_line_content)}'")
-                comparison_result = stripped_line_content == normalized_match_line
-                self.logger.info(f"DEBUG: Comparing '{stripped_line_content}' == '{normalized_match_line}' -> {comparison_result}")
-                if comparison_result:
+                if stripped_line_content == normalized_match_line:
                     match_count += 1
                     matched_indices.append(idx)
             
-            self.logger.info(f"DEBUG: Final match_count: {match_count}, matched_indices: {matched_indices}")
-
             if match_count == 0:
                 self.logger.error(f"Match line not found in file (normalized): '{normalized_match_line}' (original: '{match_line}')")
                 return {"success": False, "error": f"Match line not found in file: {match_line}"}
@@ -313,7 +305,6 @@ class SshFileOperations_Linux:
         self.logger.info(f"Inserting lines after match in {remote_file} (sudo={sudo}, force={force})")
 
         normalized_match_line = match_line.strip()
-        self.logger.info(f"DEBUG: Normalized match_line for comparison: '{normalized_match_line}' (repr: {repr(normalized_match_line)})")
 
         if isinstance(lines_to_insert, str):
             lines_to_insert = [lines_to_insert]
@@ -333,22 +324,15 @@ class SshFileOperations_Linux:
                 with sftp.file(remote_file, 'r') as f:
                     content = f.read().decode('utf-8', errors='replace')
             
-            self.logger.info(f"DEBUG: Raw content read from file (repr):\n{repr(content)}")
             file_lines = content.splitlines()
-            self.logger.info(f"DEBUG: Content split into {len(file_lines)} lines.")
             
             match_count = 0
             matched_indices = []
             for idx, line_content in enumerate(file_lines):
                 stripped_line_content = line_content.strip()
-                self.logger.info(f"DEBUG: Checking line {idx}: Raw (repr)='{repr(line_content)}', Stripped (repr)='{repr(stripped_line_content)}'")
-                comparison_result = stripped_line_content == normalized_match_line
-                self.logger.info(f"DEBUG: Comparing '{stripped_line_content}' == '{normalized_match_line}' -> {comparison_result}")
-                if comparison_result:
+                if stripped_line_content == normalized_match_line:
                     match_count += 1
                     matched_indices.append(idx)
-
-            self.logger.info(f"DEBUG: Final match_count: {match_count}, matched_indices: {matched_indices}")
 
             if match_count == 0:
                 self.logger.error(f"Match line not found in file (normalized): '{normalized_match_line}' (original: '{match_line}')")
@@ -421,7 +405,6 @@ class SshFileOperations_Linux:
         self.logger.info(f"Deleting line by content in {remote_file} (sudo={sudo}, force={force})")
 
         normalized_match_line = match_line.strip()
-        self.logger.info(f"DEBUG: Normalized match_line for comparison: '{normalized_match_line}' (repr: {repr(normalized_match_line)})")
         
         try:
             with self.ssh_client._client.open_sftp() as sftp:
@@ -438,23 +421,16 @@ class SshFileOperations_Linux:
                 with sftp.file(remote_file, 'r') as f:
                     content = f.read().decode('utf-8', errors='replace')
 
-            self.logger.info(f"DEBUG: Raw content read from file (repr):\n{repr(content)}")
             file_lines = content.splitlines()
-            self.logger.info(f"DEBUG: Content split into {len(file_lines)} lines.")
             
             match_count = 0
             matched_indices = []
             for idx, line_content in enumerate(file_lines):
                 stripped_line_content = line_content.strip()
-                self.logger.info(f"DEBUG: Checking line {idx}: Raw (repr)='{repr(line_content)}', Stripped (repr)='{repr(stripped_line_content)}'")
-                comparison_result = stripped_line_content == normalized_match_line
-                self.logger.info(f"DEBUG: Comparing '{stripped_line_content}' == '{normalized_match_line}' -> {comparison_result}")
-                if comparison_result:
+                if stripped_line_content == normalized_match_line:
                     match_count += 1
                     matched_indices.append(idx)
             
-            self.logger.info(f"DEBUG: Final match_count: {match_count}, matched_indices: {matched_indices}")
-
             if match_count == 0:
                 self.logger.error(f"Match line not found in file (normalized): '{normalized_match_line}' (original: '{match_line}')")
                 return {"success": False, "error": f"Match line not found in file: {match_line}"}
