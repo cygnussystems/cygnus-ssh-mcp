@@ -226,12 +226,28 @@ class SshFileOperations_Linux:
             if not sudo or not force:
                 return {"success": False, "error": f"Error accessing file: {str(e)}"}
         
+        # Check for duplicate lines before attempting modification
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                with sftp.file(remote_file, 'r') as f:
+                    content = f.read().decode('utf-8', errors='replace')
+                    lines = content.splitlines()
+                    match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
+                    
+                    if match_count == 0:
+                        return {"success": False, "error": f"Match line not found in file: {match_line}"}
+                    if match_count > 1:
+                        return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
+        except Exception as e:
+            if not sudo:
+                return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
+        
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
             match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
             
-            # Check for uniqueness
+            # Check for uniqueness - this should never be reached due to the pre-check above
             if match_count == 0:
                 raise ValueError(f"Match line not found in file: {match_line}")
             if match_count > 1:
@@ -307,12 +323,28 @@ class SshFileOperations_Linux:
             if not sudo or not force:
                 return {"success": False, "error": f"Error accessing file: {str(e)}"}
         
+        # Check for duplicate lines before attempting modification
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                with sftp.file(remote_file, 'r') as f:
+                    content = f.read().decode('utf-8', errors='replace')
+                    lines = content.splitlines()
+                    match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
+                    
+                    if match_count == 0:
+                        return {"success": False, "error": f"Match line not found in file: {match_line}"}
+                    if match_count > 1:
+                        return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
+        except Exception as e:
+            if not sudo:
+                return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
+        
         # Define the modification function
         def modify_func(text):
             lines = text.splitlines(keepends=True)
             match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
             
-            # Check for uniqueness
+            # Check for uniqueness - this should never be reached due to the pre-check above
             if match_count == 0:
                 raise ValueError(f"Match line not found in file: {match_line}")
             if match_count > 1:
@@ -384,6 +416,22 @@ class SshFileOperations_Linux:
             if not sudo or not force:
                 return {"success": False, "error": f"Error accessing file: {str(e)}"}
         
+        # Check for duplicate lines before attempting modification
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                with sftp.file(remote_file, 'r') as f:
+                    content = f.read().decode('utf-8', errors='replace')
+                    lines = content.splitlines()
+                    match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
+                    
+                    if match_count == 0:
+                        return {"success": False, "error": f"Match line not found in file: {match_line}"}
+                    if match_count > 1:
+                        return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
+        except Exception as e:
+            if not sudo:
+                return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
+        
         # Define the modification function
         def modify_func(text):
             # Normalize line endings to Unix style
@@ -391,7 +439,7 @@ class SshFileOperations_Linux:
             lines = text.splitlines(keepends=True)
             match_count = sum(1 for line in lines if line.rstrip('\n') == match_line)
             
-            # Check for uniqueness
+            # Check for uniqueness - this should never be reached due to the pre-check above
             if match_count == 0:
                 raise ValueError(f"Match line not found in file: {match_line}")
             if match_count > 1:
