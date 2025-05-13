@@ -257,7 +257,9 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                if isinstance(result, dict) and not result.get("success", False):
+                    return result
                 return {"success": True, "lines_written": len(new_lines)}
             except Exception as e:
                 self.logger.error(f"Failed to replace line in {remote_file}: {e}")
@@ -266,8 +268,10 @@ class SshFileOperations_Linux:
             if force:
                 self.logger.warning("force=True has no effect when sudo=False")
             try:
-                self._replace_content_sftp(remote_file, modify_func)
-                return {"success": True, "lines_written": len(new_lines)}
+                result = self._replace_content_sftp(remote_file, modify_func)
+                if result.get("success", False):
+                    result["lines_written"] = len(new_lines)
+                return result
             except Exception as e:
                 self.logger.error(f"Failed to replace line in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -335,7 +339,9 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/insert_after_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                if isinstance(result, dict) and not result.get("success", False):
+                    return result
                 return {"success": True, "lines_inserted": len(lines_to_insert)}
             except Exception as e:
                 self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
@@ -344,8 +350,10 @@ class SshFileOperations_Linux:
             if force:
                 self.logger.warning("force=True has no effect when sudo=False")
             try:
-                self._replace_content_sftp(remote_file, modify_func)
-                return {"success": True, "lines_inserted": len(lines_to_insert)}
+                result = self._replace_content_sftp(remote_file, modify_func)
+                if result.get("success", False):
+                    result["lines_inserted"] = len(lines_to_insert)
+                return result
             except Exception as e:
                 self.logger.error(f"Failed to insert lines in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -406,7 +414,9 @@ class SshFileOperations_Linux:
         if sudo:
             remote_temp_path = f"/tmp/delete_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, force=force)
+                if isinstance(result, dict) and not result.get("success", False):
+                    return result
                 return {"success": True}
             except Exception as e:
                 self.logger.error(f"Failed to delete line in {remote_file}: {e}")
@@ -415,8 +425,7 @@ class SshFileOperations_Linux:
             if force:
                 self.logger.warning("force=True has no effect when sudo=False")
             try:
-                self._replace_content_sftp(remote_file, modify_func)
-                return {"success": True}
+                return self._replace_content_sftp(remote_file, modify_func)
             except Exception as e:
                 self.logger.error(f"Failed to delete line in {remote_file}: {e}")
                 return {"success": False, "error": str(e)}
@@ -478,7 +487,7 @@ class SshFileOperations_Linux:
                 self.logger.error(f"Failed to copy file via SFTP: {e}")
                 return {"success": False, "error": str(e)}
 
-    def _replace_content_sftp(self, remote_file: str, modify_func: Callable[[str], str]) -> bool:
+    def _replace_content_sftp(self, remote_file: str, modify_func: Callable[[str], str]) -> dict:
         """
         Internal helper for SFTP-based file modification.
         
@@ -487,7 +496,7 @@ class SshFileOperations_Linux:
             modify_func: Function that takes file content and returns modified content
             
         Returns:
-            True if file was modified, False otherwise
+            Dictionary with success status and error message if applicable
         """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd) # Close handle, we just need the name
@@ -515,10 +524,10 @@ class SshFileOperations_Linux:
                     f.write(modified_text)
                 # 3. Upload back
                 self.put(local_temp_path, remote_file)
-                return True
+                return {"success": True}
             else:
                 self.logger.info(f"Content for {remote_file} not modified, skipping upload.")
-                return False
+                return {"success": True, "message": "No changes needed"}
 
         except Exception as e:
             self.logger.error(f"File operation failed: {str(e)}")
@@ -530,7 +539,7 @@ class SshFileOperations_Linux:
                 os.unlink(local_temp_path)
 
     def _replace_content_sudo(self, remote_file: str, remote_temp_path: str, 
-                            modify_func: Callable[[str], str], force: bool = False) -> bool:
+                            modify_func: Callable[[str], str], force: bool = False) -> dict:
         """
         Internal helper for sudo-based file modification.
         
@@ -541,7 +550,7 @@ class SshFileOperations_Linux:
             force: Whether to proceed if original file cannot be read
             
         Returns:
-            True if file was modified, False otherwise
+            Dictionary with success status and error message if applicable
         """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd)
@@ -574,7 +583,7 @@ class SshFileOperations_Linux:
             # 3. Check if content actually changed (important!)
             if modified_text == original_text:
                 self.logger.info(f"Content for {remote_file} not modified, skipping sudo replacement.")
-                return False # Exit early, no need to upload or move
+                return {"success": True, "message": "No changes needed"} # Exit early, no need to upload or move
 
             # 4. Write modified content to local temp
             self.logger.info(f"Content modified for {remote_file}. Proceeding with sudo replacement.")
@@ -624,7 +633,7 @@ class SshFileOperations_Linux:
                     self.logger.warning(f"Failed to sudo chmod {remote_file}: {chmod_err}")
 
             self.logger.info(f"Successfully replaced {remote_file} using sudo.")
-            return True
+            return {"success": True}
 
         except Exception as e:
             self.logger.error(f"Sudo file operation failed: {str(e)}")
