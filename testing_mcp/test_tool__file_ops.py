@@ -598,7 +598,7 @@ async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
                 "Line 1: This is a test file",
                 "Line 2: This is a duplicate line",
                 "Line 3: Some other content",
-                "Line 4: This is a duplicate line",
+                "Line 2: This is a duplicate line",  # Corrected duplicate line
                 "Line 5: This is the last line"
             ]
             file_content = "\n".join(file_content_lines)
