@@ -226,14 +226,9 @@ class SshFileOperations_Linux:
                 stripped_line = line.rstrip('\r\n')
                 if stripped_line == match_line and not modified:
                     # Found the match, replace with new lines
-                    ending = line[len(stripped_line):] if line != stripped_line else '\n'
-                    for i, new_line in enumerate(new_lines):
-                        # Add original line ending to each new line
-                        if i < len(new_lines) - 1:
-                            result.append(new_line + ending)
-                        else:
-                            # Last line gets the original ending
-                            result.append(new_line + ending)
+                    # Always use Unix line endings (\n) for consistency
+                    for new_line in new_lines:
+                        result.append(new_line + '\n')
                     modified = True
                 else:
                     result.append(line)
@@ -293,9 +288,9 @@ class SshFileOperations_Linux:
                 stripped_line = line.rstrip('\r\n')
                 if stripped_line == match_line and not modified:
                     # Insert new lines after the match
-                    ending = line[len(stripped_line):] if line != stripped_line else '\n'
+                    # Always use Unix line endings (\n) for consistency
                     for new_line in lines_to_insert:
-                        result.append(new_line + ending)
+                        result.append(new_line + '\n')
                     modified = True
             
             return "".join(result) if modified else text
@@ -337,12 +332,14 @@ class SshFileOperations_Linux:
         
         # Define the modification function
         def modify_func(text):
+            # Normalize line endings to Unix style
+            text = text.replace('\r\n', '\n')
             lines = text.splitlines(keepends=True)
             modified = False
             result = []
             
             for line in lines:
-                stripped_line = line.rstrip('\r\n')
+                stripped_line = line.rstrip('\n')
                 if stripped_line == match_line and not modified:
                     # Skip this line (delete it)
                     modified = True
@@ -448,13 +445,14 @@ class SshFileOperations_Linux:
 
             # 2. Read, Modify, Write locally
             with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
-                original_text = f.read()
+                # Normalize line endings to Unix style (LF)
+                original_text = f.read().replace('\r\n', '\n')
             modified_text = modify_func(original_text)
 
             # Only upload if content changed
             if modified_text != original_text:
                 self.logger.info(f"Content modified for {remote_file}. Uploading changes.")
-                with open(local_temp_path, 'w', encoding='utf-8') as f:
+                with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
                     f.write(modified_text)
                 # 3. Upload back
                 self.put(local_temp_path, remote_file)
@@ -493,7 +491,8 @@ class SshFileOperations_Linux:
             try:
                 self.get(remote_file, local_temp_path)
                 with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
-                    original_text = f.read()
+                    # Normalize line endings to Unix style (LF)
+                    original_text = f.read().replace('\r\n', '\n')
                 self.logger.debug(f"Successfully downloaded original file {remote_file}")
             except Exception as e:
                 self.logger.warning(f"Could not download original {remote_file}: {e}. Checking force flag.")
@@ -513,7 +512,7 @@ class SshFileOperations_Linux:
 
             # 4. Write modified content to local temp
             self.logger.info(f"Content modified for {remote_file}. Proceeding with sudo replacement.")
-            with open(local_temp_path, 'w', encoding='utf-8') as f:
+            with open(local_temp_path, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(modified_text)
 
             # 5. Upload modified content to REMOTE temp path
