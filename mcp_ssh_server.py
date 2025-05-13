@@ -244,7 +244,8 @@ async def list_tools() -> list:
     # mcp.get_tools() returns a dictionary; iterate over its values (tool_spec objects)
     # which are expected to have .name and .description attributes.
     try:
-        for tool_spec in mcp.get_tools().values():
+        tools_dict = await mcp.get_tools() # mcp.get_tools() is a coroutine
+        for tool_spec in tools_dict.values():
             tool_details = {
                 "name": getattr(tool_spec, 'name', 'Unknown Tool'),
                 "description": getattr(tool_spec, 'description', 'No description available.')
@@ -1424,11 +1425,15 @@ if __name__ == '__main__':
     try:
         logger.info(f"Starting SSH MCP server '{mcp.name}' version {mcp.version}")
         logger.info(f"Using TOML config file: {host_manager.config_path}") # Updated log message
-        logger.info("Available tools:")
-        # Iterate over the values of the dictionary returned by mcp.get_tools()
-        # tool_info objects are expected to have .name and .description attributes
-        for tool_info in mcp.get_tools().values(): 
-            logger.info(f"  - {tool_info.name}: {tool_info.description}")
+        logger.info("Available tools (can be retrieved programmatically via 'list_tools' tool):")
+        # The following loop is commented out because mcp.get_tools() is a coroutine
+        # and cannot be awaited in this synchronous context before mcp.run() starts the event loop.
+        # The 'list_tools' tool provides this functionality once the server is running.
+        # ---
+        # tools_dict_main = await mcp.get_tools() # This would require __main__ to be async or run within asyncio.run
+        # for tool_info in tools_dict_main.values(): 
+        #     logger.info(f"  - {tool_info.name}: {tool_info.description}")
+        # ---
         mcp.run()
     except KeyboardInterrupt:
         logger.info("Server stopped by user (KeyboardInterrupt)")
