@@ -273,6 +273,22 @@ class SshFileOperations_Linux:
             
             return "".join(result) if modified else text
         
+        # Check for duplicate lines before attempting modification
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                with sftp.file(remote_file, 'r') as f:
+                    content = f.read().decode('utf-8', errors='replace')
+                    lines = content.splitlines()
+                    match_count = sum(1 for line in lines if line.rstrip('\r\n') == match_line)
+                    
+                    if match_count == 0:
+                        return {"success": False, "error": f"Match line not found in file: {match_line}"}
+                    if match_count > 1:
+                        return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
+        except Exception as e:
+            if not sudo:
+                return {"success": False, "error": f"Error checking for duplicate lines: {str(e)}"}
+        
         # Use existing helpers for file modification
         if sudo:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
@@ -585,6 +601,14 @@ class SshFileOperations_Linux:
             with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
                 # Normalize line endings to Unix style (LF)
                 original_text = f.read().replace('\r\n', '\n')
+                
+            # Check for duplicate lines in the file
+            lines = original_text.splitlines()
+            match_count = sum(1 for line in lines if line.rstrip('\n') == match_line)
+            
+            if match_count > 1:
+                self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
+                return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
                 
             try:
                 modified_text = modify_func(original_text)
