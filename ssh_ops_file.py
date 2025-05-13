@@ -602,14 +602,6 @@ class SshFileOperations_Linux:
                 # Normalize line endings to Unix style (LF)
                 original_text = f.read().replace('\r\n', '\n')
                 
-            # Check for duplicate lines in the file
-            lines = original_text.splitlines()
-            match_count = sum(1 for line in lines if line.rstrip('\n') == match_line)
-            
-            if match_count > 1:
-                self.logger.error(f"Match line is not unique in file (found {match_count} occurrences): {match_line}")
-                return {"success": False, "error": f"Match line is not unique in file (found {match_count} occurrences): {match_line}"}
-                
             try:
                 modified_text = modify_func(original_text)
             except ValueError as e:
