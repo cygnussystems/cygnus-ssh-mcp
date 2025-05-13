@@ -438,8 +438,12 @@ async def test_ssh_file_copy(mcp_test_environment):
             })
             timestamped_result = json.loads(timestamped_copy_result[0].text)
             assert timestamped_result['success'] == True
-            assert dest_file in timestamped_result['copied_to']
-            assert dest_file != timestamped_result['copied_to']  # Should have timestamp appended
+                
+            # Check that the timestamped path contains the base destination path
+            # The timestamp is inserted before the extension, so we need to check parts
+            dest_base, dest_ext = os.path.splitext(dest_file)
+            assert dest_base in timestamped_result['copied_to']
+            assert dest_file != timestamped_result['copied_to']  # Should have timestamp inserted
             
             # Verify timestamped file exists
             ls_result = await client.call_tool("ssh_cmd_run", {
