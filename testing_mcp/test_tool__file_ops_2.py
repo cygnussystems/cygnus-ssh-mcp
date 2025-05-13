@@ -287,7 +287,7 @@ Line 4: orange123"""
 
             # 1. Test with regex
             find_regex_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
-                "file_path": test_file, "pattern": "^Line \\d: [aA]pple.*", "regex": True
+                "file_path": test_file, "pattern": "^Line [0-9]: [aA]pple.*", "regex": True
             })
             regex_json = json.loads(find_regex_result[0].text)
             assert regex_json['total_matches'] == 2, "Regex search failed to find correct matches"
