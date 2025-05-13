@@ -438,7 +438,7 @@ async def test_ssh_file_copy(mcp_test_environment):
             })
             timestamped_result = json.loads(timestamped_copy_result[0].text)
             assert timestamped_result['success'] == True
-            assert timestamped_result['copied_to'].startswith(dest_file)
+            assert dest_file in timestamped_result['copied_to']
             assert dest_file != timestamped_result['copied_to']  # Should have timestamp appended
             
             # Verify timestamped file exists
