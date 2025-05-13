@@ -8,7 +8,7 @@ import time # For unique file/dir names
 
 # Helper to create a unique temporary path on the remote server
 def remote_temp_path(base_name):
-    return f"/tmp/{base_name}_{int(time.time())}_{os.getpid()}"
+    return f"/tmp/{base_name}_{int(time.time())}_{os.getpid()}_{time.monotonic_ns()}"
 
 @pytest.mark.asyncio
 async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
@@ -183,12 +183,18 @@ async def test_ssh_dir_remove_recursive_with_content(mcp_test_environment):
         finally:
             # Ensure cleanup if test failed before removal
             # Check if it exists before trying to remove, to avoid error if already gone
-            stat_check = await client.call_tool("ssh_file_stat", {"path": parent_dir})
-            if json.loads(stat_check[0].text).get('exists') == True:
-                 await client.call_tool("ssh_dir_remove", {
-                    "path": parent_dir,
-                    "recursive": True # Recursive to clean up any potential leftovers
-                })
+            stat_check_result = await client.call_tool("ssh_file_stat", {"path": parent_dir})
+            # Ensure stat_check_result[0].text is valid JSON before parsing
+            try:
+                stat_check_json = json.loads(stat_check_result[0].text)
+                if stat_check_json.get('exists') == True:
+                    await client.call_tool("ssh_dir_remove", {
+                        "path": parent_dir,
+                        "recursive": True # Recursive to clean up any potential leftovers
+                    })
+            except (json.JSONDecodeError, IndexError, AttributeError) as e:
+                print(f"Warning: Could not parse stat check result during cleanup: {e}")
+
             await disconnect_ssh(client)
     print_test_footer()
 
@@ -213,48 +219,18 @@ async def test_ssh_dir_remove_non_empty_no_recursive(mcp_test_environment):
             })
 
             # Test remove directory non-recursively (expect failure)
-            rmdir_result = await client.call_tool("ssh_dir_remove", {
-                "path": parent_dir,
-                "recursive": False
-            })
-            rmdir_json = json.loads(rmdir_result[0].text)
-            # The underlying 'rmdir' command will fail. The SshClient.run method
-            # will raise CommandFailed, which the mcp_ssh_server.py tool wrapper
-            # should catch and return as an error in its JSON response.
-            # We check for a non-success status.
-            # A more specific check would be on the error message if the tool provides it.
-            # For now, let's assume the tool returns a non-success status or specific error.
-            # Based on current mcp_ssh_server.py, errors from SshClient are re-raised.
-            # This means the client.call_tool itself might raise an exception.
-            # Let's adjust the test to expect an exception or a non-success status.
-
-            # If the tool is robust, it might return a JSON with status: 'command_failed' or similar.
-            # If it re-raises, the test structure needs a try-except for the call_tool.
-            # For now, assuming the tool returns a JSON response indicating failure.
-            # The `ssh_dir_remove` tool in `mcp_ssh_server.py` catches exceptions and re-raises.
-            # This means `client.call_tool` will raise an exception here.
-            # The test should be written to expect this.
-            # However, the prompt asks for file content, not to change test logic if it's complex.
-            # Let's assume the MCP layer might eventually wrap this into a non-200 response
-            # that `client.call_tool` might return as a non-success JSON.
-            # Given the current `mcp_ssh_server.py` structure, `ssh_cmd_run` returns JSON for errors.
-            # `ssh_dir_remove` calls `mcp.ssh_client.rmdir` which calls `mcp.ssh_client.run`.
-            # If `run` raises `CommandFailed`, `rmdir` re-raises, and the tool wrapper re-raises.
-            # This means the `client.call_tool` will likely raise an error.
-            # For simplicity of this response, I'll check for a non-success status in the JSON,
-            # acknowledging this might need adjustment based on actual error handling in FastMCP client.
-            # A robust way is to check the exception, but that's more involved for this step.
-
-            # Let's assume the tool call itself doesn't raise, but returns a failure.
-            # This is a common pattern for tools.
-            assert rmdir_json['status'] != 'success', "ssh_dir_remove non-recursive on non-empty dir should fail or not report success."
+            # The ssh_dir_remove tool re-raises exceptions from SshClient.rmdir,
+            # which in turn re-raises CommandFailed from SshClient.run.
+            # FastMCP client.call_tool will raise an exception if the tool raises one.
+            with pytest.raises(Exception) as excinfo: # Or a more specific FastMCP/SshError if available
+                await client.call_tool("ssh_dir_remove", {
+                    "path": parent_dir,
+                    "recursive": False
+                })
             
-            # If it's expected to raise an error that FastMCP client surfaces:
-            # with pytest.raises(Exception): # Or a more specific FastMCP/SshError
-            #     await client.call_tool("ssh_dir_remove", {
-            #         "path": parent_dir,
-            #         "recursive": False
-            #     })
+            # Check if the exception message contains relevant info (e.g., "Directory not empty")
+            # This depends on the exact error message from 'rmdir' on the target OS.
+            assert "Directory not empty" in str(excinfo.value) or "Failed to remove directory" in str(excinfo.value)
 
 
             # Verify directory still exists
@@ -268,6 +244,226 @@ async def test_ssh_dir_remove_non_empty_no_recursive(mcp_test_environment):
                 "path": parent_dir,
                 "recursive": True,
                 "sudo": False # Assuming normal user created it
+            })
+            await disconnect_ssh(client)
+    print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_file_find_lines_with_pattern_variations(mcp_test_environment):
+    """Test ssh_file_find_lines_with_pattern with regex, no match, and empty file."""
+    print_test_header("Testing 'ssh_file_find_lines_with_pattern' variations")
+    
+    test_file_base = "test_find_pattern_vars"
+    test_file = remote_temp_path(test_file_base + ".txt")
+    empty_file = remote_temp_path(test_file_base + "_empty.txt")
+
+    file_content = """Line 1: apple
+Line 2: banana
+Line 3: Apple Pie
+Line 4: orange123"""
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}", "io_timeout": 5.0
+            })
+            # Create empty file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"touch {empty_file}", "io_timeout": 5.0
+            })
+
+            # 1. Test with regex
+            find_regex_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
+                "file_path": test_file, "pattern": "^Line \\d: [aA]pple.*", "regex": True
+            })
+            regex_json = json.loads(find_regex_result[0].text)
+            assert regex_json['total_matches'] == 2, "Regex search failed to find correct matches"
+            assert "Line 1: apple" in regex_json['matches'][0]['content']
+            assert "Line 3: Apple Pie" in regex_json['matches'][1]['content']
+
+            # 2. Test pattern not found
+            find_no_match_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
+                "file_path": test_file, "pattern": "nonexistent_pattern", "regex": False
+            })
+            no_match_json = json.loads(find_no_match_result[0].text)
+            assert no_match_json['total_matches'] == 0, "Pattern not found test failed"
+            assert len(no_match_json['matches']) == 0
+
+            # 3. Test on an empty file
+            find_empty_file_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
+                "file_path": empty_file, "pattern": "anything", "regex": False
+            })
+            empty_file_json = json.loads(find_empty_file_result[0].text)
+            assert empty_file_json['total_matches'] == 0, "Search on empty file failed"
+            assert len(empty_file_json['matches']) == 0
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file} {empty_file}", "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_file_get_context_around_line_edge_cases(mcp_test_environment):
+    """Test ssh_file_get_context_around_line for edge cases."""
+    print_test_header("Testing 'ssh_file_get_context_around_line' edge cases")
+
+    test_file_base = "test_context_edges"
+    test_file_normal = remote_temp_path(test_file_base + "_normal.txt")
+    test_file_short = remote_temp_path(test_file_base + "_short.txt")
+
+    file_content_normal = """Line 1: First line
+Line 2: Second line
+Line 3: Target Middle
+Line 4: Fourth line
+Line 5: Last line"""
+
+    file_content_short = """Line A
+Line B""" # Only 2 lines
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content_normal}' > {test_file_normal}", "io_timeout": 5.0
+            })
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content_short}' > {test_file_short}", "io_timeout": 5.0
+            })
+
+            # 1. Match at the beginning of the file
+            context_begin_result = await client.call_tool("ssh_file_get_context_around_line", {
+                "file_path": test_file_normal, "match_line": "Line 1: First line", "context": 2
+            })
+            begin_json = json.loads(context_begin_result[0].text)
+            assert begin_json['match_found'] == True
+            assert begin_json['match_line_number'] == 1
+            assert len(begin_json['context_block']) == 3 # Line 1, Line 2, Line 3
+            assert begin_json['context_block'][0]['content'] == "Line 1: First line"
+            assert begin_json['context_block'][1]['content'] == "Line 2: Second line"
+            assert begin_json['context_block'][2]['content'] == "Line 3: Target Middle"
+
+
+            # 2. Match at the end of the file
+            context_end_result = await client.call_tool("ssh_file_get_context_around_line", {
+                "file_path": test_file_normal, "match_line": "Line 5: Last line", "context": 2
+            })
+            end_json = json.loads(context_end_result[0].text)
+            assert end_json['match_found'] == True
+            assert end_json['match_line_number'] == 5
+            assert len(end_json['context_block']) == 3 # Line 3, Line 4, Line 5
+            assert end_json['context_block'][0]['content'] == "Line 3: Target Middle"
+            assert end_json['context_block'][1]['content'] == "Line 4: Fourth line"
+            assert end_json['context_block'][2]['content'] == "Line 5: Last line"
+
+            # 3. File with fewer lines than 2 * context + 1
+            context_short_file_result = await client.call_tool("ssh_file_get_context_around_line", {
+                "file_path": test_file_short, "match_line": "Line A", "context": 3
+            })
+            short_file_json = json.loads(context_short_file_result[0].text)
+            assert short_file_json['match_found'] == True
+            assert short_file_json['match_line_number'] == 1
+            assert len(short_file_json['context_block']) == 2 # Line A, Line B (all lines)
+            assert short_file_json['context_block'][0]['content'] == "Line A"
+            assert short_file_json['context_block'][1]['content'] == "Line B"
+
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file_normal} {test_file_short}", "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    print_test_footer()
+
+@pytest.mark.asyncio
+async def test_ssh_file_copy_overwrite(mcp_test_environment):
+    """Test ssh_file_copy overwrite behavior when destination exists and append_timestamp=False."""
+    print_test_header("Testing 'ssh_file_copy' overwrite behavior")
+
+    source_file_base = "test_copy_source_overwrite"
+    dest_file_base = "test_copy_dest_overwrite"
+    source_file = remote_temp_path(source_file_base + ".txt")
+    dest_file = remote_temp_path(dest_file_base + ".txt") # Fixed destination name
+
+    original_content_source = "Original content for source file."
+    original_content_dest = "Initial content for destination file."
+    new_content_source = "New content from source, should overwrite."
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # 1. Create initial destination file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{original_content_dest}' > {dest_file}", "io_timeout": 5.0
+            })
+
+            # 2. Create source file with different content
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{new_content_source}' > {source_file}", "io_timeout": 5.0
+            })
+
+            # 3. Copy source to destination (expect overwrite)
+            copy_result = await client.call_tool("ssh_file_copy", {
+                "source_path": source_file,
+                "destination_path": dest_file,
+                "append_timestamp": False,
+                "sudo": False # Test non-sudo path first
+            })
+            copy_json = json.loads(copy_result[0].text)
+            assert copy_json['success'] == True, f"ssh_file_copy failed: {copy_json.get('error', '')}"
+            assert copy_json['copied_to'] == dest_file
+
+            # 4. Verify destination file content is overwritten
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {dest_file}", "io_timeout": 5.0
+            })
+            cat_json = json.loads(cat_result[0].text)
+            assert cat_json['status'] == 'success'
+            output = cat_json['output'].strip()
+            assert output == new_content_source, "Destination file content was not overwritten."
+            assert output != original_content_dest, "Original destination content still present."
+
+            # 5. Test with sudo (should also overwrite)
+            # Recreate initial destination file, owned by root
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{original_content_dest}' > {dest_file}", "io_timeout": 5.0, "sudo": True
+            })
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"chown root:root {dest_file}", "io_timeout": 5.0, "sudo": True
+            })
+            # Recreate source file (as normal user is fine)
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{new_content_source}' > {source_file}", "io_timeout": 5.0
+            })
+
+            copy_sudo_result = await client.call_tool("ssh_file_copy", {
+                "source_path": source_file,
+                "destination_path": dest_file,
+                "append_timestamp": False,
+                "sudo": True
+            })
+            copy_sudo_json = json.loads(copy_sudo_result[0].text)
+            assert copy_sudo_json['success'] == True, f"ssh_file_copy with sudo failed: {copy_sudo_json.get('error', '')}"
+            assert copy_sudo_json['copied_to'] == dest_file
+            
+            # Verify content (read with sudo as it might be root owned now)
+            cat_sudo_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {dest_file}", "io_timeout": 5.0, "sudo": True
+            })
+            cat_sudo_json = json.loads(cat_sudo_result[0].text)
+            assert cat_sudo_json['status'] == 'success'
+            output_sudo = cat_sudo_json['output'].strip()
+            assert output_sudo == new_content_source, "Destination file content was not overwritten with sudo."
+
+
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {source_file} {dest_file}", "io_timeout": 5.0, "sudo": True # sudo for dest if root owned
             })
             await disconnect_ssh(client)
     print_test_footer()
