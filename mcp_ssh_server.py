@@ -12,6 +12,7 @@ from datetime import datetime, UTC
 from ssh_client import SshClient
 from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description="SSH MCP Server")
     parser.add_argument(
@@ -21,6 +22,8 @@ def parse_args():
         default=None
     )
     return parser.parse_args()
+
+
 
 class SshHostManager:
     def __init__(self, config_path: Optional[Path] = None):
@@ -97,6 +100,8 @@ else:
     # When imported as a module (e.g. during testing), use default config
     host_manager = SshHostManager()
 
+
+
 # ===================
 # Logging Setup
 # ===================
@@ -116,6 +121,8 @@ def setup_logging():
 # Initialize logging early
 setup_logging()
 
+
+
 # ===================
 # MCP Server Instance
 # ===================
@@ -134,11 +141,15 @@ except Exception as e:
     logger.critical(f"Failed to create MCP instance: {e}", exc_info=True)
     sys.exit(1)
 
+
+
 # ===================
 # Global State
 # ===================
 
 # The SSH client will be an instance variable of the MCP server
+
+
 
 # ===================
 # Cleanup Handlers
@@ -164,12 +175,17 @@ try:
 except AttributeError:
     logger.info("FastMCP version doesn't support on_shutdown, will clean up manually")
 
-# ===================
-# Core SSH Tools
-# ===================
+
+
+
+
+# ====================================================
+#          Core SSH Tools
+# ====================================================
+
 
 @mcp.tool()
-async def ssh_is_connected() -> bool:
+async def ssh_conn_is_connected() -> bool:
     """
     Check if there is an active SSH connection.
     
@@ -178,8 +194,10 @@ async def ssh_is_connected() -> bool:
     """
     return mcp.ssh_client is not None and mcp.ssh_client.is_connected()
 
+
+
 @mcp.tool()
-async def ssh_connect(
+async def ssh_conn_connect(
     host_name: Annotated[str, Field(description="Name of host configuration to use")]
 ) -> dict:
     """
@@ -213,8 +231,10 @@ async def ssh_connect(
         logger.error(f"Failed to connect to {host_name}: {e}")
         raise
 
+
+
 @mcp.tool()
-async def ssh_add_host(
+async def ssh_conn_add_host(
     name: Annotated[str, Field(description="Unique name for this host configuration")],
     host: Annotated[str, Field(description="Hostname or IP address")],
     user: Annotated[str, Field(description="Username for authentication")],
@@ -238,16 +258,132 @@ async def ssh_add_host(
         logger.error(f"Failed to add host: {e}")
         raise
 
+
+
+@mcp.tool()
+async def ssh_conn_status() -> dict:
+    """
+    Get current SSH connection status and system information.
+    
+    Returns:
+        Dictionary containing connection status and system info
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        status = mcp.ssh_client.get_connection_status()
+        system_info = mcp.ssh_client.full_status()
+        return {
+            'connection': status,
+            'system': system_info
+        }
+    except Exception as e:
+        logger.error(f"Failed to get status: {e}")
+        raise
+
+
+@mcp.tool()
+async def ssh_conn_verify_sudo() -> bool:
+    """
+    Verify if password-less sudo is available on the remote system.
+    
+    Returns:
+        True if sudo access is available, False otherwise
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        return mcp.ssh_client.verify_sudo_access()
+    except Exception as e:
+        logger.error(f"Failed to verify sudo access: {e}")
+        raise
+
+
+
+# ===================
+# Task Operation Tools
+# ===================
+
+
+@mcp.tool()
+async def ssh_task_status(
+    pid: Annotated[int, Field(description="Process ID to check status for")]
+) -> dict:
+    """
+    Check the status of a background task by PID.
+    
+    Returns:
+        Dictionary containing task status information
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        status = mcp.ssh_client.task_status(pid)
+        return {
+            'pid': pid,
+            'status': status,
+            'running': status == 'running',
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to get task status: {e}")
+        raise
+
+
+@mcp.tool()
+async def ssh_task_kill(
+    pid: Annotated[int, Field(description="Process ID to terminate")],
+    signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
+    sudo: Annotated[bool, Field(description="Use sudo for the kill operation")] = False,
+    force: Annotated[bool, Field(description="Force kill with SIGKILL if process doesn't exit")] = True,
+    wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
+) -> dict:
+    """
+    Terminate a background task by sending a signal to its PID.
+    
+    If force=True and the process doesn't exit after wait_seconds,
+    it will be forcibly killed with SIGKILL (signal 9).
+    
+    Returns:
+        Dictionary containing kill operation result
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        force_kill_signal = 9 if force else None
+        result = mcp.ssh_client.task_kill(pid, signal, sudo, force_kill_signal, wait_seconds)
+        return {
+            'pid': pid,
+            'result': result,
+            'signal': signal,
+            'force_kill_used': result == 'killed' and force,
+            'timestamp': datetime.now(UTC).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to kill task: {e}")
+        raise
+
+
+
+# ===================
+# Cmd Operation Tools
+# ===================
+
+
 @mcp.tool()
 async def ssh_cmd_run(
-    command: Annotated[str, Field(description="Command to execute on remote host")],
-    io_timeout: Annotated[float, Field(description="I/O timeout in seconds", gt=0)] = 60.0,
-    runtime_timeout: Annotated[Optional[float], Field(description="Total runtime timeout in seconds", gt=0)] = None,
-    sudo: Annotated[bool, Field(description="Run command with sudo")] = False
+        command: Annotated[str, Field(description="Command to execute on remote host")],
+        io_timeout: Annotated[float, Field(description="I/O timeout in seconds", gt=0)] = 60.0,
+        runtime_timeout: Annotated[Optional[float], Field(description="Total runtime timeout in seconds", gt=0)] = None,
+        sudo: Annotated[bool, Field(description="Run command with sudo")] = False
 ) -> dict:
     """
     Execute a command on the remote host and return the results.
-    
+
     Returns:
         Dictionary containing command output, status, and metadata.
         Status field indicates success or the type of failure (timeout, runtime_timeout, etc.)
@@ -259,7 +395,7 @@ async def ssh_cmd_run(
             'command': command,
             'timestamp': datetime.now(UTC).isoformat()
         }
-        
+
     try:
         handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, sudo)
         output = handle.get_full_output()
@@ -279,7 +415,7 @@ async def ssh_cmd_run(
         history = mcp.ssh_client.history()
         handle = next((h for h in history if h.get('cmd') == command), None)
         handle_id = handle.get('id') if handle else None
-        
+
         return {
             'status': 'io_timeout',
             'id': handle_id,
@@ -339,276 +475,8 @@ async def ssh_cmd_run(
             'timestamp': datetime.now(UTC).isoformat()
         }
 
-@mcp.tool()
-async def ssh_file_transfer(
-    direction: Annotated[Literal['upload', 'download'], Field(description="Transfer direction")],
-    local_path: Annotated[str, Field(description="Local file path")],
-    remote_path: Annotated[str, Field(description="Remote file path")],
-    sudo: Annotated[bool, Field(description="Use sudo for transfer")] = False
-) -> dict:
-    """
-    Transfer files between local and remote systems.
-    
-    Returns:
-        Dictionary containing transfer status and metadata
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        if direction == 'upload':
-            mcp.ssh_client.put(local_path, remote_path)
-            operation = f"Uploaded {local_path} to {remote_path}"
-        else:
-            mcp.ssh_client.get(remote_path, local_path)
-            operation = f"Downloaded {remote_path} to {local_path}"
-            
-        return {
-            'operation': operation,
-            'success': True,
-            'local_path': local_path,
-            'remote_path': remote_path
-        }
-    except Exception as e:
-        logger.error(f"File transfer failed: {e}")
-        raise
 
-@mcp.tool()
-async def ssh_conn_status() -> dict:
-    """
-    Get current SSH connection status and system information.
-    
-    Returns:
-        Dictionary containing connection status and system info
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        status = mcp.ssh_client.get_connection_status()
-        system_info = mcp.ssh_client.full_status()
-        return {
-            'connection': status,
-            'system': system_info
-        }
-    except Exception as e:
-        logger.error(f"Failed to get status: {e}")
-        raise
 
-@mcp.tool()
-async def ssh_verify_sudo() -> bool:
-    """
-    Verify if password-less sudo is available on the remote system.
-    
-    Returns:
-        True if sudo access is available, False otherwise
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        return mcp.ssh_client.verify_sudo_access()
-    except Exception as e:
-        logger.error(f"Failed to verify sudo access: {e}")
-        raise
-
-@mcp.tool()
-async def ssh_replace_block(
-    path: Annotated[str, Field(description="File path to modify")],
-    old_block: Annotated[str, Field(description="Block of text to replace")],
-    new_block: Annotated[str, Field(description="New block of text")],
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
-) -> dict:
-    """
-    Replace a block of text in a remote file.
-    
-    Returns:
-        Dictionary with operation status
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        mcp.ssh_client.replace_block(path, old_block, new_block, sudo)
-        return {
-            'status': 'success',
-            'path': path,
-            'message': f"Replaced block of text in {path}"
-        }
-    except Exception as e:
-        logger.error(f"Failed to replace block: {e}")
-        raise
-
-@mcp.tool()
-async def ssh_cmd_output(
-    handle_id: Annotated[int, Field(description="Command handle ID to retrieve output for")],
-    lines: Annotated[Optional[int], Field(description="Number of lines to retrieve (None for all)")] = None
-) -> list:
-    """
-    Retrieve output from a specific command execution.
-    
-    Returns:
-        List of output lines from the command
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        return mcp.ssh_client.output(handle_id, lines=lines)
-    except Exception as e:
-        logger.error(f"Failed to retrieve output: {e}")
-        raise
-
-@mcp.tool()
-async def ssh_cmd_history(
-    limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
-    include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
-    output_lines: Annotated[int, Field(description="Number of output lines to include (0 for none)", ge=0)] = 3,
-    reverse: Annotated[bool, Field(description="Return in reverse order (newest first)")] = False
-) -> list:
-    """
-    Retrieve command execution history with optional output snippets.
-    
-    Returns:
-        List of dictionaries containing command history, ordered from oldest to newest by default.
-        Each entry contains:
-        - id: Command handle ID
-        - command: Executed command
-        - exit_code: Exit status
-        - start_time: Execution start timestamp
-        - end_time: Execution end timestamp
-        - output: Command output snippet (if include_output=True)
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        history = mcp.ssh_client.history()
-        
-        # Apply limit if specified
-        if limit is not None:
-            history = history[-limit:]
-        
-        # Reverse if requested
-        if reverse:
-            history = history[::-1]
-        
-        results = []
-        for entry in history:
-            history_entry = {
-                'id': entry.get('id'),
-                'command': entry.get('cmd'),
-                'exit_code': entry.get('exit_code'),
-                'start_time': entry.get('start_ts'),
-                'end_time': entry.get('end_ts'),
-                'pid': entry.get('pid')
-            }
-            
-            if include_output:
-                try:
-                    output = mcp.ssh_client.output(entry['id'], lines=output_lines)
-                    history_entry['output'] = output
-                except Exception as e:
-                    history_entry['output'] = f"Unable to retrieve output: {str(e)}"
-            
-            results.append(history_entry)
-        
-        return results
-    except Exception as e:
-        logger.error(f"Failed to retrieve command history: {e}")
-        raise
-
-@mcp.tool()
-async def ssh_launch_task(
-    command: Annotated[str, Field(description="Command to execute in the background")],
-    sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
-    stdout_log: Annotated[Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log)")] = None,
-    stderr_log: Annotated[Optional[str], Field(description="Path to redirect stderr (default: same as stdout)")] = None,
-    log_output: Annotated[bool, Field(description="Whether to log output to files")] = True
-) -> dict:
-    """
-    Launch a command in the background and return its PID.
-    
-    Unlike ssh_run, this does not wait for the command to complete.
-    Output is redirected to files or /dev/null, not captured in memory.
-    
-    Returns:
-        Dictionary containing task information including PID
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        handle = mcp.ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output)
-        return {
-            'command': command,
-            'pid': handle.pid,
-            'start_time': handle.start_ts.isoformat() if handle.start_ts else None,
-            'stdout_log': stdout_log or f"/tmp/task-{handle.pid}.log" if log_output else None,
-            'stderr_log': stderr_log or f"/tmp/task-{handle.pid}.log" if log_output else None
-        }
-    except Exception as e:
-        logger.error(f"Task launch failed: {e}")
-        raise
-
-@mcp.tool()
-async def ssh_task_status(
-    pid: Annotated[int, Field(description="Process ID to check status for")]
-) -> dict:
-    """
-    Check the status of a background task by PID.
-    
-    Returns:
-        Dictionary containing task status information
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        status = mcp.ssh_client.task_status(pid)
-        return {
-            'pid': pid,
-            'status': status,
-            'running': status == 'running',
-            'timestamp': datetime.now(UTC).isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Failed to get task status: {e}")
-        raise
-
-@mcp.tool()
-async def ssh_task_kill(
-    pid: Annotated[int, Field(description="Process ID to terminate")],
-    signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
-    sudo: Annotated[bool, Field(description="Use sudo for the kill operation")] = False,
-    force: Annotated[bool, Field(description="Force kill with SIGKILL if process doesn't exit")] = True,
-    wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
-) -> dict:
-    """
-    Terminate a background task by sending a signal to its PID.
-    
-    If force=True and the process doesn't exit after wait_seconds,
-    it will be forcibly killed with SIGKILL (signal 9).
-    
-    Returns:
-        Dictionary containing kill operation result
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        force_kill_signal = 9 if force else None
-        result = mcp.ssh_client.task_kill(pid, signal, sudo, force_kill_signal, wait_seconds)
-        return {
-            'pid': pid,
-            'result': result,
-            'signal': signal,
-            'force_kill_used': result == 'killed' and force,
-            'timestamp': datetime.now(UTC).isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Failed to kill task: {e}")
-        raise
 
 @mcp.tool()
 async def ssh_cmd_kill(
@@ -621,7 +489,7 @@ async def ssh_cmd_kill(
     Terminate a currently running command by its handle ID.
     
     This tool is specifically for killing commands started with ssh_cmd_run,
-    not background tasks launched with ssh_launch_task.
+    not background tasks launched with ssh_task_launch.
     
     If force=True and the process doesn't exit after wait_seconds,
     it will be forcibly killed with SIGKILL (signal 9).
@@ -671,17 +539,19 @@ async def ssh_cmd_kill(
         logger.error(f"Failed to kill command: {e}")
         raise
 
+
+
 @mcp.tool()
-async def ssh_cmd_check(
+async def ssh_cmd_check_status(
     handle_id: Annotated[int, Field(description="Command handle ID to check status for")],
     wait_seconds: Annotated[float, Field(description="Seconds to wait before checking", gt=0)] = 5.0
 ) -> dict:
     """
     Wait for the specified duration and then check the status of a command.
     
-    This tool helps with monitoring long-running commands by implementing
-    a wait operation that LLMs cannot perform on their own.
-    
+    This tool helps with monitoring long-running commands started with ssh_cmd_run
+    by implementing a wait operation that LLMs cannot perform on their own.
+     
     Returns:
         Dictionary containing command status information after waiting
     """
@@ -766,12 +636,132 @@ async def ssh_cmd_check(
             'timestamp': datetime.now(UTC).isoformat()
         }
 
+
+
+@mcp.tool()
+async def ssh_cmd_output(
+        handle_id: Annotated[int, Field(description="Command handle ID to retrieve output for")],
+        lines: Annotated[Optional[int], Field(description="Number of lines to retrieve (None for all)")] = None
+) -> list:
+    """
+    Retrieve output from a specific command execution.
+
+    Returns:
+        List of output lines from the command
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        return mcp.ssh_client.output(handle_id, lines=lines)
+    except Exception as e:
+        logger.error(f"Failed to retrieve output: {e}")
+        raise
+
+
+
+@mcp.tool()
+async def ssh_cmd_history(
+        limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
+        include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
+        output_lines: Annotated[int, Field(description="Number of output lines to include (0 for none)", ge=0)] = 3,
+        reverse: Annotated[bool, Field(description="Return in reverse order (newest first)")] = False
+) -> list:
+    """
+    Retrieve command execution history with optional output snippets.
+
+    Returns:
+        List of dictionaries containing command history, ordered from oldest to newest by default.
+        Each entry contains:
+        - id: Command handle ID
+        - command: Executed command
+        - exit_code: Exit status
+        - start_time: Execution start timestamp
+        - end_time: Execution end timestamp
+        - output: Command output snippet (if include_output=True)
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        history = mcp.ssh_client.history()
+
+        # Apply limit if specified
+        if limit is not None:
+            history = history[-limit:]
+
+        # Reverse if requested
+        if reverse:
+            history = history[::-1]
+
+        results = []
+        for entry in history:
+            history_entry = {
+                'id': entry.get('id'),
+                'command': entry.get('cmd'),
+                'exit_code': entry.get('exit_code'),
+                'start_time': entry.get('start_ts'),
+                'end_time': entry.get('end_ts'),
+                'pid': entry.get('pid')
+            }
+
+            if include_output:
+                try:
+                    output = mcp.ssh_client.output(entry['id'], lines=output_lines)
+                    history_entry['output'] = output
+                except Exception as e:
+                    history_entry['output'] = f"Unable to retrieve output: {str(e)}"
+
+            results.append(history_entry)
+
+        return results
+    except Exception as e:
+        logger.error(f"Failed to retrieve command history: {e}")
+        raise
+
+
+@mcp.tool()
+async def ssh_task_launch(
+        command: Annotated[str, Field(description="Command to execute in the background")],
+        sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
+        stdout_log: Annotated[
+            Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log)")] = None,
+        stderr_log: Annotated[
+            Optional[str], Field(description="Path to redirect stderr (default: same as stdout)")] = None,
+        log_output: Annotated[bool, Field(description="Whether to log output to files")] = True
+) -> dict:
+    """
+    Launch a command in the background and return its PID.
+
+    Unlike ssh_run, this does not wait for the command to complete.
+    Output is redirected to files or /dev/null, not captured in memory.
+
+    Returns:
+        Dictionary containing task information including PID
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        handle = mcp.ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output)
+        return {
+            'command': command,
+            'pid': handle.pid,
+            'start_time': handle.start_ts.isoformat() if handle.start_ts else None,
+            'stdout_log': stdout_log or f"/tmp/task-{handle.pid}.log" if log_output else None,
+            'stderr_log': stderr_log or f"/tmp/task-{handle.pid}.log" if log_output else None
+        }
+    except Exception as e:
+        logger.error(f"Task launch failed: {e}")
+        raise
+
+
 # ===================
-# File Operation Tools
+# Dir Operation Tools
 # ===================
 
 @mcp.tool()
-async def ssh_mkdir(
+async def ssh_dir_mkdir(
     path: Annotated[str, Field(description="Directory path to create")],
     sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     mode: Annotated[int, Field(description="Directory permissions (octal)", ge=0, le=0o777)] = 0o755
@@ -797,8 +787,10 @@ async def ssh_mkdir(
         logger.error(f"Failed to create directory: {e}")
         raise
 
+
+
 @mcp.tool()
-async def ssh_rmdir(
+async def ssh_dir_remove(
     path: Annotated[str, Field(description="Directory path to remove")],
     sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     recursive: Annotated[bool, Field(description="Remove directory and contents recursively")] = False
@@ -824,8 +816,10 @@ async def ssh_rmdir(
         logger.error(f"Failed to remove directory: {e}")
         raise
 
+
+
 @mcp.tool()
-async def ssh_listdir(
+async def ssh_dir_list_files_basic(
     path: Annotated[str, Field(description="Directory path to list")]
 ) -> list:
     """
@@ -844,8 +838,14 @@ async def ssh_listdir(
         logger.error(f"Failed to list directory: {e}")
         raise
 
+
+# ===================
+# File Operation Tools
+# ===================
+
+
 @mcp.tool()
-async def ssh_stat(
+async def ssh_file_stat(
     path: Annotated[str, Field(description="File or directory path to get information about")]
 ) -> dict:
     """
@@ -901,42 +901,134 @@ async def ssh_stat(
         # Return a structured error response instead of raising
         return {"error": str(e), "exists": False}
 
+
+
+#
+# @mcp.tool()
+# async def ssh_file_replace_line(
+#     path: Annotated[str, Field(description="File path to modify")],
+#     old_line: Annotated[str, Field(description="Line of text to replace")],
+#     new_line: Annotated[str, Field(description="New line of text")],
+#     count: Annotated[int, Field(description="Number of occurrences to replace (0=all)", ge=0)] = 1,
+#     sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+#     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+# ) -> dict:
+#     """
+#     Replace specific lines in a remote file.
+#
+#     Returns:
+#         Dictionary with operation status
+#     """
+#     if not mcp.ssh_client:
+#         raise SshError("No active SSH connection")
+#
+#     try:
+#         mcp.ssh_client.replace_line(path, old_line, new_line, count, sudo, force)
+#         return {
+#             'status': 'success',
+#             'path': path,
+#             'count': count,
+#             'message': f"Replaced {'all occurrences' if count == 0 else count} of the specified line in {path}"
+#         }
+#     except Exception as e:
+#         logger.error(f"Failed to replace line: {e}")
+#         raise
+
+
+
 @mcp.tool()
-async def ssh_replace_line(
-    path: Annotated[str, Field(description="File path to modify")],
-    old_line: Annotated[str, Field(description="Line of text to replace")],
-    new_line: Annotated[str, Field(description="New line of text")],
-    count: Annotated[int, Field(description="Number of occurrences to replace (0=all)", ge=0)] = 1,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
-    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+async def ssh_file_transfer(
+        direction: Annotated[Literal['upload', 'download'], Field(description="Transfer direction")],
+        local_path: Annotated[str, Field(description="Local file path")],
+        remote_path: Annotated[str, Field(description="Remote file path")],
+        sudo: Annotated[bool, Field(description="Use sudo for transfer")] = False
 ) -> dict:
     """
-    Replace specific lines in a remote file.
-    
+    Transfer files between local and remote systems.
+
+    Returns:
+        Dictionary containing transfer status and metadata
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        if direction == 'upload':
+            mcp.ssh_client.put(local_path, remote_path)
+            operation = f"Uploaded {local_path} to {remote_path}"
+        else:
+            mcp.ssh_client.get(remote_path, local_path)
+            operation = f"Downloaded {remote_path} to {local_path}"
+
+        return {
+            'operation': operation,
+            'success': True,
+            'local_path': local_path,
+            'remote_path': remote_path
+        }
+    except Exception as e:
+        logger.error(f"File transfer failed: {e}")
+        raise
+
+#
+# @mcp.tool()
+# async def ssh_file_replace_block(
+#         path: Annotated[str, Field(description="File path to modify")],
+#         old_block: Annotated[str, Field(description="Block of text to replace")],
+#         new_block: Annotated[str, Field(description="New block of text")],
+#         sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+# ) -> dict:
+#     """
+#     Replace a block of text in a remote file.
+#
+#     Returns:
+#         Dictionary with operation status
+#     """
+#     if not mcp.ssh_client:
+#         raise SshError("No active SSH connection")
+#
+#     try:
+#         mcp.ssh_client.replace_block(path, old_block, new_block, sudo)
+#         return {
+#             'status': 'success',
+#             'path': path,
+#             'message': f"Replaced block of text in {path}"
+#         }
+#     except Exception as e:
+#         logger.error(f"Failed to replace block: {e}")
+#         raise
+
+
+@mcp.tool()
+async def ssh_file_move(
+        source: Annotated[str, Field(description="Source file or directory path")],
+        destination: Annotated[str, Field(description="Destination path")],
+        overwrite: Annotated[bool, Field(description="Overwrite destination if it exists")] = False,
+        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Move or rename a file or directory.
+
     Returns:
         Dictionary with operation status
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
-        
+
     try:
-        mcp.ssh_client.replace_line(path, old_line, new_line, count, sudo, force)
-        return {
-            'status': 'success',
-            'path': path,
-            'count': count,
-            'message': f"Replaced {'all occurrences' if count == 0 else count} of the specified line in {path}"
-        }
+        result = mcp.ssh_client.safe_move_or_rename(source, destination, overwrite, sudo)
+        return result
     except Exception as e:
-        logger.error(f"Failed to replace line: {e}")
+        logger.error(f"Failed to move file/directory: {e}")
         raise
 
-# ===================
+
+# ===========================
 # Directory Operation Tools
-# ===================
+# ===========================
 
 @mcp.tool()
-async def ssh_search_files(
+async def ssh_dir_search_glob(
     path: Annotated[str, Field(description="Base directory to search from")],
     pattern: Annotated[str, Field(description="Filename glob pattern (e.g. *.log)")],
     max_depth: Annotated[Optional[int], Field(description="Maximum recursion depth (None for unlimited)", ge=1)] = None,
@@ -958,8 +1050,10 @@ async def ssh_search_files(
         logger.error(f"Failed to search files: {e}")
         raise
 
+
+
 @mcp.tool()
-async def ssh_directory_size(
+async def ssh_dir_calc_size(
     path: Annotated[str, Field(description="Directory path to calculate size for")]
 ) -> dict:
     """
@@ -982,8 +1076,10 @@ async def ssh_directory_size(
         logger.error(f"Failed to calculate directory size: {e}")
         raise
 
+
+
 @mcp.tool()
-async def ssh_delete_directory(
+async def ssh_dir_delete(
     path: Annotated[str, Field(description="Directory path to delete")],
     dry_run: Annotated[bool, Field(description="Preview deletion without actually deleting")] = True,
     sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
@@ -1004,8 +1100,10 @@ async def ssh_delete_directory(
         logger.error(f"Failed to delete directory: {e}")
         raise
 
+
+
 @mcp.tool()
-async def ssh_batch_delete(
+async def ssh_dir_batch_delete_files(
     path: Annotated[str, Field(description="Base directory to search in")],
     pattern: Annotated[str, Field(description="File pattern to match for deletion (e.g. *.tmp)")],
     dry_run: Annotated[bool, Field(description="Preview deletion without actually deleting")] = True,
@@ -1027,31 +1125,10 @@ async def ssh_batch_delete(
         logger.error(f"Failed to batch delete files: {e}")
         raise
 
-@mcp.tool()
-async def ssh_move(
-    source: Annotated[str, Field(description="Source file or directory path")],
-    destination: Annotated[str, Field(description="Destination path")],
-    overwrite: Annotated[bool, Field(description="Overwrite destination if it exists")] = False,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
-) -> dict:
-    """
-    Move or rename a file or directory.
-    
-    Returns:
-        Dictionary with operation status
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        result = mcp.ssh_client.safe_move_or_rename(source, destination, overwrite, sudo)
-        return result
-    except Exception as e:
-        logger.error(f"Failed to move file/directory: {e}")
-        raise
+
 
 @mcp.tool()
-async def ssh_list_directory(
+async def ssh_dir_list_advanced(
     path: Annotated[str, Field(description="Directory path to list")],
     max_depth: Annotated[Optional[int], Field(description="Maximum recursion depth (None for unlimited)", ge=1)] = None,
     sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
@@ -1072,8 +1149,66 @@ async def ssh_list_directory(
         logger.error(f"Failed to list directory: {e}")
         raise
 
+
 @mcp.tool()
-async def ssh_create_archive(
+async def ssh_dir_search_files_content(
+        dir_path: Annotated[str, Field(description="Directory to search in")],
+        pattern: Annotated[str, Field(description="Text or pattern to search for")],
+        regex: Annotated[bool, Field(description="Treat pattern as regular expression")] = False,
+        case_sensitive: Annotated[bool, Field(description="Perform case-sensitive search")] = True,
+        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> list:
+    """
+    Search for text patterns in files of given directory.
+
+    Returns:
+        List of dictionaries with search matches
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        results = mcp.ssh_client.search_file_contents(dir_path, pattern, regex, case_sensitive, sudo)
+        return results
+    except Exception as e:
+        logger.error(f"Failed to search file contents: {e}")
+        raise
+
+
+@mcp.tool()
+async def ssh_dir_copy(
+        source_path: Annotated[str, Field(description="Source directory path")],
+        destination_path: Annotated[str, Field(description="Destination directory path")],
+        overwrite: Annotated[bool, Field(description="Overwrite existing files")] = False,
+        preserve_symlinks: Annotated[bool, Field(description="Preserve symbolic links")] = True,
+        preserve_permissions: Annotated[bool, Field(description="Preserve file permissions")] = True,
+        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+) -> dict:
+    """
+    Copy a directory recursively.
+
+    Returns:
+        Dictionary with copy operation details
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        result = mcp.ssh_client.copy_directory_recursive(
+            source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, sudo
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Failed to copy directory: {e}")
+        raise
+
+
+# ===========================
+# Archive Operation Tools
+# ===========================
+
+@mcp.tool()
+async def ssh_archive_create(
     source_path: Annotated[str, Field(description="Directory to archive")],
     archive_path: Annotated[str, Field(description="Path for the created archive")],
     format: Annotated[Literal["tar.gz", "zip"], Field(description="Archive format")] = "tar.gz",
@@ -1095,8 +1230,11 @@ async def ssh_create_archive(
         logger.error(f"Failed to create archive: {e}")
         raise
 
+
+
+
 @mcp.tool()
-async def ssh_extract_archive(
+async def ssh_archive_extract(
     archive_path: Annotated[str, Field(description="Path to the archive file")],
     destination_path: Annotated[str, Field(description="Directory to extract to")],
     overwrite: Annotated[bool, Field(description="Overwrite existing files")] = False,
@@ -1118,56 +1256,7 @@ async def ssh_extract_archive(
         logger.error(f"Failed to extract archive: {e}")
         raise
 
-@mcp.tool()
-async def ssh_search_content(
-    path: Annotated[str, Field(description="Directory to search in")],
-    pattern: Annotated[str, Field(description="Text or pattern to search for")],
-    regex: Annotated[bool, Field(description="Treat pattern as regular expression")] = False,
-    case_sensitive: Annotated[bool, Field(description="Perform case-sensitive search")] = True,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
-) -> list:
-    """
-    Search for text patterns in files.
-    
-    Returns:
-        List of dictionaries with search matches
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        results = mcp.ssh_client.search_file_contents(path, pattern, regex, case_sensitive, sudo)
-        return results
-    except Exception as e:
-        logger.error(f"Failed to search file contents: {e}")
-        raise
 
-@mcp.tool()
-async def ssh_copy_directory(
-    source_path: Annotated[str, Field(description="Source directory path")],
-    destination_path: Annotated[str, Field(description="Destination directory path")],
-    overwrite: Annotated[bool, Field(description="Overwrite existing files")] = False,
-    preserve_symlinks: Annotated[bool, Field(description="Preserve symbolic links")] = True,
-    preserve_permissions: Annotated[bool, Field(description="Preserve file permissions")] = True,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
-) -> dict:
-    """
-    Copy a directory recursively.
-    
-    Returns:
-        Dictionary with copy operation details
-    """
-    if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
-        
-    try:
-        result = mcp.ssh_client.copy_directory_recursive(
-            source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, sudo
-        )
-        return result
-    except Exception as e:
-        logger.error(f"Failed to copy directory: {e}")
-        raise
 
 # ===================
 # Helper Functions
