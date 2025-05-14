@@ -71,7 +71,6 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                 if ":" in port_mapping:
                     SSH_TEST_PORT = int(port_mapping.split(":")[-1])
                     # Update SSH_TEST_CONNECTION_PARAMS if port changed
-                    SSH_TEST_CONNECTION_PARAMS["port"] = SSH_TEST_PORT
                     logger.info(f"Using existing container with port {SSH_TEST_PORT}")
             return
     except subprocess.CalledProcessError as e:
@@ -108,7 +107,6 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                     (f"Could not find an available port after {max_port_attempts} attempts, starting from {original_port}")
 
     if SSH_TEST_PORT != original_port:
-        SSH_TEST_CONNECTION_PARAMS["port"] = SSH_TEST_PORT # Update if port changed
         logger.info(f"Using port {SSH_TEST_PORT} instead of {original_port}")
 
     # Start the SSH test container
@@ -118,8 +116,8 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
             "docker", "run", "-d",
             "--name", "ssh-test-server",
             "-p", f"{SSH_TEST_PORT}:22",
-            "-e", f"USER_NAME={SSH_TEST_USER}",
-            "-e", f"USER_PASSWORD={SSH_TEST_PASSWORD}",
+            "-e", f"USER_NAME={user}",
+            "-e", f"USER_PASSWORD={password}",
             "-e", "SUDO_ACCESS=true",
             "-e", "PASSWORD_ACCESS=true",
             "linuxserver/openssh-server:latest"
@@ -138,7 +136,7 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                 temp_client = SshClient(
                     host=host,
                     user=user,
-                    port=port,
+                    port=SSH_TEST_PORT,
                     password=password
                 )
                 result = temp_client.run("echo 'SSH connection test successful'")
