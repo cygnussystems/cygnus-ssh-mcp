@@ -93,7 +93,7 @@ class SshHostManager:
         # Validate port range
         clamped_port = max(1, min(port, 65535))
         if clamped_port != port:
-            logger.warning(f"Clamping invalid port {port} to {clamped_port}")
+            logger.warning(f"Invalid port number {port} - clamping to {clamped_port}")
 
         key = f"{user}@{host}"
         self.hosts[key] = {
