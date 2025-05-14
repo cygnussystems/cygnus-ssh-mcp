@@ -17,7 +17,7 @@ from ssh_host_manager import SshHostManager
 
 
 # SSH test container management
-async def setup_test_environment(user: str, password: str, host: str = "localhost", base_port: int = 2222):
+async def docker_test_environment(user: str, password: str, host: str = "localhost", base_port: int = 2222):
     """
     Set up the test environment by starting an SSH server container.
     Also ensures the test TOML config file is clean for SshHostManager.
