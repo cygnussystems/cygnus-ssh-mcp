@@ -4,6 +4,7 @@ import logging
 import toml
 from pathlib import Path
 from typing import Dict, Any, Optional
+from ssh_models import SshError
 
 logger = logging.getLogger("SSH_Host_Manager")
 
