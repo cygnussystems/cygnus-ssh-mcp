@@ -17,7 +17,7 @@ from ssh_host_manager import SshHostManager
 
 
 # SSH test container management
-async def setup_test_environment():
+async def setup_test_environment(user: str, password: str, host: str = "localhost", base_port: int = 2222):
     """
     Set up the test environment by starting an SSH server container.
     Also ensures the test TOML config file is clean for SshHostManager.
@@ -136,10 +136,10 @@ async def setup_test_environment():
             try:
                 # Use SshClient directly for initial check, not MCP tools yet
                 temp_client = SshClient(
-                    host=SSH_TEST_HOST,
-                    user=SSH_TEST_USER,
-                    port=SSH_TEST_PORT,
-                    password=SSH_TEST_PASSWORD
+                    host=host,
+                    user=user,
+                    port=port,
+                    password=password
                 )
                 result = temp_client.run("echo 'SSH connection test successful'")
                 temp_client.close()

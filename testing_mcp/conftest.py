@@ -25,20 +25,6 @@ logging.getLogger('PIL').setLevel(logging.WARNING) # To silence potential Pillow
 SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
 SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
 SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
-SSH_TEST_HOST = "localhost" # Define explicitly for clarity
-
-# Standard SSH connection parameters for tests
-# This dictionary is no longer directly passed to add_host tool,
-# but its values are used.
-
-SSH_TEST_CONNECTION_PARAMS = {
-    "host": SSH_TEST_HOST,
-    "user": SSH_TEST_USER,
-    "password": SSH_TEST_PASSWORD,
-    "port": SSH_TEST_PORT
-}
-
-
 # Helper functions for SSH connection management
 async def disconnect_ssh(client):
     """
@@ -147,7 +133,12 @@ def event_loop():
 @pytest.fixture(scope="session", autouse=True) # Autouse to ensure it runs for the session
 async def mcp_test_environment():
     """Session-wide test environment setup and teardown."""
-    await setup_test_environment()
+    port = await setup_test_environment(
+        SSH_TEST_USER,
+        SSH_TEST_PASSWORD,
+        SSH_TEST_HOST,
+        int(os.environ.get('SSH_TEST_PORT', 2222))
+    )
     yield
     await teardown_test_environment()
 
