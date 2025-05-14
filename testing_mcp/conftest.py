@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logging.getLogger('paramiko').setLevel(logging.WARNING)
 logging.getLogger('PIL').setLevel(logging.WARNING) # To silence potential Pillow debug logs if it's a dependency of something
 
+
 # Test environment configuration
 SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
 SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
@@ -31,6 +32,7 @@ SSH_TEST_HOST = "localhost" # Define explicitly for clarity
 # Standard SSH connection parameters for tests
 # This dictionary is no longer directly passed to add_host tool,
 # but its values are used.
+
 SSH_TEST_CONNECTION_PARAMS = {
     "host": SSH_TEST_HOST,
     "user": SSH_TEST_USER,
@@ -38,11 +40,11 @@ SSH_TEST_CONNECTION_PARAMS = {
     "port": SSH_TEST_PORT
 }
 
+
 # Helper functions for SSH connection management
 async def disconnect_ssh(client):
     """
     Disconnect any existing SSH connection.
-    
     Args:
         client: The MCP client instance
     """
@@ -57,13 +59,13 @@ async def disconnect_ssh(client):
         except Exception as e:
             logger.error(f"Error disconnecting SSH: {e}")
 
+
+
 async def is_ssh_connected(client):
     """
     Check if SSH is connected using the ssh_conn_is_connected tool.
-    
     Args:
         client: The MCP client instance
-        
     Returns:
         bool: True if connected, False otherwise
     """
@@ -74,6 +76,8 @@ async def is_ssh_connected(client):
     except Exception as e:
         logging.error(f"Error checking SSH connection: {e}")
         return False
+
+
 
 async def make_connection(client):
     """
@@ -118,6 +122,8 @@ async def make_connection(client):
         logging.error(f"Failed to establish SSH connection: {connect_json}")
         return False
 
+
+
 # This allows running the tests with pytest
 def pytest_configure(config):
     """Configure pytest."""
@@ -129,6 +135,8 @@ def pytest_configure(config):
     # If using a recent pytest-asyncio, this might not be needed or might be set via pytest.ini.
     if hasattr(config, '_inicache'): # Check for older pytest versions
         config._inicache["asyncio_default_fixture_loop_scope"] = "function"
+
+
 
 
 # SSH test container management
@@ -285,6 +293,8 @@ async def setup_test_environment():
     except Exception as e:
         logger.error(f"Failed to set up test environment: {e}")
         raise
+
+
 
 async def teardown_test_environment():
     """
