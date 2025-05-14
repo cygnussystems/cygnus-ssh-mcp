@@ -7,7 +7,7 @@ import json
 
 from mcp_ssh_server import mcp
 
-from docker_manager import setup_test_environment, teardown_test_environment
+from docker_manager import docker_test_environment as setup_test_environment, teardown_test_environment
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
