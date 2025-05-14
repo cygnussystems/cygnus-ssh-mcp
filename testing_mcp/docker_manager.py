@@ -149,7 +149,7 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                 else:
                     logger.warning(f"SSH connection test command failed with exit code {result.exit_code}.")
             except Exception as e:
-                logger.warning(f"SSH connection attempt {attempt_con n +1}/{max_retries} to container failed: {e}")
+                logger.warning(f"SSH connection attempt {attempt_conn + 1}/{max_retries} to container failed: {e}")
 
             if attempt_conn < max_retries - 1:
                 time.sleep(retry_delay)
