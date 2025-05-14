@@ -16,13 +16,11 @@ class SshHostManager:
         if config_path:
             self.config_path = config_path
         else:
-            home_config = Path.home() / ".ssh_hosts.toml"  # Changed extension
-            project_config = Path("ssh_hosts.toml")  # Changed extension
+            home_config = Path.home() / ".ssh_hosts.toml"
+            project_config = Path.cwd() / "ssh_hosts.toml"  # Use absolute path
 
-            if home_config.exists():
-                self.config_path = home_config
-            else:
-                self.config_path = project_config
+            # Prefer home config if exists, otherwise project config
+            self.config_path = home_config if home_config.exists() else project_config
 
         self._ensure_config_file()
         self.hosts: Dict[str, Dict[str, Any]] = self._load_hosts()
@@ -91,10 +89,15 @@ class SshHostManager:
 
     def add_host(self, user: str, host: str, port: int, password: str):
         """Add or update a host configuration. The key will be 'user@host'."""
+        # Validate port range
+        clamped_port = max(1, min(port, 65535))
+        if clamped_port != port:
+            logger.warning(f"Clamping invalid port {port} to {clamped_port}")
+
         key = f"{user}@{host}"
         self.hosts[key] = {
             'password': password,
-            'port': port,
+            'port': clamped_port,
             'parsed_user': user,
             'parsed_host': host
         }

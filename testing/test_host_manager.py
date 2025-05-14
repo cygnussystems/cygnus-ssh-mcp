@@ -95,7 +95,7 @@ def test_malformed_config_handling(temp_config_path, caplog):
     [invalid_section]
     missing_port = "justpassword"
     
-    [another@invalid@section]
+    ["another@invalid@section"]  # Valid TOML key but missing required fields
     password = "badformat"
     """
     temp_config_path.write_text(bad_content)
@@ -106,8 +106,10 @@ def test_malformed_config_handling(temp_config_path, caplog):
     # Verify malformed entries are skipped
     assert len(hosts) == 0
     # Verify warnings were logged
-    assert "Skipping malformed configuration" in caplog.text
-    assert "Skipping malformed host key" in caplog.text
+    # Should have one error for invalid_section missing port
+    # and one error for the quoted but incomplete section
+    assert caplog.text.count("Skipping malformed configuration") == 2
+    assert "Invalid group name" not in caplog.text
 
 
 
