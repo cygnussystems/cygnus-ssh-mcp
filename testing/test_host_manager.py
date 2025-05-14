@@ -101,7 +101,7 @@ def test_malformed_config_handling(temp_config_path, caplog):
     temp_config_path.write_text(bad_content)
     
     manager = SshHostManager(config_path=temp_config_path)
-    hosts = manager._load_hosts()
+    hosts = manager.hosts  # Use already loaded hosts from initialization
     
     # Verify malformed entries are skipped
     assert len(hosts) == 0
