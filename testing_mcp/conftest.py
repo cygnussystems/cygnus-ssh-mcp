@@ -22,6 +22,7 @@ logging.getLogger('PIL').setLevel(logging.WARNING) # To silence potential Pillow
 
 
 # Test environment configuration
+SSH_TEST_HOST = os.environ.get('SSH_TEST_HOST', 'localhost')
 SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
 SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
 SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
