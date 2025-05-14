@@ -14,8 +14,6 @@ from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandF
 import stat as stat_module # Added import
 import errno # Added import
 
-from ssh_host_manager import SshHostManager
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="SSH MCP Server")

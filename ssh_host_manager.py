@@ -1,3 +1,14 @@
+
+
+
+
+import logging
+import toml
+from pathlib import Path
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger("SSH_Host_Manager")
+
 class SshHostManager:
     def __init__(self, config_path: Optional[Path] = None):
         # Try paths in this order:
@@ -108,7 +119,3 @@ class SshHostManager:
         except Exception as e:
             logger.error(f"Failed to save SSH hosts to {self.config_path}: {e}")
             raise SshError(f"Failed to save host configuration to {self.config_path}")
-
-
-
-

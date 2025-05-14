@@ -16,6 +16,7 @@ sys.path.insert(0, project_root)
 from mcp_ssh_server import mcp, host_manager # Import host_manager for potential cleanup
 from fastmcp import Client
 from ssh_client import SshClient
+from ssh_host_manager import SshHostManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
