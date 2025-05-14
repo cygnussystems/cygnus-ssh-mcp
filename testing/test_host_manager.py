@@ -17,6 +17,7 @@ def temp_config_path(tmp_path):
     if config_path.exists():
         config_path.unlink()
 
+
 def test_initialization_with_temp_path(temp_config_path):
     """Test initialization with a temporary config path"""
     # Should create empty config file if none exists
@@ -29,6 +30,8 @@ def test_initialization_with_temp_path(temp_config_path):
     with open(temp_config_path, 'r') as f:
         content = f.read()
         assert "# SSH Host Configurations (TOML format)" in content
+
+
 
 def test_add_and_load_host(temp_config_path):
     """Test adding a host and loading it back"""
@@ -56,6 +59,7 @@ def test_add_and_load_host(temp_config_path):
         assert toml_data[key]['password'] == test_pass
         assert toml_data[key]['port'] == test_port
 
+
 def test_config_path_priority(tmp_path, monkeypatch):
     """Test config path resolution priority"""
     # Setup mock home directory
@@ -82,6 +86,8 @@ def test_config_path_priority(tmp_path, monkeypatch):
     assert manager.config_path == project_config.resolve()
     project_config.unlink()
 
+
+
 def test_malformed_config_handling(temp_config_path, caplog):
     """Test handling of malformed TOML entries"""
     # Create invalid TOML content
@@ -103,6 +109,8 @@ def test_malformed_config_handling(temp_config_path, caplog):
     assert "Skipping malformed configuration" in caplog.text
     assert "Skipping malformed host key" in caplog.text
 
+
+
 def test_duplicate_host_handling(temp_config_path):
     """Test updating existing host configuration"""
     manager = SshHostManager(config_path=temp_config_path)
@@ -119,6 +127,8 @@ def test_duplicate_host_handling(temp_config_path):
     assert loaded_hosts[key]['password'] == "newpass"
     assert loaded_hosts[key]['port'] == 2222
 
+
+
 def test_invalid_port_handling(temp_config_path, caplog):
     """Test handling of invalid port numbers"""
     manager = SshHostManager(config_path=temp_config_path)
@@ -131,6 +141,7 @@ def test_invalid_port_handling(temp_config_path, caplog):
     entry = loaded_hosts["baduser@badhost"]
     assert 1 <= entry['port'] <= 65535
     assert "Invalid port number" in caplog.text
+
 
 def test_special_characters_handling(temp_config_path):
     """Test handling of special characters in passwords"""
