@@ -1225,7 +1225,12 @@ async def ssh_file_write(
             parent_dir = os.path.dirname(file_path)
             if parent_dir:
                 try:
-                    mcp.ssh_client.mkdir(parent_dir, sudo=sudo, mode=0o755)
+                    # Create all parent directories recursively
+                    mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
+                    if sudo:
+                        mcp.ssh_client.run(mkdir_cmd, sudo=True)
+                    else:
+                        mcp.ssh_client.run(mkdir_cmd)
                 except Exception as e:
                     # Ignore if directory already exists
                     if "File exists" not in str(e):
