@@ -230,12 +230,25 @@ async def ssh_conn_add_host(
         Dictionary with operation status
     """
     try:
+        key = f"{user}@{host}"
+        existing = host_manager.get_host(key)
+        if existing:
+            return {
+                'status': 'error',
+                'error': f"Host {key} already exists in config",
+                'existing_config': {
+                    'host': existing['parsed_host'],
+                    'user': existing['parsed_user'],
+                    'port': existing['port']
+                }
+            }
+            
         host_manager.add_host(user, host, port, password)
-        key_added = f"{user}@{host}"
+        host_manager._load_hosts()  # Reload after modification
         return {
             'status': 'success',
-            'message': f"Host configuration for '{key_added}' added/updated.",
-            'key': key_added,
+            'message': f"Host configuration for '{key}' added/updated.",
+            'key': key,
             'host': host,
             'user': user,
             'port': port
@@ -267,6 +280,16 @@ async def ssh_conn_status() -> dict:
         logger.error(f"Failed to get status: {e}")
         raise
 
+
+@mcp.tool()
+async def ssh_host_list() -> list:
+    """
+    List all configured SSH hosts from the TOML configuration file.
+    
+    Returns:
+        List of host keys in 'user@host' format
+    """
+    return list(host_manager.hosts.keys())
 
 @mcp.tool()
 async def ssh_conn_verify_sudo() -> bool:
