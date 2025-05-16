@@ -1246,6 +1246,20 @@ async def ssh_file_write(
                             raise
             
             try:
+                # Check if parent directory exists when create_dirs is False
+                if not create_dirs:
+                    parent_dir = os.path.dirname(file_path)
+                    try:
+                        with mcp.ssh_client._client.open_sftp() as sftp:
+                            sftp.stat(parent_dir)
+                    except FileNotFoundError:
+                        logger.error(f"Parent directory {parent_dir} does not exist and create_dirs=False")
+                        return {
+                            'success': False,
+                            'file_path': file_path,
+                            'error': f"Parent directory does not exist: {parent_dir}. Use create_dirs=True to create it."
+                        }
+                
                 if not append:
                     # For overwrite, simply upload the file
                     mcp.ssh_client.put(local_temp_path, file_path)
@@ -1308,8 +1322,13 @@ async def ssh_file_write(
                             # For a new file with append=True, just create it
                             mcp.ssh_client.put(local_temp_path, file_path)
                 else:
-                    # If not related to directory creation, re-raise
-                    raise
+                    # If not related to directory creation or create_dirs is False, return error
+                    logger.error(f"SFTP put failed: {e}")
+                    return {
+                        'success': False,
+                        'file_path': file_path,
+                        'error': f"SFTP put failed: {str(e)}"
+                    }
             
             # Set file permissions if specified
             if mode is not None:
