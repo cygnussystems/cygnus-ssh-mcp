@@ -21,8 +21,21 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
     """
     Set up the test environment by starting an SSH server container.
     Also ensures the test TOML config file is clean for SshHostManager.
+    
+    Args:
+        user: SSH username for the test container
+        password: SSH password for the test container
+        host: Hostname to use (usually localhost)
+        base_port: Starting port to try for SSH (will increment if busy)
+        
+    Returns:
+        The actual port being used for SSH
     """
+    # Import the global variable to modify it
     global SSH_TEST_PORT
+    
+    # Set the initial port value from the parameter
+    SSH_TEST_PORT = base_port
     logger = logging.getLogger("test_setup")
     logger.info("Setting up test environment")
 

@@ -134,14 +134,27 @@ def event_loop():
 @pytest.fixture(scope="session", autouse=True) # Autouse to ensure it runs for the session
 async def mcp_test_environment():
     """Session-wide test environment setup and teardown."""
-    port = await setup_test_environment(
-        SSH_TEST_USER,
-        SSH_TEST_PASSWORD,
-        SSH_TEST_HOST,
-        int(os.environ.get('SSH_TEST_PORT', 2222))
-    )
-    yield
-    await teardown_test_environment()
+    global SSH_TEST_PORT  # Access the global variable
+    try:
+        # Call setup_test_environment and capture any port changes
+        await setup_test_environment(
+            SSH_TEST_USER,
+            SSH_TEST_PASSWORD,
+            SSH_TEST_HOST,
+            SSH_TEST_PORT
+        )
+        # Wait a bit longer to ensure the container is fully ready
+        await asyncio.sleep(5)
+        
+        # Log the port being used for debugging
+        logging.info(f"Test environment setup complete. Using SSH port: {SSH_TEST_PORT}")
+        
+        yield
+    except Exception as e:
+        logging.error(f"Error setting up test environment: {e}", exc_info=True)
+        raise
+    finally:
+        await teardown_test_environment()
 
 
 def print_test_header(test_name):

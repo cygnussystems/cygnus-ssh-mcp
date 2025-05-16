@@ -330,6 +330,37 @@ async def ssh_host_remove(
         raise
 
 @mcp.tool()
+async def ssh_host_reload_config() -> dict:
+    """
+    Force reload of the hosts configuration file (TOML).
+    
+    Use this when you've manually edited the hosts configuration file
+    and want to reload it without restarting the server.
+    
+    Returns:
+        Dictionary with reload status and current hosts
+    """
+    try:
+        logger.info(f"Reloading hosts configuration from {host_manager.config_path}")
+        
+        # Reload the hosts configuration
+        host_manager._load_hosts()
+        
+        return {
+            'status': 'success',
+            'message': f"Successfully reloaded hosts configuration from {host_manager.config_path}",
+            'config_path': str(host_manager.config_path),
+            'hosts': list(host_manager.hosts.keys())
+        }
+    except Exception as e:
+        logger.error(f"Failed to reload hosts configuration: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'config_path': str(host_manager.config_path)
+        }
+
+@mcp.tool()
 async def ssh_conn_verify_sudo() -> bool:
     """
     Verify if password-less sudo is available on the remote system.
