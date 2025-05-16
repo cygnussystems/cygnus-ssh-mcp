@@ -297,6 +297,39 @@ async def ssh_host_list() -> dict:
     }
 
 @mcp.tool()
+async def ssh_host_remove(
+    host_name: Annotated[str, Field(description="The 'user@hostname' identifier of the host to remove")]
+) -> dict:
+    """
+    Remove a host configuration from the host configuration TOML file.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    try:
+        if host_name not in host_manager.hosts:
+            return {
+                'status': 'error',
+                'error': f"Host '{host_name}' not found in configuration",
+                'hosts': list(host_manager.hosts.keys())
+            }
+            
+        # Remove the host from the manager's hosts dictionary
+        del host_manager.hosts[host_name]
+        
+        # Save the updated configuration
+        host_manager._save_hosts()
+        
+        return {
+            'status': 'success',
+            'message': f"Host configuration for '{host_name}' removed",
+            'remaining_hosts': list(host_manager.hosts.keys())
+        }
+    except Exception as e:
+        logger.error(f"Failed to remove host configuration for {host_name}: {e}")
+        raise
+
+@mcp.tool()
 async def ssh_conn_verify_sudo() -> bool:
     """
     Verify if password-less sudo is available on the remote system.

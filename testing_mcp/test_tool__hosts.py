@@ -60,26 +60,15 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
             assert "already exists" in duplicate_json['error'], "Missing duplicate error message"
             logger.info("Duplicate host prevention working correctly")
 
-            # Clean up test host
+            # Clean up test host using the dedicated host removal tool
             logger.info("Cleaning up test host configuration")
-            # Get config path through proper API call
-            config_path_result = await client.call_tool("ssh_host_list", {})
-            config_info = json.loads(config_path_result[0].text)
-            
-            # Use the host manager directly to reload the config after our changes
-            await client.call_tool("ssh_conn_add_host", {
-                "user": "testuser",
-                "host": f"testhost{timestamp}",
-                "password": "temporary_password_for_deletion",
-                "port": 9999  # Use a different port to identify this entry
-            })
-            
-            # Now use a direct approach to remove the host
-            remove_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"python -c \"import toml; path='{config_info['config_path']}'; data=toml.load(open(path)); del data['{test_host}']; open(path, 'w').write(toml.dumps(data))\"",
-                "io_timeout": 10.0
-            })
-            logger.info(f"Host removal result: {remove_result}")
+            remove_params = {
+                "host_name": test_host
+            }
+            remove_result = await client.call_tool("ssh_host_remove", remove_params)
+            remove_json = json.loads(remove_result[0].text)
+            assert remove_json['status'] == 'success', f"Remove host failed: {remove_json}"
+            logger.info(f"Host removal result: {remove_json}")
             
             # Wait a moment to ensure file operations complete
             await asyncio.sleep(1)
