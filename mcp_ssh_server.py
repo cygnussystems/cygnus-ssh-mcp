@@ -1232,7 +1232,8 @@ async def ssh_file_write(
                         raise
         
         # Create a local temporary file with the content
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+        # Ensure we use Unix-style line endings (LF) for consistency
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, newline='\n') as temp_file:
             temp_file.write(content)
             local_temp_path = temp_file.name
         
@@ -1262,8 +1263,8 @@ async def ssh_file_write(
                                 # Download existing file
                                 mcp.ssh_client.get(file_path, combined_path)
                                 
-                                # Append new content
-                                with open(combined_path, 'a') as f:
+                                # Append new content with Unix-style line endings
+                                with open(combined_path, 'a', newline='\n') as f:
                                     f.write(content)
                                 
                                 # Upload combined file
