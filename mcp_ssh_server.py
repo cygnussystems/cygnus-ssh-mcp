@@ -361,6 +361,47 @@ async def ssh_host_reload_config() -> dict:
         }
 
 @mcp.tool()
+async def ssh_host_disconnect() -> dict:
+    """
+    Disconnect the current SSH connection if one exists.
+    
+    Use this when you want to explicitly close the current SSH connection
+    before connecting to a different host or when you're done with SSH operations.
+    
+    Returns:
+        Dictionary with disconnection status
+    """
+    try:
+        if mcp.ssh_client is None:
+            logger.info("No active SSH connection to disconnect")
+            return {
+                'status': 'success',
+                'message': "No active SSH connection to disconnect",
+                'was_connected': False
+            }
+            
+        logger.info("Disconnecting active SSH connection")
+        host = mcp.ssh_client.get_connection_status().get('host', 'unknown')
+        user = mcp.ssh_client.get_connection_status().get('user', 'unknown')
+        
+        mcp.ssh_client.close()
+        mcp.ssh_client = None
+        
+        return {
+            'status': 'success',
+            'message': f"Successfully disconnected from {user}@{host}",
+            'was_connected': True,
+            'disconnected_from': f"{user}@{host}"
+        }
+    except Exception as e:
+        logger.error(f"Failed to disconnect SSH connection: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'was_connected': mcp.ssh_client is not None
+        }
+
+@mcp.tool()
 async def ssh_conn_verify_sudo() -> bool:
     """
     Verify if password-less sudo is available on the remote system.

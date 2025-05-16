@@ -198,3 +198,71 @@ async def test_list_tools():
         # No specific cleanup like disconnect_ssh is needed as this tool doesn't manage connections
     
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_host_disconnect():
+    """Test the 'ssh_host_disconnect' tool to ensure it properly disconnects an active SSH connection."""
+    print_test_header("Testing 'ssh_host_disconnect' tool")
+    logger.info("Starting ssh_host_disconnect test")
+
+    # Use the Client context manager with the imported mcp instance
+    async with Client(mcp) as client:
+        try:
+            # Ensure no connection exists at start
+            await disconnect_ssh(client)  # Ensure clean state
+            assert not await is_ssh_connected(client), "Test started with an existing SSH connection"
+            logger.info("Verified no existing SSH connection")
+            
+            # Test disconnecting when no connection exists
+            no_conn_result = await client.call_tool("ssh_host_disconnect", {})
+            no_conn_json = json.loads(no_conn_result[0].text)
+            
+            # Verify the result when no connection exists
+            assert no_conn_json['status'] == 'success', "Expected success status when no connection exists"
+            assert not no_conn_json['was_connected'], "Expected was_connected to be False when no connection exists"
+            logger.info("Successfully tested disconnection when no connection exists")
+            
+            # Establish a connection
+            assert await make_connection(client), "Failed to establish SSH connection"
+            assert await is_ssh_connected(client), "Failed to verify SSH connection is active"
+            logger.info("Established SSH connection for disconnect test")
+            
+            # Get connection details before disconnecting
+            status_result = await client.call_tool("ssh_conn_status", {})
+            status_json = json.loads(status_result[0].text)
+            conn_user = status_json['connection']['user']
+            conn_host = status_json['connection']['host']
+            logger.info(f"Connected to {conn_user}@{conn_host}")
+            
+            # Test disconnecting an active connection
+            disconnect_result = await client.call_tool("ssh_host_disconnect", {})
+            disconnect_json = json.loads(disconnect_result[0].text)
+            
+            # Verify the disconnect result
+            assert disconnect_json['status'] == 'success', "Expected success status for disconnect"
+            assert disconnect_json['was_connected'], "Expected was_connected to be True"
+            assert f"{conn_user}@{conn_host}" in disconnect_json['disconnected_from'], "Disconnect should report the correct host"
+            logger.info(f"Disconnect result: {disconnect_json}")
+            
+            # Verify connection is actually closed
+            assert not await is_ssh_connected(client), "Connection should be closed after disconnect"
+            logger.info("Verified SSH connection is closed after disconnect")
+            
+            # Test that we can reconnect after explicit disconnection
+            assert await make_connection(client), "Failed to re-establish SSH connection after disconnect"
+            assert await is_ssh_connected(client), "Failed to verify SSH connection is active after reconnect"
+            logger.info("Successfully reconnected after explicit disconnect")
+            
+            # Clean up
+            await disconnect_ssh(client)
+            logger.info("SSH disconnect test completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error in SSH disconnect test: {e}", exc_info=True)
+            raise
+        finally:
+            # Ensure connection is closed after the test
+            await disconnect_ssh(client)
+    
+    print_test_footer()
