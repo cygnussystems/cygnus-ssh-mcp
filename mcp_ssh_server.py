@@ -14,6 +14,8 @@ from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandF
 import stat as stat_module # Added import
 import errno # Added import
 
+from ssh_host_manager import SshHostManager
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="SSH MCP Server")
@@ -210,8 +212,19 @@ async def ssh_conn_add_host(
     port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22
 ) -> dict:
     """
-    Add or update a host configuration in the TOML file.
-    The configuration will be stored under a '[user@host]' key.
+    Add or update a host configuration in the host configuration TOML file.
+    This tool will fail if the host already exists in the host config file.
+
+    You can call the  'ssh_conn_connect' tool without having to add a new host! The host may already
+    be listed in the host config Toml file!
+
+    I the hosts does not yet exist, and you need to add it,
+    you MUST ask the user for a password! Do not call this tool without a user provided password.
+    Also warn the user that the password will be visible to the LLM and that it would be better
+    for the user to add the host directly in the host configuration file.
+
+    The host config file is a TOML file likely in the user's home directory.
+    The configuration will be stored under a ["user@host"] key.
     
     Returns:
         Dictionary with operation status
@@ -352,7 +365,13 @@ async def ssh_cmd_run(
         sudo: Annotated[bool, Field(description="Run command with sudo")] = False
 ) -> dict:
     """
-    Execute a command on the remote host and return the results.
+    Execute a command on the remote host and return the results. Handles both immediate and long-running operations.
+    Manages timeouts (I/O timeout and runtime timeout). Work with runtime_timeout primarily which should be set
+    to something reasonable. If timeout occurs, you can use 'ssh_cmd_check' tool to check on the running command.
+    Note that 'ssh_cmd_check' can be called immediately with a 'wait_seconds' argument where it waits for a given
+    number of seconds and then returns with the command status. This way you can poll the command status until
+    it completes. The command can also be killed using 'ssh_cmd_kill' tool. You can access the command history
+    using the 'ssh_cmd_history' tool to see what were previous commands and what output they produced.
 
     Returns:
         Dictionary containing command output, status, and metadata.
@@ -1313,7 +1332,7 @@ def _format_size(size_bytes):
 
 if __name__ == '__main__':
     try:
-        logger.info(f"Starting SSH MCP server '{mcp.name}' version {mcp.version}")
+        logger.info(f"Starting SSH MCP server '{mcp.name}' ")
         logger.info(f"Using TOML config file: {host_manager.config_path}") # Updated log message
         logger.info("Available tools (can be retrieved programmatically via 'list_tools' tool):")
         # The following loop is commented out because mcp.get_tools() is a coroutine
