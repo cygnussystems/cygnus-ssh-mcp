@@ -115,9 +115,34 @@ async def test_ssh_host_list_structure(mcp_test_environment):
             assert isinstance(hosts_list, list), "Hosts should be a list"
             logger.info(f"Found {len(hosts_list)} hosts in configuration")
             
-            # If no hosts, that's valid but we should log it
-            if not hosts_list:
-                logger.info("No hosts found in configuration - this is valid but unusual for testing")
+            # Add several test hosts to ensure we have a good sample to test with
+            test_hosts = []
+            for i in range(1, 4):  # Add 3 test hosts
+                timestamp = int(time.time()) + i
+                test_host = f"testuser@testhost_sample_{timestamp}"
+                test_hosts.append(test_host)
+                
+                add_params = {
+                    "user": "testuser",
+                    "host": f"testhost_sample_{timestamp}",
+                    "password": f"testpass_sample_{i}",
+                    "port": 2222 + i
+                }
+                add_result = await client.call_tool("ssh_conn_add_host", add_params)
+                add_json = json.loads(add_result[0].text)
+                assert add_json['status'] == 'success', f"Add sample host {i} failed: {add_json}"
+                logger.info(f"Added sample test host {i}: {test_host}")
+            
+            # Get updated host list after adding test hosts
+            updated_list_result = await client.call_tool("ssh_host_list", {})
+            updated_host_data = json.loads(updated_list_result[0].text)
+            updated_hosts_list = updated_host_data['hosts']
+            
+            # Verify all test hosts were added
+            for test_host in test_hosts:
+                assert test_host in updated_hosts_list, f"Test host '{test_host}' not found in updated host list"
+            
+            logger.info(f"Updated host list contains {len(updated_hosts_list)} hosts")
             
             # Validate each host entry format
             for host in hosts_list:
@@ -174,6 +199,23 @@ async def test_ssh_host_list_structure(mcp_test_environment):
                 
                 logger.info(f"Successfully verified config file write operations with test host '{test_host}'")
             
+            # Clean up all the sample test hosts we added
+            for test_host in test_hosts:
+                remove_params = {"host_name": test_host}
+                remove_result = await client.call_tool("ssh_host_remove", remove_params)
+                remove_json = json.loads(remove_result[0].text)
+                assert remove_json['status'] == 'success', f"Remove sample host '{test_host}' failed: {remove_json}"
+                logger.info(f"Removed sample test host: {test_host}")
+            
+            # Verify all sample hosts were removed
+            final_list_result = await client.call_tool("ssh_host_list", {})
+            final_host_data = json.loads(final_list_result[0].text)
+            final_hosts_list = final_host_data['hosts']
+            
+            for test_host in test_hosts:
+                assert test_host not in final_hosts_list, f"Test host '{test_host}' still present after removal"
+            
+            logger.info(f"Successfully removed all {len(test_hosts)} sample test hosts")
             logger.info("Host list structure and configuration validation passed")
             
         except Exception as e:
