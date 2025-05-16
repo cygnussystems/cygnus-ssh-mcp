@@ -1220,22 +1220,6 @@ async def ssh_file_write(
         raise SshError("No active SSH connection")
         
     try:
-        # Create parent directories if requested
-        if create_dirs:
-            parent_dir = os.path.dirname(file_path)
-            if parent_dir:
-                try:
-                    # Create all parent directories recursively
-                    mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
-                    if sudo:
-                        mcp.ssh_client.run(mkdir_cmd, sudo=True)
-                    else:
-                        mcp.ssh_client.run(mkdir_cmd)
-                except Exception as e:
-                    # Ignore if directory already exists
-                    if "File exists" not in str(e):
-                        raise
-        
         # Create a local temporary file with the content
         # Ensure we use Unix-style line endings (LF) for consistency
         with tempfile.NamedTemporaryFile(mode='w+', delete=False, newline='\n') as temp_file:
