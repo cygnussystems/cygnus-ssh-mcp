@@ -4,6 +4,8 @@ import os
 import toml  # Changed from yaml to toml
 import argparse
 import asyncio
+import tempfile
+import shlex
 from pathlib import Path
 from fastmcp import FastMCP
 from pydantic import Field
