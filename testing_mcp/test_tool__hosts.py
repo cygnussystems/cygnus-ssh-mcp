@@ -19,9 +19,14 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
         try:
             # Test initial host list
             list_result = await client.call_tool("ssh_host_list", {})
-            initial_hosts = json.loads(list_result[0].text)
-            assert isinstance(initial_hosts, list), "Host list should be a list"
+            host_data = json.loads(list_result[0].text)
+            assert isinstance(host_data, dict), "Host data should be a dictionary"
+            assert 'hosts' in host_data, "Response missing 'hosts' key"
+            assert 'config_path' in host_data, "Response missing 'config_path' key"
+            initial_hosts = host_data['hosts']
+            assert isinstance(initial_hosts, list), "Hosts should be a list"
             logger.info(f"Initial hosts: {initial_hosts}")
+            logger.info(f"Config path: {host_data['config_path']}")
 
             # Test adding new host
             test_host = "testuser@testhost"
@@ -41,7 +46,8 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
 
             # Verify host appears in list
             list_result_after_add = await client.call_tool("ssh_host_list", {})
-            updated_hosts = json.loads(list_result_after_add[0].text)
+            updated_host_data = json.loads(list_result_after_add[0].text)
+            updated_hosts = updated_host_data['hosts']
             assert test_host in updated_hosts, "New host not in list"
             logger.info(f"Updated hosts list: {updated_hosts}")
 
@@ -65,7 +71,8 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
             
             # Verify cleanup
             list_result_after_cleanup = await client.call_tool("ssh_host_list", {})
-            final_hosts = json.loads(list_result_after_cleanup[0].text)
+            final_host_data = json.loads(list_result_after_cleanup[0].text)
+            final_hosts = final_host_data['hosts']
             assert test_host not in final_hosts, "Test host not cleaned up"
             logger.info("Host cleanup successful")
 
@@ -84,9 +91,14 @@ async def test_ssh_host_list_structure(mcp_test_environment):
     async with Client(mcp) as client:
         try:
             list_result = await client.call_tool("ssh_host_list", {})
-            hosts_list = json.loads(list_result[0].text)
+            host_data = json.loads(list_result[0].text)
             
-            assert isinstance(hosts_list, list), "Host list should be a list"
+            assert isinstance(host_data, dict), "Host data should be a dictionary"
+            assert 'hosts' in host_data, "Response missing 'hosts' key"
+            assert 'config_path' in host_data, "Response missing 'config_path' key"
+            hosts_list = host_data['hosts']
+            
+            assert isinstance(hosts_list, list), "Hosts should be a list"
             for host in hosts_list:
                 assert isinstance(host, str), "Each host entry should be a string"
                 assert "@" in host, "Host entry missing @ symbol"
