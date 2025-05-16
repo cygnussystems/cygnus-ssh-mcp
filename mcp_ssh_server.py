@@ -1227,6 +1227,24 @@ async def ssh_file_write(
             local_temp_path = temp_file.name
         
         try:
+            # Create parent directories first if requested (before any file operations)
+            if create_dirs:
+                parent_dir = os.path.dirname(file_path)
+                if parent_dir:
+                    try:
+                        # Create all parent directories recursively
+                        mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
+                        if sudo:
+                            mcp.ssh_client.run(mkdir_cmd, sudo=True)
+                        else:
+                            mcp.ssh_client.run(mkdir_cmd)
+                        logger.info(f"Created parent directories for {file_path}")
+                    except Exception as e:
+                        # Ignore if directory already exists
+                        if "File exists" not in str(e):
+                            logger.error(f"Failed to create parent directories for {file_path}: {e}")
+                            raise
+            
             if not append:
                 # For overwrite, simply upload the file
                 mcp.ssh_client.put(local_temp_path, file_path)
