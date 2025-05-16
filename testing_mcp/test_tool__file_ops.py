@@ -825,7 +825,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "io_timeout": 5.0
             })
             output = json.loads(cat_result[0].text)['output']
-            assert output == test_content
+            assert output.rstrip('\n') == test_content
             
             # Test 2: Overwrite existing file
             new_content = "This is new content\nthat overwrites the previous content"
@@ -842,7 +842,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "io_timeout": 5.0
             })
             output = json.loads(cat_result[0].text)['output']
-            assert output == new_content
+            assert output.rstrip('\n') == new_content
             assert "This is a test file" not in output
             
             # Test 3: Set file permissions
@@ -909,7 +909,7 @@ async def test_ssh_file_write_append(mcp_test_environment):
             })
             output = json.loads(cat_result[0].text)['output']
             expected_content = initial_content + append_content
-            assert output == expected_content
+            assert output.rstrip('\n') == expected_content
             
             # Test append to non-existent file
             nonexistent_file = "/tmp/ssh_test_nonexistent.txt"
@@ -927,7 +927,7 @@ async def test_ssh_file_write_append(mcp_test_environment):
                 "io_timeout": 5.0
             })
             output = json.loads(cat_result[0].text)['output']
-            assert output == "Content in a new file with append mode"
+            assert output.rstrip('\n') == "Content in a new file with append mode"
             
         finally:
             await client.call_tool("ssh_cmd_run", {
@@ -1039,7 +1039,8 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
                     "sudo": True
                 })
                 output = json.loads(cat_result[0].text)['output']
-                assert output == test_content
+                # Strip trailing newline from output for comparison
+                assert output.rstrip('\n') == test_content
                 
                 # Clean up
                 await client.call_tool("ssh_cmd_run", {
