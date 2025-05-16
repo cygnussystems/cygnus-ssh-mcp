@@ -2,6 +2,7 @@ import pytest
 import json
 import logging
 import time
+import asyncio
 from conftest import print_test_header, print_test_footer
 from mcp_ssh_server import mcp
 from fastmcp import Client
@@ -65,11 +66,23 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
             config_path_result = await client.call_tool("ssh_host_list", {})
             config_info = json.loads(config_path_result[0].text)
             
-            # Use a more Windows-compatible approach to remove the host entry
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"powershell -Command \"(Get-Content '{config_info['config_path']}') | Where-Object {{ $_ -notmatch '\\[{test_host}\\]' -and $_ -notmatch 'password.*testpass' -and $_ -notmatch 'port.*2222' }} | Set-Content '{config_info['config_path']}'\"",
+            # Use the host manager directly to reload the config after our changes
+            await client.call_tool("ssh_conn_add_host", {
+                "user": "testuser",
+                "host": f"testhost{timestamp}",
+                "password": "temporary_password_for_deletion",
+                "port": 9999  # Use a different port to identify this entry
+            })
+            
+            # Now use a direct approach to remove the host
+            remove_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"python -c \"import toml; path='{config_info['config_path']}'; data=toml.load(open(path)); del data['{test_host}']; open(path, 'w').write(toml.dumps(data))\"",
                 "io_timeout": 10.0
             })
+            logger.info(f"Host removal result: {remove_result}")
+            
+            # Wait a moment to ensure file operations complete
+            await asyncio.sleep(1)
             
             # Verify cleanup
             list_result_after_cleanup = await client.call_tool("ssh_host_list", {})
