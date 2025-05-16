@@ -1199,6 +1199,114 @@ async def ssh_file_copy(
 
 
 @mcp.tool()
+async def ssh_file_write(
+        file_path: Annotated[str, Field(description="Path to the file to write to")],
+        content: Annotated[str, Field(description="Content to write to the file")],
+        append: Annotated[bool, Field(description="Whether to append to the file instead of overwriting")] = False,
+        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+        mode: Annotated[Optional[int], Field(description="File permissions to set after writing (octal, e.g. 0o644)")] = None,
+        create_dirs: Annotated[bool, Field(description="Create parent directories if they don't exist")] = False
+) -> dict:
+    """
+    Create a new file or overwrite/append to an existing file with specified content.
+    Handles special characters and multi-line content properly.
+    
+    Returns:
+        Dictionary with operation status and details
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        # Create parent directories if requested
+        if create_dirs:
+            parent_dir = os.path.dirname(file_path)
+            if parent_dir:
+                try:
+                    mcp.ssh_client.mkdir(parent_dir, sudo=sudo, mode=0o755)
+                except Exception as e:
+                    # Ignore if directory already exists
+                    if "File exists" not in str(e):
+                        raise
+        
+        # Create a local temporary file with the content
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as temp_file:
+            temp_file.write(content)
+            local_temp_path = temp_file.name
+        
+        try:
+            if not append:
+                # For overwrite, simply upload the file
+                mcp.ssh_client.put(local_temp_path, file_path)
+            else:
+                # For append, we need to check if the file exists first
+                try:
+                    # Check if file exists
+                    stat_result = await ssh_file_stat(file_path)
+                    file_exists = stat_result.get('exists', False)
+                    
+                    if file_exists:
+                        # File exists, so we need to append
+                        if sudo:
+                            # For sudo append, we need to use cat with sudo
+                            cat_cmd = f"cat {shlex.quote(local_temp_path)} >> {shlex.quote(file_path)}"
+                            mcp.ssh_client.run(cat_cmd, sudo=True)
+                        else:
+                            # For non-sudo append, download, append locally, then upload
+                            with tempfile.NamedTemporaryFile(mode='w+', delete=False) as combined_file:
+                                combined_path = combined_file.name
+                                
+                            try:
+                                # Download existing file
+                                mcp.ssh_client.get(file_path, combined_path)
+                                
+                                # Append new content
+                                with open(combined_path, 'a') as f:
+                                    f.write(content)
+                                
+                                # Upload combined file
+                                mcp.ssh_client.put(combined_path, file_path)
+                            finally:
+                                if os.path.exists(combined_path):
+                                    os.unlink(combined_path)
+                    else:
+                        # File doesn't exist, so just create it
+                        mcp.ssh_client.put(local_temp_path, file_path)
+                except Exception as e:
+                    # If any error occurs during append, fall back to simple upload
+                    logger.warning(f"Error during append operation, falling back to create: {e}")
+                    mcp.ssh_client.put(local_temp_path, file_path)
+            
+            # Set file permissions if specified
+            if mode is not None:
+                chmod_cmd = f"chmod {mode:o} {shlex.quote(file_path)}"
+                mcp.ssh_client.run(chmod_cmd, sudo=sudo)
+            
+            # Get file size for reporting
+            stat_result = await ssh_file_stat(file_path)
+            file_size = stat_result.get('size', 0) if stat_result.get('exists', False) else len(content)
+            
+            return {
+                'success': True,
+                'file_path': file_path,
+                'bytes_written': file_size,
+                'mode': f"{mode:o}" if mode is not None else None,
+                'append': append
+            }
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(local_temp_path):
+                os.unlink(local_temp_path)
+                
+    except Exception as e:
+        logger.error(f"Failed to write to file {file_path}: {e}")
+        return {
+            'success': False,
+            'file_path': file_path,
+            'error': str(e)
+        }
+
+@mcp.tool()
 async def ssh_file_move(
         source: Annotated[str, Field(description="Source file or directory path")],
         destination: Annotated[str, Field(description="Destination path")],

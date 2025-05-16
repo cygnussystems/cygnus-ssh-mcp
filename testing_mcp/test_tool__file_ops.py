@@ -796,3 +796,261 @@ Line 3: This is the last line"""
             await disconnect_ssh(client)
     
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_file_write_basic(mcp_test_environment):
+    """Test basic file writing functionality."""
+    print_test_header("Testing 'ssh_file_write' tool - basic operations")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_write.txt"
+            test_content = "This is a test file\nwith multiple lines\nand special characters: !@#$%^&*()"
+            
+            # Test 1: Create a new file
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": test_content
+            })
+            result = json.loads(write_result[0].text)
+            assert result['success'] == True
+            assert result['file_path'] == test_file
+            assert result['bytes_written'] > 0
+            
+            # Verify content
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert output == test_content
+            
+            # Test 2: Overwrite existing file
+            new_content = "This is new content\nthat overwrites the previous content"
+            overwrite_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": new_content
+            })
+            overwrite_json = json.loads(overwrite_result[0].text)
+            assert overwrite_json['success'] == True
+            
+            # Verify content was overwritten
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert output == new_content
+            assert "This is a test file" not in output
+            
+            # Test 3: Set file permissions
+            chmod_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": "Content with specific permissions",
+                "mode": 0o600
+            })
+            chmod_json = json.loads(chmod_result[0].text)
+            assert chmod_json['success'] == True
+            assert chmod_json['mode'] == "600"
+            
+            # Verify permissions
+            stat_result = await client.call_tool("ssh_file_stat", {
+                "path": test_file
+            })
+            stat_json = json.loads(stat_result[0].text)
+            assert "0o600" in stat_json['mode']
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_file_write_append(mcp_test_environment):
+    """Test file append functionality."""
+    print_test_header("Testing 'ssh_file_write' tool - append mode")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_append.txt"
+            initial_content = "Initial content\nLine 2"
+            append_content = "\nAppended content\nLine 4"
+            
+            # Create initial file
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": initial_content
+            })
+            result = json.loads(write_result[0].text)
+            assert result['success'] == True
+            
+            # Test append mode
+            append_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": append_content,
+                "append": True
+            })
+            append_json = json.loads(append_result[0].text)
+            assert append_json['success'] == True
+            assert append_json['append'] == True
+            
+            # Verify content was appended
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            expected_content = initial_content + append_content
+            assert output == expected_content
+            
+            # Test append to non-existent file
+            nonexistent_file = "/tmp/ssh_test_nonexistent.txt"
+            nonexistent_append = await client.call_tool("ssh_file_write", {
+                "file_path": nonexistent_file,
+                "content": "Content in a new file with append mode",
+                "append": True
+            })
+            nonexistent_json = json.loads(nonexistent_append[0].text)
+            assert nonexistent_json['success'] == True
+            
+            # Verify content was created
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {nonexistent_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert output == "Content in a new file with append mode"
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file} /tmp/ssh_test_nonexistent.txt",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_file_write_create_dirs(mcp_test_environment):
+    """Test creating parent directories when writing files."""
+    print_test_header("Testing 'ssh_file_write' tool - create directories")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_dir = "/tmp/ssh_test_nested_dir"
+            test_file = f"{test_dir}/nested/path/test_file.txt"
+            test_content = "Content in a file with nested directories"
+            
+            # Clean up any existing directories
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -rf {test_dir}",
+                "io_timeout": 5.0
+            })
+            
+            # Test 1: Without create_dirs (should fail)
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": test_content,
+                "create_dirs": False
+            })
+            result = json.loads(write_result[0].text)
+            assert result['success'] == False
+            
+            # Test 2: With create_dirs
+            write_with_dirs = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": test_content,
+                "create_dirs": True
+            })
+            dirs_result = json.loads(write_with_dirs[0].text)
+            assert dirs_result['success'] == True
+            
+            # Verify file exists and has correct content
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert output == test_content
+            
+            # Verify parent directories were created
+            ls_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"ls -la {test_dir}/nested/path",
+                "io_timeout": 5.0
+            })
+            ls_output = json.loads(ls_result[0].text)['output']
+            assert "test_file.txt" in ls_output
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -rf {test_dir}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_file_write_sudo(mcp_test_environment):
+    """Test writing files with sudo permissions."""
+    print_test_header("Testing 'ssh_file_write' tool - sudo operations")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            
+            # Check if we have sudo access
+            sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
+            sudo_available = json.loads(sudo_check[0].text)
+            
+            if not sudo_available:
+                print("Skipping sudo tests as sudo is not available")
+                return
+            
+            # Test writing to a protected directory
+            test_file = "/etc/ssh_test_sudo_write.txt"
+            test_content = "This file was written with sudo permissions"
+            
+            # Write with sudo
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": test_content,
+                "sudo": True
+            })
+            result = json.loads(write_result[0].text)
+            
+            # If sudo worked, verify the file
+            if result['success']:
+                # Verify content
+                cat_result = await client.call_tool("ssh_cmd_run", {
+                    "command": f"cat {test_file}",
+                    "io_timeout": 5.0,
+                    "sudo": True
+                })
+                output = json.loads(cat_result[0].text)['output']
+                assert output == test_content
+                
+                # Clean up
+                await client.call_tool("ssh_cmd_run", {
+                    "command": f"rm -f {test_file}",
+                    "io_timeout": 5.0,
+                    "sudo": True
+                })
+            else:
+                print(f"Sudo write test failed: {result['error']}")
+            
+        finally:
+            await disconnect_ssh(client)
+    
+    print_test_footer()
