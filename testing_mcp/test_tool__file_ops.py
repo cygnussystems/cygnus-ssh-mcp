@@ -860,7 +860,9 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "path": test_file
             })
             stat_json = json.loads(stat_result[0].text)
-            assert "0o600" in stat_json['mode']
+            # The mode includes file type bits (0o100000 for regular files)
+            # so we check if the permission bits (last 3 digits) match
+            assert stat_json['mode'].endswith('600')
             
         finally:
             await client.call_tool("ssh_cmd_run", {
