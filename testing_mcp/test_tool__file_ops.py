@@ -967,7 +967,7 @@ async def test_ssh_file_write_create_dirs(mcp_test_environment):
             })
             result = json.loads(write_result[0].text)
             assert result['success'] == False
-            assert "No such file" in result.get('error', '')
+            assert "Parent directory does not exist" in result.get('error', '')
             
             # Test 2: With create_dirs
             write_with_dirs = await client.call_tool("ssh_file_write", {
