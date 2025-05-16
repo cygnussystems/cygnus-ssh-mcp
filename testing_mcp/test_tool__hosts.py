@@ -54,8 +54,12 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
 
             # Clean up test host
             logger.info("Cleaning up test host configuration")
+            # Get config path through proper API call
+            config_path_result = await client.call_tool("ssh_host_list", {})
+            config_info = json.loads(config_path_result[0].text)
+            
             await client.call_tool("ssh_cmd_run", {
-                "command": f"sed -i '/^{test_host}/d' {mcp.host_manager.config_path}",
+                "command": f"sed -i '/^{test_host}/d' {config_info['config_path']}",
                 "io_timeout": 5.0
             })
             

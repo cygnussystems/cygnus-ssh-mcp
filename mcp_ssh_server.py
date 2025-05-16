@@ -282,14 +282,19 @@ async def ssh_conn_status() -> dict:
 
 
 @mcp.tool()
-async def ssh_host_list() -> list:
+async def ssh_host_list() -> dict:
     """
-    List all configured SSH hosts from the TOML configuration file.
+    List all configured SSH hosts and config file location.
     
     Returns:
-        List of host keys in 'user@host' format
+        Dictionary with:
+        - hosts: List of host keys in 'user@host' format
+        - config_path: Path to the active config file
     """
-    return list(host_manager.hosts.keys())
+    return {
+        "hosts": list(host_manager.hosts.keys()),
+        "config_path": str(host_manager.config_path)
+    }
 
 @mcp.tool()
 async def ssh_conn_verify_sudo() -> bool:
