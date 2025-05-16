@@ -88,30 +88,93 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
 
 @pytest.mark.asyncio
 async def test_ssh_host_list_structure(mcp_test_environment):
-    """Verify the structure and format of host list responses."""
-    print_test_header("Testing host list structure")
-    logger.info("Starting host list structure test")
+    """Verify the structure and format of host list responses and validate host configurations."""
+    print_test_header("Testing host list structure and configuration")
+    logger.info("Starting host list structure and configuration test")
     
     async with Client(mcp) as client:
         try:
+            # Get the host list
             list_result = await client.call_tool("ssh_host_list", {})
             host_data = json.loads(list_result[0].text)
             
+            # Validate basic structure
             assert isinstance(host_data, dict), "Host data should be a dictionary"
             assert 'hosts' in host_data, "Response missing 'hosts' key"
             assert 'config_path' in host_data, "Response missing 'config_path' key"
             hosts_list = host_data['hosts']
+            config_path = host_data['config_path']
             
+            # Validate config path
+            assert isinstance(config_path, str), "Config path should be a string"
+            assert len(config_path) > 0, "Config path should not be empty"
+            assert config_path.endswith('.toml'), "Config path should point to a TOML file"
+            logger.info(f"Config path validation passed: {config_path}")
+            
+            # Validate hosts list
             assert isinstance(hosts_list, list), "Hosts should be a list"
-            for host in hosts_list:
-                assert isinstance(host, str), "Each host entry should be a string"
-                assert "@" in host, "Host entry missing @ symbol"
-                parts = host.split("@")
-                assert len(parts) == 2, "Invalid host format"
-                assert parts[0], "Missing username in host entry"
-                assert parts[1], "Missing hostname in host entry"
+            logger.info(f"Found {len(hosts_list)} hosts in configuration")
             
-            logger.info("Host list structure validation passed")
+            # If no hosts, that's valid but we should log it
+            if not hosts_list:
+                logger.info("No hosts found in configuration - this is valid but unusual for testing")
+            
+            # Validate each host entry format
+            for host in hosts_list:
+                assert isinstance(host, str), f"Each host entry should be a string, got {type(host)}"
+                assert "@" in host, f"Host entry '{host}' missing @ symbol"
+                parts = host.split("@")
+                assert len(parts) == 2, f"Invalid host format for '{host}'"
+                username, hostname = parts
+                assert username, f"Missing username in host entry '{host}'"
+                assert hostname, f"Missing hostname in host entry '{host}'"
+                logger.info(f"Validated host entry format: {host}")
+                
+                # For each host, get its configuration details
+                if len(hosts_list) <= 5:  # Only do detailed checks if we have a reasonable number of hosts
+                    connect_params = {"host_name": host}
+                    # We don't actually connect, just check if the host exists in config
+                    # by attempting to get its configuration
+                    host_list_result = await client.call_tool("ssh_host_list", {})
+                    host_list_data = json.loads(host_list_result[0].text)
+                    assert host in host_list_data['hosts'], f"Host '{host}' not found in updated host list"
+            
+            # Test that we can add and remove a test host to verify config file is writable
+            if len(hosts_list) <= 5:  # Only do this test if we have a reasonable number of hosts
+                # Create a unique test host
+                timestamp = int(time.time())
+                test_host = f"testuser@testhost_verify_{timestamp}"
+                
+                # Add the test host
+                add_params = {
+                    "user": "testuser",
+                    "host": f"testhost_verify_{timestamp}",
+                    "password": "testpass_verify",
+                    "port": 2222
+                }
+                add_result = await client.call_tool("ssh_conn_add_host", add_params)
+                add_json = json.loads(add_result[0].text)
+                assert add_json['status'] == 'success', f"Add host failed: {add_json}"
+                
+                # Verify it was added
+                verify_list_result = await client.call_tool("ssh_host_list", {})
+                verify_host_data = json.loads(verify_list_result[0].text)
+                assert test_host in verify_host_data['hosts'], f"Test host '{test_host}' not found after adding"
+                
+                # Remove the test host
+                remove_params = {"host_name": test_host}
+                remove_result = await client.call_tool("ssh_host_remove", remove_params)
+                remove_json = json.loads(remove_result[0].text)
+                assert remove_json['status'] == 'success', f"Remove host failed: {remove_json}"
+                
+                # Verify it was removed
+                final_list_result = await client.call_tool("ssh_host_list", {})
+                final_host_data = json.loads(final_list_result[0].text)
+                assert test_host not in final_host_data['hosts'], f"Test host '{test_host}' still present after removal"
+                
+                logger.info(f"Successfully verified config file write operations with test host '{test_host}'")
+            
+            logger.info("Host list structure and configuration validation passed")
             
         except Exception as e:
             logger.error(f"Error in host list structure test: {e}", exc_info=True)
