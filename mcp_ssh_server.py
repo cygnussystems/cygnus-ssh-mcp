@@ -1245,47 +1245,71 @@ async def ssh_file_write(
                             logger.error(f"Failed to create parent directories for {file_path}: {e}")
                             raise
             
-            if not append:
-                # For overwrite, simply upload the file
-                mcp.ssh_client.put(local_temp_path, file_path)
-            else:
-                # For append, we need to check if the file exists first
-                try:
-                    # Check if file exists
-                    stat_result = await ssh_file_stat(file_path)
-                    file_exists = stat_result.get('exists', False)
-                    
-                    if file_exists:
-                        # File exists, so we need to append
-                        if sudo:
-                            # For sudo append, we need to use cat with sudo
-                            cat_cmd = f"cat {shlex.quote(local_temp_path)} >> {shlex.quote(file_path)}"
-                            mcp.ssh_client.run(cat_cmd, sudo=True)
-                        else:
-                            # For non-sudo append, download, append locally, then upload
-                            with tempfile.NamedTemporaryFile(mode='w+', delete=False) as combined_file:
-                                combined_path = combined_file.name
-                                
-                            try:
-                                # Download existing file
-                                mcp.ssh_client.get(file_path, combined_path)
-                                
-                                # Append new content with Unix-style line endings
-                                with open(combined_path, 'a', newline='\n') as f:
-                                    f.write(content)
-                                
-                                # Upload combined file
-                                mcp.ssh_client.put(combined_path, file_path)
-                            finally:
-                                if os.path.exists(combined_path):
-                                    os.unlink(combined_path)
-                    else:
-                        # File doesn't exist, so just create it
-                        mcp.ssh_client.put(local_temp_path, file_path)
-                except Exception as e:
-                    # If any error occurs during append, fall back to simple upload
-                    logger.warning(f"Error during append operation, falling back to create: {e}")
+            try:
+                if not append:
+                    # For overwrite, simply upload the file
                     mcp.ssh_client.put(local_temp_path, file_path)
+                else:
+                    # For append, we need to check if the file exists first
+                    try:
+                        # Check if file exists
+                        stat_result = await ssh_file_stat(file_path)
+                        file_exists = stat_result.get('exists', False)
+                        
+                        if file_exists:
+                            # File exists, so we need to append
+                            if sudo:
+                                # For sudo append, we need to use cat with sudo
+                                cat_cmd = f"cat {shlex.quote(local_temp_path)} >> {shlex.quote(file_path)}"
+                                mcp.ssh_client.run(cat_cmd, sudo=True)
+                            else:
+                                # For non-sudo append, download, append locally, then upload
+                                with tempfile.NamedTemporaryFile(mode='w+', delete=False) as combined_file:
+                                    combined_path = combined_file.name
+                                    
+                                try:
+                                    # Download existing file
+                                    mcp.ssh_client.get(file_path, combined_path)
+                                    
+                                    # Append new content with Unix-style line endings
+                                    with open(combined_path, 'a', newline='\n') as f:
+                                        f.write(content)
+                                    
+                                    # Upload combined file
+                                    mcp.ssh_client.put(combined_path, file_path)
+                                finally:
+                                    if os.path.exists(combined_path):
+                                        os.unlink(combined_path)
+                        else:
+                            # File doesn't exist, so just create it
+                            mcp.ssh_client.put(local_temp_path, file_path)
+                    except Exception as e:
+                        # If any error occurs during append, fall back to simple upload
+                        logger.warning(f"Error during append operation, falling back to create: {e}")
+                        mcp.ssh_client.put(local_temp_path, file_path)
+            except FileNotFoundError as e:
+                if "No such file" in str(e) and create_dirs:
+                    # This is likely because the parent directory doesn't exist yet
+                    # We already tried to create it, but let's try again with a more direct approach
+                    logger.warning(f"Directory creation may have failed, retrying with direct command")
+                    parent_dir = os.path.dirname(file_path)
+                    if parent_dir:
+                        mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
+                        if sudo:
+                            mcp.ssh_client.run(mkdir_cmd, sudo=True)
+                        else:
+                            mcp.ssh_client.run(mkdir_cmd)
+                        logger.info(f"Created parent directories for {file_path}")
+                        
+                        # Now try the upload again
+                        if not append:
+                            mcp.ssh_client.put(local_temp_path, file_path)
+                        else:
+                            # For a new file with append=True, just create it
+                            mcp.ssh_client.put(local_temp_path, file_path)
+                else:
+                    # If not related to directory creation, re-raise
+                    raise
             
             # Set file permissions if specified
             if mode is not None:
