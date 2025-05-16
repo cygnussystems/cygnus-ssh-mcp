@@ -343,8 +343,8 @@ async def ssh_host_reload_config() -> dict:
     try:
         logger.info(f"Reloading hosts configuration from {host_manager.config_path}")
         
-        # Reload the hosts configuration
-        host_manager._load_hosts()
+        # Reload the hosts configuration and update the hosts attribute
+        host_manager.hosts = host_manager._load_hosts()
         
         return {
             'status': 'success',
