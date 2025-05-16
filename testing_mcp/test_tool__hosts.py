@@ -28,11 +28,12 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
             logger.info(f"Initial hosts: {initial_hosts}")
             logger.info(f"Config path: {host_data['config_path']}")
 
-            # Test adding new host
-            test_host = "testuser@testhost"
+            # Test adding new host with timestamp to ensure uniqueness
+            timestamp = int(time.time())
+            test_host = f"testuser@testhost{timestamp}"
             add_params = {
                 "user": "testuser",
-                "host": "testhost", 
+                "host": f"testhost{timestamp}", 
                 "password": "testpass",
                 "port": 2222
             }
@@ -64,9 +65,10 @@ async def test_ssh_host_lifecycle(mcp_test_environment):
             config_path_result = await client.call_tool("ssh_host_list", {})
             config_info = json.loads(config_path_result[0].text)
             
+            # Use a more Windows-compatible approach to remove the host entry
             await client.call_tool("ssh_cmd_run", {
-                "command": f"sed -i '/^{test_host}/d' {config_info['config_path']}",
-                "io_timeout": 5.0
+                "command": f"powershell -Command \"(Get-Content '{config_info['config_path']}') | Where-Object {{ $_ -notmatch '\\[{test_host}\\]' -and $_ -notmatch 'password.*testpass' -and $_ -notmatch 'port.*2222' }} | Set-Content '{config_info['config_path']}'\"",
+                "io_timeout": 10.0
             })
             
             # Verify cleanup
