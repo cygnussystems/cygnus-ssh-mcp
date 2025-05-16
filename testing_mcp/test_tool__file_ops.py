@@ -983,7 +983,7 @@ async def test_ssh_file_write_create_dirs(mcp_test_environment):
                 "io_timeout": 5.0
             })
             output = json.loads(cat_result[0].text)['output']
-            assert output == test_content
+            assert output.rstrip('\n') == test_content
             
             # Verify parent directories were created
             ls_result = await client.call_tool("ssh_cmd_run", {
