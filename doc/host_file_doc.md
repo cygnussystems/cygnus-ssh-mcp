@@ -26,6 +26,17 @@ password = "secureProdPassword"
 port = 2222
 ```
 
+## Testing Configuration
+For automated tests, ensure you have a test host configured:
+```toml
+[testuser@localhost]
+password = "testpass"
+port = 2222
+```
+
+If you're running tests in a Docker environment, make sure the SSH server is running on port 2222.
+For local testing without an SSH server, use the mock-based tests in `test_mcp_status.py`.
+
 ## Security Best Practices
 1. Set strict file permissions:
 ```bash
