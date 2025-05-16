@@ -1260,8 +1260,27 @@ async def ssh_file_write(
                             'error': f"Parent directory does not exist: {parent_dir}. Use create_dirs=True to create it."
                         }
                 
-                if not append:
-                    # For overwrite, simply upload the file
+                if sudo:
+                    # For sudo operations, we need to use a different approach
+                    # First, create a temporary file in a location we can write to
+                    remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
+                    
+                    # Upload to the temporary location first
+                    mcp.ssh_client.put(local_temp_path, remote_temp_path)
+                    
+                    if not append:
+                        # For overwrite with sudo, use cat with sudo redirection
+                        cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
+                        mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                    else:
+                        # For append with sudo, use cat with sudo append redirection
+                        cat_cmd = f"cat {shlex.quote(remote_temp_path)} >> {shlex.quote(file_path)}"
+                        mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                    
+                    # Clean up the temporary file
+                    mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
+                elif not append:
+                    # For overwrite without sudo, simply upload the file
                     mcp.ssh_client.put(local_temp_path, file_path)
                 else:
                     # For append, we need to check if the file exists first
@@ -1273,9 +1292,8 @@ async def ssh_file_write(
                         if file_exists:
                             # File exists, so we need to append
                             if sudo:
-                                # For sudo append, we need to use cat with sudo
-                                cat_cmd = f"cat {shlex.quote(local_temp_path)} >> {shlex.quote(file_path)}"
-                                mcp.ssh_client.run(cat_cmd, sudo=True)
+                                # This case is now handled in the sudo block above
+                                pass
                             else:
                                 # For non-sudo append, download, append locally, then upload
                                 with tempfile.NamedTemporaryFile(mode='w+', delete=False) as combined_file:
@@ -1296,11 +1314,20 @@ async def ssh_file_write(
                                         os.unlink(combined_path)
                         else:
                             # File doesn't exist, so just create it
-                            mcp.ssh_client.put(local_temp_path, file_path)
+                            if not sudo:  # sudo case is handled above
+                                mcp.ssh_client.put(local_temp_path, file_path)
                     except Exception as e:
                         # If any error occurs during append, fall back to simple upload
                         logger.warning(f"Error during append operation, falling back to create: {e}")
-                        mcp.ssh_client.put(local_temp_path, file_path)
+                        if sudo:
+                            # For sudo, we need to use the sudo approach
+                            remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
+                            mcp.ssh_client.put(local_temp_path, remote_temp_path)
+                            cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
+                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                            mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
+                        else:
+                            mcp.ssh_client.put(local_temp_path, file_path)
             except FileNotFoundError as e:
                 if "No such file" in str(e) and create_dirs:
                     # This is likely because the parent directory doesn't exist yet
@@ -1334,6 +1361,19 @@ async def ssh_file_write(
             if mode is not None:
                 chmod_cmd = f"chmod {mode:o} {shlex.quote(file_path)}"
                 mcp.ssh_client.run(chmod_cmd, sudo=sudo)
+                
+            # If sudo was used, we may need to check ownership
+            if sudo:
+                # Get the current user to set ownership properly
+                whoami_result = mcp.ssh_client.run("whoami")
+                current_user = whoami_result.get_full_output().strip()
+                if current_user and current_user != "root":
+                    # Set ownership to the current user if we're not root
+                    chown_cmd = f"chown {current_user} {shlex.quote(file_path)}"
+                    try:
+                        mcp.ssh_client.run(chown_cmd, sudo=True)
+                    except Exception as e:
+                        logger.warning(f"Failed to set ownership of {file_path}: {e}")
             
             # Get file size for reporting
             stat_result = await ssh_file_stat(file_path)
