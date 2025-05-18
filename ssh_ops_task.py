@@ -2,6 +2,7 @@ import time
 import logging
 import shlex
 from typing import Optional
+from datetime import datetime, UTC
 from ssh_models import (
     CommandHandle, SshError, TaskNotFound, SudoRequired
 )
@@ -29,7 +30,7 @@ class SshTaskOperations_Linux:
         self.ssh_client = ssh_client
         self.logger = logging.getLogger(f"{__name__}.SshTaskOperations")
         
-    def launch_task(self, cmd, stdout_log=None, stderr_log=None, log_output=True, sudo=False):
+    def launch_task(self, cmd, stdout_log=None, stderr_log=None, log_output=True, sudo=False, add_to_history=False):
         """
         Launch a command in the background and return a CommandHandle with the PID.
         
@@ -178,8 +179,14 @@ exit 0
                 except Exception as rename_err:
                     self.logger.warning(f"Failed to rename default log file: {rename_err}")
 
-            # Create and return handle using the history manager
-            handle = self.ssh_client.history_manager.add_command(cmd, pid)
+            # Create a handle for the task, but don't add to history by default
+            if add_to_history:
+                handle = self.ssh_client.history_manager.add_command(cmd, pid)
+            else:
+                # Create a handle without adding to history
+                handle = CommandHandle(self.ssh_client.history_manager.next_id(), cmd)
+                handle.pid = pid
+                handle.start_ts = datetime.now(UTC)
             return handle
 
         except Exception as e:
