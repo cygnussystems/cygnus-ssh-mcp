@@ -1,6 +1,6 @@
 import pytest
 import json
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, remote_temp_path
 from mcp_ssh_server import mcp
 from fastmcp import Client
 

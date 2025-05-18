@@ -4,6 +4,7 @@ import sys
 import os
 import logging
 import json
+import time
 
 from mcp_ssh_server import mcp
 
@@ -168,3 +169,9 @@ def print_test_footer():
     print("\n" + "=" * 40)
     print("Test completed")
     print("=" * 40 + "\n")
+
+
+def remote_temp_path(base_name):
+    """Generate a temporary path on the remote system with timestamp to avoid collisions."""
+    timestamp = int(time.time())
+    return f"/tmp/{base_name}_{timestamp}"
