@@ -223,8 +223,13 @@ async def test_task_not_in_history(mcp_test_environment):
 
             # Get initial command history
             history_before = await client.call_tool("ssh_cmd_history", {})
-            history_before_json = json.loads(history_before[0].text)
-            initial_history_count = len(history_before_json)
+            # Handle case where history might be empty
+            if history_before and len(history_before) > 0:
+                history_before_json = json.loads(history_before[0].text)
+                initial_history_count = len(history_before_json)
+            else:
+                history_before_json = []
+                initial_history_count = 0
             logger.info(f"Initial command history count: {initial_history_count}")
 
             # Launch a background task
@@ -241,8 +246,13 @@ async def test_task_not_in_history(mcp_test_environment):
 
             # Get command history after launching task
             history_after = await client.call_tool("ssh_cmd_history", {})
-            history_after_json = json.loads(history_after[0].text)
-            after_history_count = len(history_after_json)
+            # Handle case where history might be empty
+            if history_after and len(history_after) > 0:
+                history_after_json = json.loads(history_after[0].text)
+                after_history_count = len(history_after_json)
+            else:
+                history_after_json = []
+                after_history_count = 0
             logger.info(f"Command history count after task launch: {after_history_count}")
 
             # Verify task command is not in history
@@ -255,8 +265,13 @@ async def test_task_not_in_history(mcp_test_environment):
 
             # Get history again
             history_final = await client.call_tool("ssh_cmd_history", {})
-            history_final_json = json.loads(history_final[0].text)
-            final_history_count = len(history_final_json)
+            # Handle case where history might be empty
+            if history_final and len(history_final) > 0:
+                history_final_json = json.loads(history_final[0].text)
+                final_history_count = len(history_final_json)
+            else:
+                history_final_json = []
+                final_history_count = 0
             logger.info(f"Final command history count: {final_history_count}")
 
             # Verify regular command appears in history
