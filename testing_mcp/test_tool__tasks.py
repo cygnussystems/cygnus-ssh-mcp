@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.asyncio
 async def test_ssh_launch_task(mcp_test_environment):
     """Test launching background tasks, checking status, and killing tasks."""
-    print_test_header("Testing 'ssh_launch_task', 'ssh_task_status', 'ssh_task_kill' tools")
+    print_test_header("Testing 'ssh_task_launch', 'ssh_task_status', 'ssh_task_kill' tools")
     logger.info("Starting SSH task management test")
     
     async with Client(mcp) as client:
@@ -30,7 +30,7 @@ async def test_ssh_launch_task(mcp_test_environment):
                 "log_output": True
             }
             
-            launch_result = await client.call_tool("ssh_launch_task", launch_params)
+            launch_result = await client.call_tool("ssh_task_launch", launch_params)
             logger.info(f"launch_task result: {launch_result}")
             
             # Verify launch_task result
@@ -82,7 +82,7 @@ async def test_ssh_launch_task(mcp_test_environment):
             
             # Clean up files created by the task
             logger.info("Cleaning up task output files")
-            await client.call_tool("ssh_run", {
+            await client.call_tool("ssh_cmd_run", {
                 "command": "rm -f /tmp/task_output.txt /tmp/task_stdout.log /tmp/task_stderr.log",
                 "io_timeout": 5.0
             })
@@ -136,7 +136,7 @@ cat > {script_path} << 'EOF'
 EOF
 chmod +x {script_path}
 """
-            await client.call_tool("ssh_run", {
+            await client.call_tool("ssh_cmd_run", {
                 "command": create_script_command,
                 "io_timeout": 10.0 # Increased timeout for script creation
             })
@@ -150,7 +150,7 @@ chmod +x {script_path}
                 "log_output": True
             }
             
-            launch_result = await client.call_tool("ssh_launch_task", launch_params)
+            launch_result = await client.call_tool("ssh_task_launch", launch_params)
             launch_json = json.loads(launch_result[0].text)
             pid = launch_json['pid']
             logger.info(f"Launched task with PID: {pid}")
@@ -175,7 +175,7 @@ chmod +x {script_path}
             
             # Check the output file
             logger.info(f"Reading output log: {output_log_path}")
-            cat_result = await client.call_tool("ssh_run", {
+            cat_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {output_log_path}",
                 "io_timeout": 5.0
             })
@@ -192,7 +192,7 @@ chmod +x {script_path}
             # Clean up script and log files
             logger.info("Cleaning up script and output files")
             cleanup_command = f"rm -f {script_path} {output_log_path} {error_log_path}"
-            await client.call_tool("ssh_run", {
+            await client.call_tool("ssh_cmd_run", {
                 "command": cleanup_command,
                 "io_timeout": 5.0
             })
@@ -205,4 +205,71 @@ chmod +x {script_path}
             logger.info("Ensuring SSH connection is closed after task with output test")
             await disconnect_ssh(client)
     
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_task_not_in_history(mcp_test_environment):
+    """Test that background tasks don't appear in command history."""
+    print_test_header("Testing task not appearing in command history")
+    logger.info("Starting test to verify tasks don't appear in command history")
+
+    async with Client(mcp) as client:
+        try:
+            # Ensure connection is established
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established for task history test")
+
+            # Get initial command history
+            history_before = await client.call_tool("ssh_cmd_history", {})
+            history_before_json = json.loads(history_before[0].text)
+            initial_history_count = len(history_before_json)
+            logger.info(f"Initial command history count: {initial_history_count}")
+
+            # Launch a background task
+            task_cmd = "sleep 5"
+            task_result = await client.call_tool("ssh_task_launch", {
+                "command": task_cmd
+            })
+            task_json = json.loads(task_result[0].text)
+            task_pid = task_json.get('pid')
+            logger.info(f"Launched task with PID: {task_pid}")
+
+            # Wait a moment to ensure any history updates would have occurred
+            await asyncio.sleep(1)
+
+            # Get command history after launching task
+            history_after = await client.call_tool("ssh_cmd_history", {})
+            history_after_json = json.loads(history_after[0].text)
+            after_history_count = len(history_after_json)
+            logger.info(f"Command history count after task launch: {after_history_count}")
+
+            # Verify task command is not in history
+            assert after_history_count == initial_history_count, "Task should not appear in command history"
+
+            # Run a regular command to verify history still works
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": "echo 'This is a regular command'"
+            })
+
+            # Get history again
+            history_final = await client.call_tool("ssh_cmd_history", {})
+            history_final_json = json.loads(history_final[0].text)
+            final_history_count = len(history_final_json)
+            logger.info(f"Final command history count: {final_history_count}")
+
+            # Verify regular command appears in history
+            assert final_history_count == initial_history_count + 1, "Regular command should appear in history"
+
+            # Wait for task to complete
+            await asyncio.sleep(5)
+
+            logger.info("Task history test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in task history test: {e}")
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for task history test cleaned up")
+
     print_test_footer()
