@@ -288,16 +288,17 @@ class SshClient:
 
 
     def launch(self, cmd: str, sudo: bool = False, stdout_log: Optional[str] = None,
-              stderr_log: Optional[str] = None, log_output: bool = True) -> CommandHandle:
+              stderr_log: Optional[str] = None, log_output: bool = True, add_to_history: bool = True) -> CommandHandle:
         """
         Launch a command in the background and return a CommandHandle with the PID.
         This method returns almost immediately, it does NOT block waiting for the command.
         Output is NOT captured in the handle's buffer; it's redirected to files or /dev/null.
         If log_output=True (default) and stdout_log/stderr_log are None, redirects
         output to /tmp/task-<pid>.log.
+        If add_to_history=False, the command won't appear in command history.
         WARNING: Does not work for interactive commands requiring input.
         """
-        return self.task_ops.launch_task(cmd, stdout_log, stderr_log, log_output, sudo)
+        return self.task_ops.launch_task(cmd, stdout_log, stderr_log, log_output, sudo, add_to_history)
 
     def task_status(self, pid: int) -> Literal['running', 'exited', 'invalid', 'error']:
         """

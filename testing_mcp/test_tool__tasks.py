@@ -2,6 +2,7 @@ import pytest
 import json
 import logging
 import time
+import asyncio
 from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
 from mcp_ssh_server import mcp
 from fastmcp import Client
@@ -236,7 +237,7 @@ async def test_task_not_in_history(mcp_test_environment):
             logger.info(f"Launched task with PID: {task_pid}")
 
             # Wait a moment to ensure any history updates would have occurred
-            await asyncio.sleep(1)
+            time.sleep(1)
 
             # Get command history after launching task
             history_after = await client.call_tool("ssh_cmd_history", {})
@@ -262,7 +263,7 @@ async def test_task_not_in_history(mcp_test_environment):
             assert final_history_count == initial_history_count + 1, "Regular command should appear in history"
 
             # Wait for task to complete
-            await asyncio.sleep(5)
+            time.sleep(5)
 
             logger.info("Task history test completed successfully")
         except Exception as e:
