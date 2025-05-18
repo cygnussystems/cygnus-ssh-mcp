@@ -141,11 +141,14 @@ async def test_ssh_verify_sudo_access(mcp_test_environment):
             sudo_result = await client.call_tool("ssh_conn_verify_sudo", {})
             sudo_access = json.loads(sudo_result[0].text)
             
-            # Just verify we get a boolean response
-            assert isinstance(sudo_access, bool), f"Expected boolean result, got: {sudo_access}"
+            # Verify we get the expected dictionary response
+            assert isinstance(sudo_access, dict), f"Expected dictionary result, got: {sudo_access}"
+            assert 'available' in sudo_access, "Missing 'available' key in sudo access response"
+            assert 'passwordless' in sudo_access, "Missing 'passwordless' key in sudo access response"
+            assert 'requires_password' in sudo_access, "Missing 'requires_password' key in sudo access response"
             
             # If sudo is available, try a simple sudo command
-            if sudo_access:
+            if sudo_access['available']:
                 cmd_result = await client.call_tool("ssh_cmd_run", {
                     "command": "id",
                     "sudo": True
