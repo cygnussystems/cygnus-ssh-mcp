@@ -34,13 +34,15 @@ async def test_ssh_verify_sudo(mcp_test_environment):
             
             sudo_json = json.loads(sudo_result[0].text)
             
-            # The result should be a boolean
-            assert isinstance(sudo_json, bool), f"Expected boolean result, got {type(sudo_json)}"
-            
+            # The result should be a dictionary with specific keys
+            assert isinstance(sudo_json, dict), f"Expected dictionary result, got {type(sudo_json)}"
+            assert "available" in sudo_json, "Expected 'available' key in result"
+            assert isinstance(sudo_json["available"], bool), "Expected 'available' to be a boolean"
+                
             # Note: We don't assert the actual value (True/False) since it depends on the test environment's setup
             # The test container is configured with passwordless sudo for the test user.
-            assert sudo_json is True, "Expected sudo access to be available in the test environment"
-            logger.info(f"Sudo access available: {sudo_json}")
+            assert sudo_json["available"] is True, "Expected sudo access to be available in the test environment"
+            logger.info(f"Sudo access available: {sudo_json['available']}")
             
             logger.info("SSH sudo verification test completed successfully")
         except Exception as e:
