@@ -184,7 +184,7 @@ exit 0
                 handle = self.ssh_client.history_manager.add_command(cmd, pid)
             else:
                 # Create a handle without adding to history
-                handle = CommandHandle(self.ssh_client.history_manager._next_id(), cmd)
+                handle = CommandHandle(self.ssh_client.history_manager._next_id, cmd)
                 handle.pid = pid
                 handle.start_ts = datetime.now(UTC)
             return handle
