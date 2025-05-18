@@ -237,7 +237,7 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                     user=user,
                     port=SSH_TEST_PORT,
                     password=password,
-                    timeout=10.0  # Increase connection timeout
+                    connect_timeout=10.0  # Increase connection timeout
                 )
                 result = temp_client.run("echo 'SSH connection test successful'")
                 temp_client.close()
