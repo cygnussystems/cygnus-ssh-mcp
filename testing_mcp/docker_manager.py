@@ -92,12 +92,14 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
         logger.error("Docker command not found. Please ensure Docker is installed and in PATH.")
         raise
 
-    # Remove existing stopped container if any
+    # We've already removed the container above, so we don't need to do it again
+
+    # Check if the container already exists and remove it
     try:
         subprocess.run(["docker", "rm", "-f", "ssh-test-server"], check=False, capture_output=True)
-    except FileNotFoundError:
-        logger.error("Docker command not found. Cannot remove old containers.")
-        raise # Docker is essential for this setup
+        logger.info("Removed existing ssh-test-server container if it existed")
+    except Exception as e:
+        logger.warning(f"Error removing existing container: {e}")
 
     # Find an available port
     import socket
@@ -105,6 +107,22 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
     max_port_attempts = 10
 
     for attempt in range(max_port_attempts):
+        # First check if Docker has the port allocated
+        try:
+            port_check = subprocess.run(
+                ["docker", "ps", "-a", "--format", "{{.Ports}}"], 
+                capture_output=True, 
+                text=True, 
+                check=True
+            )
+            if f":{SSH_TEST_PORT}->" in port_check.stdout or f":{SSH_TEST_PORT}/" in port_check.stdout:
+                logger.warning(f"Port {SSH_TEST_PORT} is already allocated in Docker, trying next port")
+                SSH_TEST_PORT += 1
+                continue
+        except Exception as e:
+            logger.warning(f"Error checking Docker ports: {e}")
+            
+        # Then check if the port is available on the host
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             s.bind(('127.0.0.1', SSH_TEST_PORT))
