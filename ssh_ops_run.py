@@ -127,22 +127,12 @@ class SshRunOperations_Linux:
                 return f"sudo -n bash -c {shlex.quote(cmd)}", False
             elif sudo_n_exit_code == 1 and ("sudo:" in sudo_n_stderr or "password is required" in sudo_n_stderr.lower()):
                 if self.ssh_client.sudo_password:
-                    self.logger.info("Sudo password provided. Will attempt interactive sudo.")
-                    # For interactive sudo, ensure PTY is requested if needed, or handle password input
-                    # The current SshClient doesn't seem to support PTY for run() easily.
-                    # This might require `invoke_shell` or more complex channel handling.
-                    # For now, assuming `sudo -S` will read from stdin if exec_command provides it.
-                    # Paramiko's exec_command can send to stdin.
-                    # We'd need to write self.ssh_client.sudo_password + '\n' to chan.sendall()
-                    # This part is complex and not fully addressed by the current structure.
-                    # The provided code for _execute_command does not send password to stdin.
-                    # Let's assume for now it's meant to work with `sudo -S -p ''` which prompts on stderr.
-                    # However, `bash -c` might consume stdin.
-                    # A safer bet for `sudo -S` is to pipe the password.
-                    # This is a potential area for bugs if not handled carefully.
-                    # The original code just returns the command string.
+                    self.logger.info("Sudo password provided. Using sudo with password.")
+                    # Use echo to pipe the password to sudo
+                    # -S flag tells sudo to read password from stdin
+                    # -p '' prevents sudo from printing a password prompt
+                    # We don't log the actual command with password for security
                     return f"echo {shlex.quote(self.ssh_client.sudo_password)} | sudo -S -p '' bash -c {shlex.quote(cmd)}", True
-
                 else:
                     raise SudoRequired(cmd)
             else: # Other errors during sudo -n check

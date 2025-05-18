@@ -405,18 +405,49 @@ async def ssh_host_disconnect() -> dict:
         }
 
 @mcp.tool()
-async def ssh_conn_verify_sudo() -> bool:
+async def ssh_conn_verify_sudo() -> dict:
     """
-    Verify if password-less sudo is available on the remote system.
+    Verify if sudo access is available on the remote system.
     
     Returns:
-        True if sudo access is available, False otherwise
+        Dictionary with sudo access information:
+        - available: True if any sudo access is available
+        - passwordless: True if passwordless sudo is available
+        - requires_password: True if sudo requires a password
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.verify_sudo_access()
+        # First check for passwordless sudo
+        passwordless = False
+        try:
+            # Use -n flag to prevent sudo from asking for a password
+            result = mcp.ssh_client.run("sudo -n true", io_timeout=5.0)
+            if result.exit_code == 0:
+                passwordless = True
+        except Exception as e:
+            logger.debug(f"Passwordless sudo check failed: {e}")
+            passwordless = False
+            
+        # If passwordless sudo is not available but we have a sudo password,
+        # check if sudo works with the password
+        requires_password = False
+        if not passwordless and mcp.ssh_client.sudo_password:
+            try:
+                # This will use the sudo password via the _handle_sudo method
+                result = mcp.ssh_client.run("true", sudo=True, io_timeout=5.0)
+                if result.exit_code == 0:
+                    requires_password = True
+            except Exception as e:
+                logger.debug(f"Password sudo check failed: {e}")
+                requires_password = False
+                
+        return {
+            "available": passwordless or requires_password,
+            "passwordless": passwordless,
+            "requires_password": requires_password
+        }
     except Exception as e:
         logger.error(f"Failed to verify sudo access: {e}")
         raise
