@@ -432,18 +432,37 @@ async def ssh_conn_verify_sudo() -> dict:
             logger.debug(f"Passwordless sudo check failed: {e}")
             passwordless = False
             
-        # If passwordless sudo is not available but we have a sudo password,
-        # check if sudo works with the password
+        # Check if sudo with password works
         requires_password = False
-        if not passwordless and mcp.ssh_client.sudo_password:
-            try:
-                # This will use the sudo password via the _handle_sudo method
-                result = mcp.ssh_client.run("true", sudo=True, io_timeout=5.0)
-                if result.exit_code == 0:
-                    requires_password = True
-            except Exception as e:
-                logger.debug(f"Password sudo check failed: {e}")
-                requires_password = False
+        if not passwordless:
+            # First check if we have a sudo password configured
+            if mcp.ssh_client.sudo_password:
+                try:
+                    # This will use the sudo password via the _handle_sudo method
+                    result = mcp.ssh_client.run("true", sudo=True, io_timeout=5.0)
+                    if result.exit_code == 0:
+                        requires_password = True
+                except Exception as e:
+                    logger.debug(f"Password sudo check failed: {e}")
+                    requires_password = False
+            else:
+                # Even without a configured sudo password, check if sudo is available
+                # This will detect if the user has sudo access but we just don't have the password
+                try:
+                    # Run a command that checks if the user is in sudoers file
+                    # This won't actually execute sudo but just checks if the user is in sudoers
+                    result = mcp.ssh_client.run("sudo -l -U $(whoami) | grep -q '(ALL'", io_timeout=5.0)
+                    requires_password = result.exit_code == 0
+                except Exception as e:
+                    logger.debug(f"Sudo access check failed: {e}")
+                    
+                    # Try another approach - check if user is in sudo group
+                    try:
+                        result = mcp.ssh_client.run("groups | grep -q '\\bsudo\\b'", io_timeout=5.0)
+                        requires_password = result.exit_code == 0
+                    except Exception as e2:
+                        logger.debug(f"Sudo group check failed: {e2}")
+                        requires_password = False
                 
         return {
             "available": passwordless or requires_password,

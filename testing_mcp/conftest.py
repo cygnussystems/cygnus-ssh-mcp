@@ -95,7 +95,8 @@ async def make_connection(client):
         "user": SSH_TEST_USER,
         "host": SSH_TEST_HOST,
         "password": SSH_TEST_PASSWORD,
-        "port": SSH_TEST_PORT
+        "port": SSH_TEST_PORT,
+        "sudo_password": SSH_TEST_PASSWORD  # Use the same password for sudo
     }
     await client.call_tool("ssh_conn_add_host", add_host_params)
     
