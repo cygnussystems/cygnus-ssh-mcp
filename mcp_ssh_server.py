@@ -1189,6 +1189,19 @@ async def ssh_file_replace_line_by_content(
         if new_lines is None:
             new_lines = []
             
+        # Handle case where new_lines is a string representation of a list
+        if isinstance(new_lines, str):
+            import json
+            try:
+                # Try to parse it as JSON
+                parsed_lines = json.loads(new_lines)
+                if isinstance(parsed_lines, list):
+                    new_lines = parsed_lines
+                    logger.info(f"Converted string representation of list to actual list: {new_lines}")
+            except json.JSONDecodeError:
+                # If it's not valid JSON, keep it as is (will likely fail validation)
+                logger.warning(f"Failed to parse new_lines as JSON: {new_lines}")
+            
         return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, use_sudo, force)
     except Exception as e:
         logger.error(f"Failed to replace line: {e}")
