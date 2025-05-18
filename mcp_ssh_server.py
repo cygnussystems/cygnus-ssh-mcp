@@ -1131,12 +1131,55 @@ async def ssh_file_replace_line_by_content(
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
-    Replace a unique line (by exact content) with new lines.
-    Pass None or an empty list as new_lines to delete the line entirely.
-    Pass a list with a single empty string to replace with an empty line.
-    
-    Returns:
-        Dictionary with operation status
+    Replace a unique line (identified by exact content, ignoring leading/trailing whitespace) with new lines.
+
+    PARAMETERS:
+    * file_path: Path to the file to modify
+    * match_line: Exact line content to match and replace (whitespace-trimmed)
+    * new_lines: List of new lines to insert in place of the match
+      - To replace with a single line: use ["new line content"]
+      - To replace with multiple lines: use ["first line", "second line", ...]
+      - To delete the line entirely: use [] (empty list)
+      - To replace with an empty line: use [""]
+      - NOTE: This must be a list, not a string representation of a list
+    * use_sudo: Use sudo for the operation (default: false)
+    * force: Force operation even if file can't be read (sudo only) (default: false)
+
+    RETURNS:
+    A dictionary with operation status including:
+    - success: Boolean indicating if operation succeeded
+    - matched: Boolean indicating if the line was found
+    - line_number: Line number where the match was found (if matched)
+    - file_path: Path to the modified file
+
+    EXAMPLES:
+    Example 1: Replace a commented line with an active configuration
+    ssh_file_replace_line_by_content(
+        file_path="/etc/ssh/sshd_config",
+        match_line="#ClientAliveInterval 0",
+        new_lines=["ClientAliveInterval 300"]
+    )
+
+    Example 2: Replace a line with multiple lines
+    ssh_file_replace_line_by_content(
+        file_path="/etc/hosts",
+        match_line="127.0.0.1 localhost",
+        new_lines=["127.0.0.1 localhost", "127.0.0.1 myhost.local"]
+    )
+
+    Example 3: Delete a line entirely
+    ssh_file_replace_line_by_content(
+        file_path="/etc/fstab",
+        match_line="tmpfs /tmp tmpfs defaults,noatime 0 0",
+        new_lines=[]
+    )
+
+    COMMON ERRORS:
+    - Providing new_lines as a string instead of a list (e.g., "new line" instead of ["new line"])
+    - Using quotes around the list (e.g., "["line"]") will not work
+    - Multiple lines in the file match the pattern (tool requires unique matches)
+    - File doesn't exist or permissions are insufficient (use sudo=true for system files)
+    - Line not found in the file (check for exact match including whitespace)
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
