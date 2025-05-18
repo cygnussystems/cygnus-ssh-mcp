@@ -894,7 +894,8 @@ async def ssh_task_launch(
         raise SshError("No active SSH connection")
 
     try:
-        handle = mcp.ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output)
+        # Don't add tasks to command history
+        handle = mcp.ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output, add_to_history=False)
         return {
             'command': command,
             'pid': handle.pid,
