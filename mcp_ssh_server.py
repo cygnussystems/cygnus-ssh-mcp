@@ -490,7 +490,7 @@ async def ssh_task_status(
 async def ssh_task_kill(
     pid: Annotated[int, Field(description="Process ID to terminate")],
     signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
-    sudo: Annotated[bool, Field(description="Use sudo for the kill operation")] = False,
+    use_sudo: Annotated[bool, Field(description="Use sudo for the kill operation")] = False,
     force: Annotated[bool, Field(description="Force kill with SIGKILL if process doesn't exit")] = True,
     wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
 ) -> dict:
@@ -508,7 +508,7 @@ async def ssh_task_kill(
         
     try:
         force_kill_signal = 9 if force else None
-        result = mcp.ssh_client.task_kill(pid, signal, sudo, force_kill_signal, wait_seconds)
+        result = mcp.ssh_client.task_kill(pid, signal, use_sudo, force_kill_signal, wait_seconds)
         return {
             'pid': pid,
             'result': result,
@@ -531,7 +531,7 @@ async def ssh_cmd_run(
         command: Annotated[str, Field(description="Command to execute on remote host")],
         io_timeout: Annotated[float, Field(description="I/O timeout in seconds", gt=0)] = 60.0,
         runtime_timeout: Annotated[Optional[float], Field(description="Total runtime timeout in seconds", gt=0)] = None,
-        sudo: Annotated[bool, Field(description="Run command with sudo")] = False
+        use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False
 ) -> dict:
     """
     Execute a command on the remote host and return the results. Handles both immediate and long-running operations.
@@ -555,7 +555,7 @@ async def ssh_cmd_run(
         }
 
     try:
-        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, sudo)
+        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, use_sudo)
         output = handle.get_full_output()
         return {
             'status': 'success',
@@ -876,7 +876,7 @@ async def ssh_cmd_history(
 @mcp.tool()
 async def ssh_task_launch(
         command: Annotated[str, Field(description="Command to execute in the background")],
-        sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
+        use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
         stdout_log: Annotated[
             Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log)")] = None,
         stderr_log: Annotated[
@@ -897,7 +897,7 @@ async def ssh_task_launch(
 
     try:
         # Don't add tasks to command history
-        handle = mcp.ssh_client.launch(command, sudo, stdout_log, stderr_log, log_output, add_to_history=False)
+        handle = mcp.ssh_client.launch(command, use_sudo, stdout_log, stderr_log, log_output, add_to_history=False)
         return {
             'command': command,
             'pid': handle.pid,
@@ -917,7 +917,7 @@ async def ssh_task_launch(
 @mcp.tool()
 async def ssh_dir_mkdir(
     path: Annotated[str, Field(description="Directory path to create")],
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     mode: Annotated[int, Field(description="Directory permissions (octal)", ge=0, le=0o777)] = 0o755
 ) -> dict:
     """
@@ -930,7 +930,7 @@ async def ssh_dir_mkdir(
         raise SshError("No active SSH connection")
         
     try:
-        mcp.ssh_client.mkdir(path, sudo, mode)
+        mcp.ssh_client.mkdir(path, use_sudo, mode)
         return {
             'status': 'success',
             'path': path,
@@ -945,7 +945,7 @@ async def ssh_dir_mkdir(
 @mcp.tool()
 async def ssh_dir_remove(
     path: Annotated[str, Field(description="Directory path to remove")],
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     recursive: Annotated[bool, Field(description="Remove directory and contents recursively")] = False
 ) -> dict:
     """
@@ -958,7 +958,7 @@ async def ssh_dir_remove(
         raise SshError("No active SSH connection")
         
     try:
-        mcp.ssh_client.rmdir(path, sudo, recursive)
+        mcp.ssh_client.rmdir(path, use_sudo, recursive)
         return {
             'status': 'success',
             'path': path,
@@ -1063,7 +1063,7 @@ async def ssh_file_find_lines_with_pattern(
     file_path: Annotated[str, Field(description="Path to the file to search")],
     pattern: Annotated[str, Field(description="Text or regex pattern to search for")],
     regex: Annotated[bool, Field(description="Whether to treat pattern as a regular expression")] = False,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Search for a pattern in a remote file and return matching lines.
@@ -1075,7 +1075,7 @@ async def ssh_file_find_lines_with_pattern(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.find_lines_with_pattern(file_path, pattern, regex, sudo)
+        return mcp.ssh_client.find_lines_with_pattern(file_path, pattern, regex, use_sudo)
     except Exception as e:
         logger.error(f"Failed to search file: {e}")
         raise
@@ -1085,7 +1085,7 @@ async def ssh_file_get_context_around_line(
     file_path: Annotated[str, Field(description="Path to the file")],
     match_line: Annotated[str, Field(description="Exact line content to match")],
     context: Annotated[int, Field(description="Number of lines before and after to include", ge=0)] = 3,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Get lines before and after a line that matches exactly.
@@ -1097,7 +1097,7 @@ async def ssh_file_get_context_around_line(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.get_context_around_line(file_path, match_line, context, sudo)
+        return mcp.ssh_client.get_context_around_line(file_path, match_line, context, use_sudo)
     except Exception as e:
         logger.error(f"Failed to get context: {e}")
         raise
@@ -1107,7 +1107,7 @@ async def ssh_file_replace_line_by_content(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
     new_lines: Annotated[Optional[list], Field(description="New line(s) to insert in place of the match (None or empty list to delete the line)")],
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
@@ -1126,7 +1126,7 @@ async def ssh_file_replace_line_by_content(
         if new_lines is None:
             new_lines = []
             
-        return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, sudo, force)
+        return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, use_sudo, force)
     except Exception as e:
         logger.error(f"Failed to replace line: {e}")
         raise
@@ -1137,7 +1137,7 @@ async def ssh_file_transfer(
         direction: Annotated[Literal['upload', 'download'], Field(description="Transfer direction")],
         local_path: Annotated[str, Field(description="Local file path")],
         remote_path: Annotated[str, Field(description="Remote file path")],
-        sudo: Annotated[bool, Field(description="Use sudo for transfer")] = False
+        use_sudo: Annotated[bool, Field(description="Use sudo for transfer")] = False
 ) -> dict:
     """
     Transfer files between local and remote systems.
@@ -1151,7 +1151,7 @@ async def ssh_file_transfer(
     try:
         if direction == 'upload':
             # For upload with sudo, we need to use a different approach
-            if sudo:
+            if use_sudo:
                 # Upload to a temporary location first
                 temp_remote_path = f"/tmp/ssh_transfer_{os.path.basename(remote_path)}_{int(time.time())}"
                 mcp.ssh_client.put(local_path, temp_remote_path)
@@ -1165,7 +1165,7 @@ async def ssh_file_transfer(
                 operation = f"Uploaded {local_path} to {remote_path}"
         else:  # download
             # For download with sudo, we need to use a different approach
-            if sudo:
+            if use_sudo:
                 # Copy to a temporary location with sudo
                 temp_remote_path = f"/tmp/ssh_transfer_{os.path.basename(remote_path)}_{int(time.time())}"
                 copy_cmd = f"cp {shlex.quote(remote_path)} {shlex.quote(temp_remote_path)}"
@@ -1192,7 +1192,7 @@ async def ssh_file_transfer(
             'success': True,
             'local_path': local_path,
             'remote_path': remote_path,
-            'sudo': sudo
+            'sudo': use_sudo
         }
     except Exception as e:
         logger.error(f"File transfer failed: {e}")
@@ -1204,7 +1204,7 @@ async def ssh_file_insert_lines_after_match(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match")],
     lines_to_insert: Annotated[list, Field(description="Line(s) to insert after the match")],
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
@@ -1217,7 +1217,7 @@ async def ssh_file_insert_lines_after_match(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.insert_lines_after_match(file_path, match_line, lines_to_insert, sudo, force)
+        return mcp.ssh_client.insert_lines_after_match(file_path, match_line, lines_to_insert, use_sudo, force)
     except Exception as e:
         logger.error(f"Failed to insert lines: {e}")
         raise
@@ -1226,7 +1226,7 @@ async def ssh_file_insert_lines_after_match(
 async def ssh_file_delete_line_by_content(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and delete")],
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
@@ -1239,7 +1239,7 @@ async def ssh_file_delete_line_by_content(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.delete_line_by_content(file_path, match_line, sudo, force)
+        return mcp.ssh_client.delete_line_by_content(file_path, match_line, use_sudo, force)
     except Exception as e:
         logger.error(f"Failed to delete line: {e}")
         raise
@@ -1249,7 +1249,7 @@ async def ssh_file_copy(
     source_path: Annotated[str, Field(description="Source file path")],
     destination_path: Annotated[str, Field(description="Destination file path")],
     append_timestamp: Annotated[bool, Field(description="Whether to append a timestamp to the destination")] = False,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Copy a file with optional timestamp appended to the destination.
@@ -1261,7 +1261,7 @@ async def ssh_file_copy(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.copy_file(source_path, destination_path, append_timestamp, sudo)
+        return mcp.ssh_client.copy_file(source_path, destination_path, append_timestamp, use_sudo)
     except Exception as e:
         logger.error(f"Failed to copy file: {e}")
         raise
@@ -1272,7 +1272,7 @@ async def ssh_file_write(
         file_path: Annotated[str, Field(description="Path to the file to write to")],
         content: Annotated[str, Field(description="Content to write to the file")],
         append: Annotated[bool, Field(description="Whether to append to the file instead of overwriting")] = False,
-        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+        use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
         mode: Annotated[Optional[int], Field(description="File permissions to set after writing (octal, e.g. 0o644)")] = None,
         create_dirs: Annotated[bool, Field(description="Create parent directories if they don't exist")] = False
 ) -> dict:
@@ -1301,7 +1301,7 @@ async def ssh_file_write(
                     try:
                         # Create all parent directories recursively
                         mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
-                        if sudo:
+                        if use_sudo:
                             mcp.ssh_client.run(mkdir_cmd, sudo=True)
                         else:
                             mcp.ssh_client.run(mkdir_cmd)
@@ -1327,7 +1327,7 @@ async def ssh_file_write(
                             'error': f"Parent directory does not exist: {parent_dir}. Use create_dirs=True to create it."
                         }
                 
-                if sudo:
+                if use_sudo:
                     # For sudo operations, we need to use a different approach
                     # First, create a temporary file in a location we can write to
                     remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
@@ -1358,7 +1358,7 @@ async def ssh_file_write(
                         
                         if file_exists:
                             # File exists, so we need to append
-                            if sudo:
+                            if use_sudo:
                                 # This case is now handled in the sudo block above
                                 pass
                             else:
@@ -1381,12 +1381,12 @@ async def ssh_file_write(
                                         os.unlink(combined_path)
                         else:
                             # File doesn't exist, so just create it
-                            if not sudo:  # sudo case is handled above
+                            if not use_sudo:  # sudo case is handled above
                                 mcp.ssh_client.put(local_temp_path, file_path)
                     except Exception as e:
                         # If any error occurs during append, fall back to simple upload
                         logger.warning(f"Error during append operation, falling back to create: {e}")
-                        if sudo:
+                        if use_sudo:
                             # For sudo, we need to use the sudo approach
                             remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
                             mcp.ssh_client.put(local_temp_path, remote_temp_path)
@@ -1403,7 +1403,7 @@ async def ssh_file_write(
                     parent_dir = os.path.dirname(file_path)
                     if parent_dir:
                         mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
-                        if sudo:
+                        if use_sudo:
                             mcp.ssh_client.run(mkdir_cmd, sudo=True)
                         else:
                             mcp.ssh_client.run(mkdir_cmd)
@@ -1427,10 +1427,10 @@ async def ssh_file_write(
             # Set file permissions if specified
             if mode is not None:
                 chmod_cmd = f"chmod {mode:o} {shlex.quote(file_path)}"
-                mcp.ssh_client.run(chmod_cmd, sudo=sudo)
+                mcp.ssh_client.run(chmod_cmd, sudo=use_sudo)
                 
             # If sudo was used, we may need to check ownership
-            if sudo:
+            if use_sudo:
                 # Get the current user to set ownership properly
                 whoami_result = mcp.ssh_client.run("whoami")
                 current_user = whoami_result.get_full_output().strip()
@@ -1471,7 +1471,7 @@ async def ssh_file_move(
         source: Annotated[str, Field(description="Source file or directory path")],
         destination: Annotated[str, Field(description="Destination path")],
         overwrite: Annotated[bool, Field(description="Overwrite destination if it exists")] = False,
-        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+        use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Move or rename a file or directory.
@@ -1483,7 +1483,7 @@ async def ssh_file_move(
         raise SshError("No active SSH connection")
 
     try:
-        result = mcp.ssh_client.safe_move_or_rename(source, destination, overwrite, sudo)
+        result = mcp.ssh_client.safe_move_or_rename(source, destination, overwrite, use_sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to move file/directory: {e}")
@@ -1547,7 +1547,7 @@ async def ssh_dir_calc_size(
 async def ssh_dir_delete(
     path: Annotated[str, Field(description="Directory path to delete")],
     dry_run: Annotated[bool, Field(description="Preview deletion without actually deleting")] = True,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Delete a directory and all its contents recursively.
@@ -1559,7 +1559,7 @@ async def ssh_dir_delete(
         raise SshError("No active SSH connection")
         
     try:
-        result = mcp.ssh_client.delete_directory_recursive(path, dry_run, sudo)
+        result = mcp.ssh_client.delete_directory_recursive(path, dry_run, use_sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to delete directory: {e}")
@@ -1571,7 +1571,7 @@ async def ssh_dir_batch_delete_files(
     path: Annotated[str, Field(description="Base directory to search in")],
     pattern: Annotated[str, Field(description="File pattern to match for deletion (e.g. *.tmp)")],
     dry_run: Annotated[bool, Field(description="Preview deletion without actually deleting")] = True,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Delete all files matching a pattern under a directory.
@@ -1583,7 +1583,7 @@ async def ssh_dir_batch_delete_files(
         raise SshError("No active SSH connection")
         
     try:
-        result = mcp.ssh_client.batch_delete_by_pattern(path, pattern, dry_run, sudo)
+        result = mcp.ssh_client.batch_delete_by_pattern(path, pattern, dry_run, use_sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to batch delete files: {e}")
@@ -1594,7 +1594,7 @@ async def ssh_dir_batch_delete_files(
 async def ssh_dir_list_advanced(
     path: Annotated[str, Field(description="Directory path to list")],
     max_depth: Annotated[Optional[int], Field(description="Maximum recursion depth (None for unlimited)", ge=1)] = None,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> list:
     """
     List contents of a directory recursively with detailed information.
@@ -1606,7 +1606,7 @@ async def ssh_dir_list_advanced(
         raise SshError("No active SSH connection")
         
     try:
-        results = mcp.ssh_client.list_directory_recursive(path, max_depth, sudo)
+        results = mcp.ssh_client.list_directory_recursive(path, max_depth, use_sudo)
         return results
     except Exception as e:
         logger.error(f"Failed to list directory: {e}")
@@ -1619,7 +1619,7 @@ async def ssh_dir_search_files_content(
         pattern: Annotated[str, Field(description="Text or pattern to search for")],
         regex: Annotated[bool, Field(description="Treat pattern as regular expression")] = False,
         case_sensitive: Annotated[bool, Field(description="Perform case-sensitive search")] = True,
-        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+        use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> list:
     """
     Search for text patterns in files of given directory.
@@ -1631,7 +1631,7 @@ async def ssh_dir_search_files_content(
         raise SshError("No active SSH connection")
 
     try:
-        results = mcp.ssh_client.search_file_contents(dir_path, pattern, regex, case_sensitive, sudo)
+        results = mcp.ssh_client.search_file_contents(dir_path, pattern, regex, case_sensitive, use_sudo)
         return results
     except Exception as e:
         logger.error(f"Failed to search file contents: {e}")
@@ -1645,7 +1645,7 @@ async def ssh_dir_copy(
         overwrite: Annotated[bool, Field(description="Overwrite existing files")] = False,
         preserve_symlinks: Annotated[bool, Field(description="Preserve symbolic links")] = True,
         preserve_permissions: Annotated[bool, Field(description="Preserve file permissions")] = True,
-        sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+        use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Copy a directory recursively.
@@ -1658,7 +1658,7 @@ async def ssh_dir_copy(
 
     try:
         result = mcp.ssh_client.copy_directory_recursive(
-            source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, sudo
+            source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, use_sudo
         )
         return result
     except Exception as e:
@@ -1675,7 +1675,7 @@ async def ssh_archive_create(
     source_path: Annotated[str, Field(description="Directory to archive")],
     archive_path: Annotated[str, Field(description="Path for the created archive")],
     format: Annotated[Literal["tar.gz", "zip"], Field(description="Archive format")] = "tar.gz",
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Create a compressed archive from a directory.
@@ -1687,7 +1687,7 @@ async def ssh_archive_create(
         raise SshError("No active SSH connection")
         
     try:
-        result = mcp.ssh_client.create_archive_from_directory(source_path, archive_path, format, sudo)
+        result = mcp.ssh_client.create_archive_from_directory(source_path, archive_path, format, use_sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to create archive: {e}")
@@ -1699,7 +1699,7 @@ async def ssh_archive_extract(
     archive_path: Annotated[str, Field(description="Path to the archive file")],
     destination_path: Annotated[str, Field(description="Directory to extract to")],
     overwrite: Annotated[bool, Field(description="Overwrite existing files")] = False,
-    sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
     Extract an archive to a directory.
@@ -1711,7 +1711,7 @@ async def ssh_archive_extract(
         raise SshError("No active SSH connection")
         
     try:
-        result = mcp.ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
+        result = mcp.ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, use_sudo)
         return result
     except Exception as e:
         logger.error(f"Failed to extract archive: {e}")
