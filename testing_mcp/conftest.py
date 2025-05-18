@@ -17,7 +17,7 @@ async def setup_test_environment():
         user=SSH_TEST_USER,
         password=SSH_TEST_PASSWORD,
         host=SSH_TEST_HOST,
-        port=SSH_TEST_PORT
+        base_port=SSH_TEST_PORT
     )
 
 # Add project root to path
