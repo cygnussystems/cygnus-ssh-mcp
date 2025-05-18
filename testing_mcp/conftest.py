@@ -8,7 +8,17 @@ import time
 
 from mcp_ssh_server import mcp
 
-from docker_manager import docker_test_environment as setup_test_environment, teardown_test_environment
+from docker_manager import docker_test_environment, teardown_test_environment
+
+# Create a wrapper function that supplies default arguments
+async def setup_test_environment():
+    """Wrapper around docker_test_environment that supplies default arguments"""
+    return await docker_test_environment(
+        user=SSH_TEST_USER,
+        password=SSH_TEST_PASSWORD,
+        host=SSH_TEST_HOST,
+        port=SSH_TEST_PORT
+    )
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -137,13 +147,8 @@ async def mcp_test_environment():
     """Session-wide test environment setup and teardown."""
     global SSH_TEST_PORT  # Access the global variable
     try:
-        # Call setup_test_environment and capture any port changes
-        await setup_test_environment(
-            SSH_TEST_USER,
-            SSH_TEST_PASSWORD,
-            SSH_TEST_HOST,
-            SSH_TEST_PORT
-        )
+        # Call setup_test_environment
+        await setup_test_environment()
         # Wait a bit longer to ensure the container is fully ready
         await asyncio.sleep(5)
         
