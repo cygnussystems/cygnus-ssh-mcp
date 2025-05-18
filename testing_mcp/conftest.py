@@ -28,7 +28,7 @@ sys.path.insert(0, project_root)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logging.getLogger('paramiko').setLevel(logging.WARNING)
+logging.getLogger('paramiko').setLevel(logging.INFO)  # Increase Paramiko logging level to help diagnose SSH issues
 logging.getLogger('PIL').setLevel(logging.WARNING) # To silence potential Pillow debug logs if it's a dependency of something
 
 

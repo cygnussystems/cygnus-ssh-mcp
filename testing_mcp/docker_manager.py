@@ -195,6 +195,30 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                         logger.error(f"Error decoding container stderr: {decode_err}")
             else:
                 logger.info(f"Container is running: {container_check.stdout.strip()}")
+                
+                # On Windows, check if the container is using port 2222 internally
+                # The container might be using port 2222 internally but mapped to a different port externally
+                if sys.platform == 'win32':
+                    logger.info("Windows detected, checking container port configuration...")
+                    port_check = subprocess.run(
+                        ["docker", "exec", "ssh-test-server", "netstat", "-tuln"],
+                        capture_output=True, text=True, check=False
+                    )
+                    if port_check.returncode == 0 and "2222" in port_check.stdout:
+                        logger.info("Container is listening on port 2222 internally")
+                    else:
+                        logger.warning("Container may not be listening on port 2222 internally")
+                        # Try to check the sshd configuration
+                        sshd_check = subprocess.run(
+                            ["docker", "exec", "ssh-test-server", "cat", "/etc/ssh/sshd_config"],
+                            capture_output=True, text=True, check=False
+                        )
+                        if sshd_check.returncode == 0:
+                            logger.info("SSH server configuration found")
+                            # Look for Port directive
+                            for line in sshd_check.stdout.splitlines():
+                                if line.strip().startswith("Port "):
+                                    logger.info(f"SSH server port configuration: {line.strip()}")
                     
             # Try a simple TCP connection to port 22 in the container to check if SSH is listening
             logger.info(f"Testing TCP connection to port 22 in container...")
@@ -225,6 +249,41 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
         except Exception as e:
             logger.warning(f"Error checking container readiness: {e}")
 
+        # On Windows, we need to be more careful with the SSH connection
+        # The container might be using port 2222 internally but mapped to a different port externally
+        if sys.platform == 'win32':
+            # Check the actual port mapping
+            port_mapping = subprocess.run(
+                ["docker", "port", "ssh-test-server", "22"],
+                capture_output=True, text=True, check=False
+            )
+            if port_mapping.returncode == 0 and port_mapping.stdout.strip():
+                mapped_port = port_mapping.stdout.strip().split(":")[-1]
+                logger.info(f"Container port 22 is mapped to host port {mapped_port}")
+                # Update the SSH_TEST_PORT to use the correct mapped port
+                SSH_TEST_PORT = int(mapped_port)
+            
+            # Also check if the container is using a different SSH port internally
+            internal_port_check = subprocess.run(
+                ["docker", "exec", "ssh-test-server", "grep", "Port", "/etc/ssh/sshd_config"],
+                capture_output=True, text=True, check=False
+            )
+            if internal_port_check.returncode == 0 and internal_port_check.stdout.strip():
+                for line in internal_port_check.stdout.splitlines():
+                    if line.strip().startswith("Port "):
+                        internal_port = line.strip().split()[-1]
+                        logger.info(f"SSH server is configured to use port {internal_port} internally")
+                        # Check the mapping for this internal port
+                        internal_port_mapping = subprocess.run(
+                            ["docker", "port", "ssh-test-server", internal_port],
+                            capture_output=True, text=True, check=False
+                        )
+                        if internal_port_mapping.returncode == 0 and internal_port_mapping.stdout.strip():
+                            mapped_internal_port = internal_port_mapping.stdout.strip().split(":")[-1]
+                            logger.info(f"Container port {internal_port} is mapped to host port {mapped_internal_port}")
+                            # Update the SSH_TEST_PORT to use the correct mapped port
+                            SSH_TEST_PORT = int(mapped_internal_port)
+
         max_retries = 8
         retry_delay = 2 # Start with a shorter delay but increase it exponentially
 
@@ -237,9 +296,9 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                     user=user,
                     port=SSH_TEST_PORT,
                     password=password,
-                    connect_timeout=10.0  # Increase connection timeout
+                    connect_timeout=15.0  # Increase connection timeout for Windows
                 )
-                result = temp_client.run("echo 'SSH connection test successful'")
+                result = temp_client.run("echo 'SSH connection test successful'", io_timeout=15.0)
                 temp_client.close()
                 if result.exit_code == 0:
                     logger.info("SSH test environment is ready.")
@@ -254,6 +313,23 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                 current_delay = retry_delay * (1.5 ** attempt_conn)
                 logger.info(f"Waiting {current_delay:.1f}s before next connection attempt...")
                 time.sleep(current_delay)
+                
+                # On Windows, check if we need to restart the SSH service in the container
+                if sys.platform == 'win32' and attempt_conn == 3:  # After a few failed attempts
+                    try:
+                        logger.info("Attempting to restart SSH service in container...")
+                        restart_result = subprocess.run(
+                            ["docker", "exec", "ssh-test-server", "service", "ssh", "restart"],
+                            capture_output=True, text=True, check=False
+                        )
+                        if restart_result.returncode == 0:
+                            logger.info("SSH service restart successful")
+                            # Give it a moment to start up
+                            time.sleep(5)
+                        else:
+                            logger.warning(f"SSH service restart failed: {restart_result.stderr}")
+                    except Exception as restart_err:
+                        logger.warning(f"Error restarting SSH service: {restart_err}")
             else:
                 # Check if container is actually running
                 try:
@@ -263,6 +339,31 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                     )
                     if container_check.stdout.strip():
                         logger.info(f"Container status: {container_check.stdout.strip()}")
+                        
+                        # On Windows, try to check if the SSH port is actually open
+                        if sys.platform == 'win32':
+                            try:
+                                # Use netcat or telnet to check if the port is open
+                                port_check_cmd = ["docker", "exec", "ssh-test-server", "nc", "-z", "-v", "localhost", "2222"]
+                                port_check = subprocess.run(port_check_cmd, capture_output=True, text=True, check=False)
+                                if port_check.returncode == 0:
+                                    logger.info("SSH port is open inside container")
+                                else:
+                                    logger.warning("SSH port check failed inside container")
+                                    # Try to restart the SSH service
+                                    logger.info("Attempting to restart SSH service in container...")
+                                    restart_result = subprocess.run(
+                                        ["docker", "exec", "ssh-test-server", "service", "ssh", "restart"],
+                                        capture_output=True, text=True, check=False
+                                    )
+                                    if restart_result.returncode == 0:
+                                        logger.info("SSH service restart successful")
+                                        # Give it a moment to start up
+                                        time.sleep(5)
+                                    else:
+                                        logger.warning(f"SSH service restart failed: {restart_result.stderr}")
+                            except Exception as port_check_err:
+                                logger.warning(f"Error checking SSH port: {port_check_err}")
                     else:
                         logger.error("Container is not running! Checking for exit status...")
                         exit_check = subprocess.run(
