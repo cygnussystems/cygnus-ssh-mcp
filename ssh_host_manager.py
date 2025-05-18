@@ -71,7 +71,8 @@ class SshHostManager:
                     'password': str(config_details['password']),  # Ensure password is a string
                     'port': int(config_details['port']),  # Ensure port is an int
                     'parsed_user': user,
-                    'parsed_host': host_address
+                    'parsed_host': host_address,
+                    'sudo_password': str(config_details.get('sudo_password', '')) if 'sudo_password' in config_details else None
                 }
             return loaded_hosts
         except FileNotFoundError:
@@ -88,7 +89,7 @@ class SshHostManager:
         """Get host config by 'user@hostname' key."""
         return self.hosts.get(user_at_host_key)
 
-    def add_host(self, user: str, host: str, port: int, password: str):
+    def add_host(self, user: str, host: str, port: int, password: str, sudo_password: Optional[str] = None):
         """Add or update a host configuration. The key will be 'user@host'."""
         # Validate port range
         clamped_port = max(1, min(port, 65535))
@@ -100,7 +101,8 @@ class SshHostManager:
             'password': password,
             'port': clamped_port,
             'parsed_user': user,
-            'parsed_host': host
+            'parsed_host': host,
+            'sudo_password': sudo_password
         }
         self._save_hosts()
 
@@ -108,11 +110,14 @@ class SshHostManager:
         """Save hosts to TOML config file."""
         data_to_save: Dict[str, Dict[str, Any]] = {}
         for key, details in self.hosts.items():
-            # Only save password and port to the TOML file, as user and host are in the key
+            # Only save password, port, and sudo_password to the TOML file, as user and host are in the key
             data_to_save[key] = {
                 'password': details['password'],
                 'port': details['port']
             }
+            # Only add sudo_password if it exists and is not None
+            if details.get('sudo_password'):
+                data_to_save[key]['sudo_password'] = details['sudo_password']
 
         try:
             with open(self.config_path, 'w') as f:
