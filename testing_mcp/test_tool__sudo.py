@@ -161,3 +161,71 @@ async def test_ssh_verify_sudo_access(mcp_test_environment):
             await disconnect_ssh(client)
     
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_use_sudo_parameter(mcp_test_environment):
+    """Test the renamed 'use_sudo' parameter works correctly."""
+    print_test_header("Testing 'use_sudo' parameter")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            
+            # Verify sudo access is available first
+            sudo_result = await client.call_tool("ssh_conn_verify_sudo", {})
+            sudo_access = json.loads(sudo_result[0].text)
+            
+            if not sudo_access['available']:
+                print("Skipping test as sudo is not available on this system")
+                return
+                
+            # Create a test file that requires sudo to read
+            test_file = "/root/sudo_param_test.txt"
+            test_content = "Testing use_sudo parameter"
+            
+            # Create the file with sudo
+            create_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{test_content}' > {test_file}",
+                "use_sudo": True  # Using the renamed parameter
+            })
+            create_json = json.loads(create_result[0].text)
+            assert create_json['status'] == 'success', f"Failed to create test file with sudo: {create_json}"
+            
+            # Read the file with sudo
+            read_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "use_sudo": True  # Using the renamed parameter
+            })
+            read_json = json.loads(read_result[0].text)
+            assert read_json['status'] == 'success', f"Failed to read file with sudo: {read_json}"
+            assert test_content in read_json['output'], "File content doesn't match expected"
+            
+            # Test other tools with the use_sudo parameter
+            # Test file operations
+            file_write_result = await client.call_tool("ssh_file_write", {
+                "file_path": "/root/sudo_write_test.txt",
+                "content": "Testing use_sudo with file_write",
+                "use_sudo": True  # Using the renamed parameter
+            })
+            file_write_json = json.loads(file_write_result[0].text)
+            assert file_write_json['success'], f"Failed to write file with sudo: {file_write_json}"
+            
+            # Test directory operations
+            mkdir_result = await client.call_tool("ssh_dir_mkdir", {
+                "path": "/root/sudo_test_dir",
+                "use_sudo": True  # Using the renamed parameter
+            })
+            mkdir_json = json.loads(mkdir_result[0].text)
+            assert mkdir_json['status'] == 'success', f"Failed to create directory with sudo: {mkdir_json}"
+            
+        finally:
+            # Clean up
+            await client.call_tool("ssh_cmd_run", {
+                "command": "rm -f /root/sudo_param_test.txt /root/sudo_write_test.txt && rmdir /root/sudo_test_dir 2>/dev/null || true",
+                "use_sudo": True,
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
