@@ -173,9 +173,15 @@ exit 0
             if effective_stdout_log == default_log_path:
                 final_log_path = f"/tmp/task-{pid}.log"
                 try:
+                    # Use direct channel execution to avoid adding to history
                     rename_cmd = f"mv {shlex.quote(default_log_path)} {shlex.quote(final_log_path)}"
-                    self.ssh_client.run(rename_cmd, io_timeout=5, runtime_timeout=10, sudo=sudo)
-                    self.logger.info(f"Renamed default log to {final_log_path}")
+                    stdin, stdout, stderr = self.ssh_client._client.exec_command(rename_cmd, timeout=10)
+                    exit_status = stdout.channel.recv_exit_status()
+                    if exit_status == 0:
+                        self.logger.info(f"Renamed default log to {final_log_path}")
+                    else:
+                        stderr_output = stderr.read().decode('utf-8', errors='replace')
+                        self.logger.warning(f"Failed to rename default log file: exit code {exit_status}, stderr: {stderr_output}")
                 except Exception as rename_err:
                     self.logger.warning(f"Failed to rename default log file: {rename_err}")
 
