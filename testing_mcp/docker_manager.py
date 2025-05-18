@@ -155,20 +155,61 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
         ]
         subprocess.run(docker_run_cmd, check=True)
 
-        logger.info("Waiting for SSH server to be ready (approx. 5-10s)")
-        time.sleep(10) # Increased wait time for container stability
+        logger.info("Waiting for SSH server to be ready (approx. 15-20s)")
+        time.sleep(15) # Increased wait time for container stability on Windows
+            
+        # Check if the container is actually running and ready
+        try:
+            # First check if container is running
+            container_check = subprocess.run(
+                ["docker", "ps", "--filter", "name=ssh-test-server", "--format", "{{.Status}}"],
+                capture_output=True, text=True, check=False
+            )
+            if not container_check.stdout.strip():
+                logger.error("Container is not running after initial wait!")
+                exit_check = subprocess.run(
+                    ["docker", "ps", "-a", "--filter", "name=ssh-test-server", "--format", "{{.Status}}"],
+                    capture_output=True, text=True, check=False
+                )
+                if exit_check.stdout.strip():
+                    logger.error(f"Container exited: {exit_check.stdout.strip()}")
+                    
+                # Get logs to diagnose why it's not running
+                logs_result = subprocess.run(["docker", "logs", "ssh-test-server"], 
+                                           capture_output=True, text=True, check=False)
+                if logs_result.stdout:
+                    logger.error(f"Container logs (stdout):\n{logs_result.stdout}")
+                if logs_result.stderr:
+                    logger.error(f"Container logs (stderr):\n{logs_result.stderr}")
+            else:
+                logger.info(f"Container is running: {container_check.stdout.strip()}")
+                    
+            # Try a simple TCP connection to port 22 in the container to check if SSH is listening
+            logger.info(f"Testing TCP connection to port 22 in container...")
+            tcp_check = subprocess.run(
+                ["docker", "exec", "ssh-test-server", "nc", "-z", "-v", "localhost", "22"],
+                capture_output=True, text=True, check=False
+            )
+            if tcp_check.returncode == 0:
+                logger.info("SSH port is listening inside container")
+            else:
+                logger.warning(f"SSH port check inside container failed: {tcp_check.stderr}")
+        except Exception as e:
+            logger.warning(f"Error checking container readiness: {e}")
 
-        max_retries = 5
-        retry_delay = 3 # Increased retry delay
+        max_retries = 8
+        retry_delay = 2 # Start with a shorter delay but increase it exponentially
 
         for attempt_conn in range(max_retries):
             try:
                 # Use SshClient directly for initial check, not MCP tools yet
+                # Add a longer connection timeout for Windows environments
                 temp_client = SshClient(
                     host=host,
                     user=user,
                     port=SSH_TEST_PORT,
-                    password=password
+                    password=password,
+                    timeout=10.0  # Increase connection timeout
                 )
                 result = temp_client.run("echo 'SSH connection test successful'")
                 temp_client.close()
@@ -181,14 +222,45 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                 logger.warning(f"SSH connection attempt {attempt_conn + 1}/{max_retries} to container failed: {e}")
 
             if attempt_conn < max_retries - 1:
-                time.sleep(retry_delay)
+                # Use exponential backoff with a small random component
+                current_delay = retry_delay * (1.5 ** attempt_conn)
+                logger.info(f"Waiting {current_delay:.1f}s before next connection attempt...")
+                time.sleep(current_delay)
             else:
+                # Check if container is actually running
+                try:
+                    container_check = subprocess.run(
+                        ["docker", "ps", "--filter", "name=ssh-test-server", "--format", "{{.Status}}"],
+                        capture_output=True, text=True, check=False
+                    )
+                    if container_check.stdout.strip():
+                        logger.info(f"Container status: {container_check.stdout.strip()}")
+                    else:
+                        logger.error("Container is not running! Checking for exit status...")
+                        exit_check = subprocess.run(
+                            ["docker", "ps", "-a", "--filter", "name=ssh-test-server", "--format", "{{.Status}}"],
+                            capture_output=True, text=True, check=False
+                        )
+                        if exit_check.stdout.strip():
+                            logger.error(f"Container exited: {exit_check.stdout.strip()}")
+                except Exception as e:
+                    logger.error(f"Error checking container status: {e}")
+                    
                 # Attempt to get container logs if connection fails
                 try:
                     logs_result = subprocess.run(["docker", "logs", "ssh-test-server"], capture_output=True, text=True, check=False)
-                    logger.error(f"SSH test server container logs:\n{logs_result.stdout}\n{logs_result.stderr}")
+                    if logs_result.stdout:
+                        logger.error(f"SSH test server container logs (stdout):\n{logs_result.stdout}")
+                    if logs_result.stderr:
+                        logger.error(f"SSH test server container logs (stderr):\n{logs_result.stderr}")
                 except Exception as log_e:
                     logger.error(f"Could not retrieve container logs: {log_e}")
+                    
+                # On Windows, check if Windows Defender or other security software might be blocking
+                if sys.platform == 'win32':
+                    logger.error("On Windows, this error often occurs due to Windows Defender or other security software.")
+                    logger.error("Consider temporarily disabling firewall or adding an exception for Docker/SSH.")
+                    
                 raise RuntimeError(f"Failed to connect to SSH test server in container after {max_retries} attempts.")
 
     except subprocess.CalledProcessError as e:

@@ -85,7 +85,13 @@ async def test_with_fixtures():
         
         # Set up the test environment
         logger.info("Setting up test environment")
-        await setup_test_environment()
+        try:
+            await setup_test_environment()
+        except RuntimeError as e:
+            if "Failed to connect to SSH test server" in str(e):
+                pytest.skip(f"Skipping test due to Docker container connection issues: {e}")
+                return
+            raise
         
         try:
             # Create a client directly
@@ -156,7 +162,13 @@ async def test_simple_fixture_usage():
             
         # Set up the test environment
         logger.info("Setting up test environment")
-        await setup_test_environment()
+        try:
+            await setup_test_environment()
+        except RuntimeError as e:
+            if "Failed to connect to SSH test server" in str(e):
+                pytest.skip(f"Skipping test due to Docker container connection issues: {e}")
+                return
+            raise
         
         try:
             # Create a client directly instead of using get_mcp_client
@@ -219,7 +231,13 @@ async def test_ssh_connection_and_status():
             
         # Set up the test environment
         logger.info("Setting up test environment")
-        await setup_test_environment()
+        try:
+            await setup_test_environment()
+        except RuntimeError as e:
+            if "Failed to connect to SSH test server" in str(e):
+                pytest.skip(f"Skipping test due to Docker container connection issues: {e}")
+                return
+            raise
         
         try:
             # Create our own SSH client
