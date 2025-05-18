@@ -80,7 +80,7 @@ async def test_with_fixtures():
     
     try:
         # Import the necessary functions directly
-        from conftest import setup_test_environment, teardown_test_environment
+        from conftest import setup_test_environment, teardown_test_environment, SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_HOST, SSH_TEST_PORT
         from mcp_ssh_server import mcp
         
         # Set up the test environment
@@ -151,9 +151,9 @@ async def test_simple_fixture_usage():
     logger.info("Starting simple fixture test")
     
     try:
-        from conftest import setup_test_environment, teardown_test_environment
+        from conftest import setup_test_environment, teardown_test_environment, SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_HOST, SSH_TEST_PORT
         from mcp_ssh_server import mcp
-        
+            
         # Set up the test environment
         logger.info("Setting up test environment")
         await setup_test_environment()
@@ -213,11 +213,10 @@ async def test_ssh_connection_and_status():
     logger.info("Starting SSH connection and status test")
     
     try:
-        from conftest import setup_test_environment, teardown_test_environment
+        from conftest import setup_test_environment, teardown_test_environment, SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_HOST, SSH_TEST_PORT
         from mcp_ssh_server import mcp
         from ssh_client import SshClient
-        import os
-        
+            
         # Set up the test environment
         logger.info("Setting up test environment")
         await setup_test_environment()
@@ -225,15 +224,12 @@ async def test_ssh_connection_and_status():
         try:
             # Create our own SSH client
             logger.info("Creating SSH client")
-            ssh_port = int(os.environ.get('SSH_TEST_PORT', 2222))
-            ssh_user = os.environ.get('SSH_TEST_USER', 'testuser')
-            ssh_password = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
             
             local_ssh_client = SshClient(
-                host='localhost',
-                user=ssh_user,
-                port=ssh_port,
-                password=ssh_password
+                host=SSH_TEST_HOST,
+                user=SSH_TEST_USER,
+                port=SSH_TEST_PORT,
+                password=SSH_TEST_PASSWORD
             )
             
             # Check if the SSH client is connected
@@ -253,10 +249,10 @@ async def test_ssh_connection_and_status():
                 logger.info("Adding test server configuration to MCP")
                 await client.call_tool("ssh_conn_add_host", {
                     "name": "test_server",
-                    "host": "localhost",
-                    "user": ssh_user,
-                    "password": ssh_password,
-                    "port": ssh_port
+                    "host": SSH_TEST_HOST,
+                    "user": SSH_TEST_USER,
+                    "password": SSH_TEST_PASSWORD,
+                    "port": SSH_TEST_PORT
                 })
                     
                 # Connect to the test server using MCP
