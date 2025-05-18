@@ -1147,17 +1147,49 @@ async def ssh_file_transfer(
 
     try:
         if direction == 'upload':
-            mcp.ssh_client.put(local_path, remote_path)
-            operation = f"Uploaded {local_path} to {remote_path}"
-        else:
-            mcp.ssh_client.get(remote_path, local_path)
-            operation = f"Downloaded {remote_path} to {local_path}"
+            # For upload with sudo, we need to use a different approach
+            if sudo:
+                # Upload to a temporary location first
+                temp_remote_path = f"/tmp/ssh_transfer_{os.path.basename(remote_path)}_{int(time.time())}"
+                mcp.ssh_client.put(local_path, temp_remote_path)
+                
+                # Then move it to the final location with sudo
+                move_cmd = f"mv {shlex.quote(temp_remote_path)} {shlex.quote(remote_path)}"
+                mcp.ssh_client.run(move_cmd, sudo=True)
+                operation = f"Uploaded {local_path} to {remote_path} with sudo"
+            else:
+                mcp.ssh_client.put(local_path, remote_path)
+                operation = f"Uploaded {local_path} to {remote_path}"
+        else:  # download
+            # For download with sudo, we need to use a different approach
+            if sudo:
+                # Copy to a temporary location with sudo
+                temp_remote_path = f"/tmp/ssh_transfer_{os.path.basename(remote_path)}_{int(time.time())}"
+                copy_cmd = f"cp {shlex.quote(remote_path)} {shlex.quote(temp_remote_path)}"
+                mcp.ssh_client.run(copy_cmd, sudo=True)
+                
+                # Make it readable
+                chmod_cmd = f"chmod 644 {shlex.quote(temp_remote_path)}"
+                mcp.ssh_client.run(chmod_cmd, sudo=True)
+                
+                # Download from the temporary location
+                mcp.ssh_client.get(temp_remote_path, local_path)
+                
+                # Clean up
+                rm_cmd = f"rm -f {shlex.quote(temp_remote_path)}"
+                mcp.ssh_client.run(rm_cmd, sudo=True)
+                
+                operation = f"Downloaded {remote_path} to {local_path} with sudo"
+            else:
+                mcp.ssh_client.get(remote_path, local_path)
+                operation = f"Downloaded {remote_path} to {local_path}"
 
         return {
             'operation': operation,
             'success': True,
             'local_path': local_path,
-            'remote_path': remote_path
+            'remote_path': remote_path,
+            'sudo': sudo
         }
     except Exception as e:
         logger.error(f"File transfer failed: {e}")
