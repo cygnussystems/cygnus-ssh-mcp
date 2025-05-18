@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 @pytest.mark.asyncio
 async def test_ssh_verify_sudo(mcp_test_environment):
     """Test verifying sudo access."""
-    print_test_header("Testing 'ssh_verify_sudo' tool")
+    print_test_header("Testing 'ssh_conn_verify_sudo' tool")
     logger.info("Starting SSH sudo verification test")
 
     async with Client(mcp) as client:
@@ -23,7 +23,7 @@ async def test_ssh_verify_sudo(mcp_test_environment):
             
             # Test verify_sudo
             logger.info("Verifying sudo access")
-            sudo_result = await client.call_tool("ssh_verify_sudo", {})
+            sudo_result = await client.call_tool("ssh_conn_verify_sudo", {})
             logger.info(f"verify_sudo result: {sudo_result}")
             
             # Verify the result
@@ -74,7 +74,7 @@ async def test_ssh_system_operations(mcp_test_environment):
                     "io_timeout": 5.0
                 }
                 
-                sudo_run_result = await client.call_tool("ssh_run", sudo_run_params)
+                sudo_run_result = await client.call_tool("ssh_cmd_run", sudo_run_params)
                 assert isinstance(sudo_run_result, list) and len(sudo_run_result) > 0
                 sudo_run_json = json.loads(sudo_run_result[0].text)
                 logger.info(f"Sudo command result: {sudo_run_json}")
@@ -88,7 +88,7 @@ async def test_ssh_system_operations(mcp_test_environment):
             
             # Test getting system status
             logger.info("Getting system status")
-            status_result = await client.call_tool("ssh_status", {})
+            status_result = await client.call_tool("ssh_conn_status", {})
             assert isinstance(status_result, list) and len(status_result) > 0
             status_json = json.loads(status_result[0].text)
             
