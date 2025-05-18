@@ -174,26 +174,54 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                 if exit_check.stdout.strip():
                     logger.error(f"Container exited: {exit_check.stdout.strip()}")
                     
-                # Get logs to diagnose why it's not running
+                # Get logs to diagnose why it's not running - use bytes mode to avoid encoding issues
                 logs_result = subprocess.run(["docker", "logs", "ssh-test-server"], 
-                                           capture_output=True, text=True, check=False)
+                                           capture_output=True, text=False, check=False)
+                    
+                # Safely decode stdout with error handling
                 if logs_result.stdout:
-                    logger.error(f"Container logs (stdout):\n{logs_result.stdout}")
+                    try:
+                        stdout_text = logs_result.stdout.decode('utf-8', errors='replace')
+                        logger.error(f"Container logs (stdout):\n{stdout_text}")
+                    except Exception as decode_err:
+                        logger.error(f"Error decoding container stdout: {decode_err}")
+                            
+                # Safely decode stderr with error handling
                 if logs_result.stderr:
-                    logger.error(f"Container logs (stderr):\n{logs_result.stderr}")
+                    try:
+                        stderr_text = logs_result.stderr.decode('utf-8', errors='replace')
+                        logger.error(f"Container logs (stderr):\n{stderr_text}")
+                    except Exception as decode_err:
+                        logger.error(f"Error decoding container stderr: {decode_err}")
             else:
                 logger.info(f"Container is running: {container_check.stdout.strip()}")
                     
             # Try a simple TCP connection to port 22 in the container to check if SSH is listening
             logger.info(f"Testing TCP connection to port 22 in container...")
-            tcp_check = subprocess.run(
-                ["docker", "exec", "ssh-test-server", "nc", "-z", "-v", "localhost", "22"],
-                capture_output=True, text=True, check=False
-            )
-            if tcp_check.returncode == 0:
-                logger.info("SSH port is listening inside container")
-            else:
-                logger.warning(f"SSH port check inside container failed: {tcp_check.stderr}")
+            try:
+                tcp_check = subprocess.run(
+                    ["docker", "exec", "ssh-test-server", "nc", "-z", "-v", "localhost", "22"],
+                    capture_output=True, text=False, check=False
+                )
+                    
+                # Safely decode output
+                stderr_text = tcp_check.stderr.decode('utf-8', errors='replace') if tcp_check.stderr else ""
+                    
+                if tcp_check.returncode == 0:
+                    logger.info("SSH port is listening inside container")
+                else:
+                    logger.warning(f"SSH port check inside container failed: {stderr_text}")
+                        
+                    # Try alternative check if nc command fails (might not be available)
+                    logger.info("Trying alternative SSH port check...")
+                    alt_check = subprocess.run(
+                        ["docker", "exec", "ssh-test-server", "ps", "-ef", "|", "grep", "sshd"],
+                        capture_output=True, text=False, check=False
+                    )
+                    alt_output = alt_check.stdout.decode('utf-8', errors='replace') if alt_check.stdout else ""
+                    logger.info(f"SSH process check: {alt_output}")
+            except Exception as tcp_err:
+                logger.warning(f"Error during SSH port check: {tcp_err}")
         except Exception as e:
             logger.warning(f"Error checking container readiness: {e}")
 
@@ -248,11 +276,25 @@ async def docker_test_environment(user: str, password: str, host: str = "localho
                     
                 # Attempt to get container logs if connection fails
                 try:
-                    logs_result = subprocess.run(["docker", "logs", "ssh-test-server"], capture_output=True, text=True, check=False)
+                    # Use bytes mode and handle encoding manually to avoid cp1252 decode errors
+                    logs_result = subprocess.run(["docker", "logs", "ssh-test-server"], 
+                                               capture_output=True, text=False, check=False)
+                        
+                    # Safely decode stdout with error handling
                     if logs_result.stdout:
-                        logger.error(f"SSH test server container logs (stdout):\n{logs_result.stdout}")
+                        try:
+                            stdout_text = logs_result.stdout.decode('utf-8', errors='replace')
+                            logger.error(f"SSH test server container logs (stdout):\n{stdout_text}")
+                        except Exception as decode_err:
+                            logger.error(f"Error decoding container stdout: {decode_err}")
+                                
+                    # Safely decode stderr with error handling
                     if logs_result.stderr:
-                        logger.error(f"SSH test server container logs (stderr):\n{logs_result.stderr}")
+                        try:
+                            stderr_text = logs_result.stderr.decode('utf-8', errors='replace')
+                            logger.error(f"SSH test server container logs (stderr):\n{stderr_text}")
+                        except Exception as decode_err:
+                            logger.error(f"Error decoding container stderr: {decode_err}")
                 except Exception as log_e:
                     logger.error(f"Could not retrieve container logs: {log_e}")
                     
