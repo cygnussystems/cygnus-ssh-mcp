@@ -23,7 +23,7 @@ async def test_ssh_sudo_command_execution(mcp_test_environment):
             # Create the file with sudo
             create_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"echo '{test_content}' > {test_file} && chmod 600 {test_file}",
-                "sudo": True
+                "use_sudo": True
             })
             create_json = json.loads(create_result[0].text)
             
@@ -34,7 +34,7 @@ async def test_ssh_sudo_command_execution(mcp_test_environment):
             # Try to read the file without sudo (should fail)
             read_no_sudo = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {test_file}",
-                "sudo": False
+                "use_sudo": False
             })
             no_sudo_json = json.loads(read_no_sudo[0].text)
             assert no_sudo_json['status'] != 'success', "Should not be able to read file without sudo"
@@ -42,7 +42,7 @@ async def test_ssh_sudo_command_execution(mcp_test_environment):
             # Read the file with sudo (should succeed)
             read_with_sudo = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {test_file}",
-                "sudo": True
+                "use_sudo": True
             })
             with_sudo_json = json.loads(read_with_sudo[0].text)
             assert with_sudo_json['status'] == 'success', f"Failed to read file with sudo: {with_sudo_json}"
@@ -52,7 +52,7 @@ async def test_ssh_sudo_command_execution(mcp_test_environment):
             # Clean up the test file
             await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -f {test_file}",
-                "sudo": True,
+                "use_sudo": True,
                 "io_timeout": 5.0
             })
             await disconnect_ssh(client)
@@ -76,7 +76,7 @@ async def test_ssh_sudo_file_operations(mcp_test_environment):
             # Create directory with restricted permissions
             await client.call_tool("ssh_cmd_run", {
                 "command": f"mkdir -p {protected_dir} && chmod 700 {protected_dir}",
-                "sudo": True
+                "use_sudo": True
             })
             
             # Create a file in the protected directory
@@ -84,7 +84,7 @@ async def test_ssh_sudo_file_operations(mcp_test_environment):
             write_result = await client.call_tool("ssh_file_write", {
                 "file_path": protected_file,
                 "content": file_content,
-                "sudo": True
+                "use_sudo": True
             })
             write_json = json.loads(write_result[0].text)
             assert write_json['success'], f"Failed to write file with sudo: {write_json}"
@@ -92,7 +92,7 @@ async def test_ssh_sudo_file_operations(mcp_test_environment):
             # Try to read the file with sudo
             read_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {protected_file}",
-                "sudo": True
+                "use_sudo": True
             })
             read_json = json.loads(read_result[0].text)
             assert read_json['status'] == 'success', f"Failed to read file with sudo: {read_json}"
@@ -103,7 +103,7 @@ async def test_ssh_sudo_file_operations(mcp_test_environment):
             modify_result = await client.call_tool("ssh_file_write", {
                 "file_path": protected_file,
                 "content": modified_content,
-                "sudo": True
+                "use_sudo": True
             })
             modify_json = json.loads(modify_result[0].text)
             assert modify_json['success'], f"Failed to modify file with sudo: {modify_json}"
@@ -111,7 +111,7 @@ async def test_ssh_sudo_file_operations(mcp_test_environment):
             # Verify the modification
             verify_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {protected_file}",
-                "sudo": True
+                "use_sudo": True
             })
             verify_json = json.loads(verify_result[0].text)
             assert modified_content in verify_json['output'], "Modified content not found"
@@ -120,7 +120,7 @@ async def test_ssh_sudo_file_operations(mcp_test_environment):
             # Clean up
             await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -rf {protected_dir}",
-                "sudo": True,
+                "use_sudo": True,
                 "io_timeout": 5.0
             })
             await disconnect_ssh(client)
@@ -151,7 +151,7 @@ async def test_ssh_verify_sudo_access(mcp_test_environment):
             if sudo_access['available']:
                 cmd_result = await client.call_tool("ssh_cmd_run", {
                     "command": "id",
-                    "sudo": True
+                    "use_sudo": True
                 })
                 cmd_json = json.loads(cmd_result[0].text)
                 assert cmd_json['status'] == 'success', f"Sudo command failed: {cmd_json}"
