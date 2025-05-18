@@ -68,7 +68,8 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             })
             list_json = json.loads(list_result[0].text)
             assert len(list_json) > 0, "Directory listing should return items"
-            assert any(item.get('name') == 'test_file.txt' for item in list_json), "Test file not found in directory listing"
+            # The full path is returned, so we need to check if any item contains the test file name
+            assert any('test_file.txt' in item.get('path', '') for item in list_json), "Test file not found in directory listing"
             
             # Test directory copy with sudo
             copy_dest = f"/opt/sudo_test_copy_{timestamp}"
