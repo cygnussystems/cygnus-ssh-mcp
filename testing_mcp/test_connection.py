@@ -32,6 +32,9 @@ async def test_ssh_status_direct():
     """
     logger.info("Starting minimalist test with direct MCP instance")
     
+    # Import test environment variables
+    from conftest import SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_HOST, SSH_TEST_PORT
+    
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         logger.info("Client created. Testing ssh_status tool...")
@@ -50,19 +53,25 @@ async def test_ssh_status_direct():
             assert "ssh_conn_status" in tool_names, "ssh_status tool not found in available tools"
             logger.info("ssh_status tool is available")
             
-            # Try to call the ssh_status tool
-            # Note: This will likely fail if no SSH connection is established
-            # but it's a good test of the MCP infrastructure
-            try:
-                logger.info("Attempting to call ssh_status tool...")
-                status_result = await client.call_tool("ssh_conn_status", {})
-                logger.info(f"ssh_status result: {status_result}")
-                assert status_result is not None, "ssh_status returned None"
-            except Exception as e:
-                logger.warning(f"Expected error calling ssh_status (no active connection): {e}")
-                # This is expected to fail with "No active SSH connection"
-                assert "No active SSH connection" in str(e), f"Unexpected error: {e}"
-                logger.info("Received expected 'No active SSH connection' error")
+            # Connect to the test server first
+            logger.info("Adding and connecting to test server...")
+            await client.call_tool("ssh_conn_add_host", {
+                "user": SSH_TEST_USER,
+                "host": SSH_TEST_HOST,
+                "password": SSH_TEST_PASSWORD,
+                "port": SSH_TEST_PORT
+            })
+                
+            host_key = f"{SSH_TEST_USER}@{SSH_TEST_HOST}"
+            await client.call_tool("ssh_conn_connect", {
+                "host_name": host_key
+            })
+                
+            # Now call the ssh_status tool which should work
+            logger.info("Calling ssh_conn_status tool...")
+            status_result = await client.call_tool("ssh_conn_status", {})
+            logger.info(f"ssh_status result: {status_result}")
+            assert status_result is not None, "ssh_status returned None"
                 
             logger.info("Minimalist test completed successfully")
             
@@ -106,37 +115,43 @@ async def test_with_fixtures():
                 # Check if ssh_status is available
                 assert "ssh_conn_status" in tool_names, "ssh_status tool not found"
                 
-                # Try to call ssh_status
-                logger.info("Calling ssh_status")
-                try:
-                    status_result = await client.call_tool("ssh_conn_status", {})
-                    logger.info(f"ssh_status result: {status_result}")
+                # Connect to the test server first
+                logger.info("Adding and connecting to test server...")
+                await client.call_tool("ssh_conn_add_host", {
+                    "user": SSH_TEST_USER,
+                    "host": SSH_TEST_HOST,
+                    "password": SSH_TEST_PASSWORD,
+                    "port": SSH_TEST_PORT
+                })
+                
+                host_key = f"{SSH_TEST_USER}@{SSH_TEST_HOST}"
+                await client.call_tool("ssh_conn_connect", {
+                    "host_name": host_key
+                })
+                
+                # Call ssh_status
+                logger.info("Calling ssh_conn_status")
+                status_result = await client.call_tool("ssh_conn_status", {})
+                logger.info(f"ssh_status result: {status_result}")
+                
+                # Basic validation of the result
+                assert status_result is not None, "ssh_status returned None"
+                # The result is a list of TextContent objects, not a dict
+                assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
+                assert len(status_result) > 0, "Expected non-empty list result"
                     
-                    # Basic validation of the result
-                    assert status_result is not None, "ssh_status returned None"
-                    # The result is a list of TextContent objects, not a dict
-                    assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
-                    assert len(status_result) > 0, "Expected non-empty list result"
-                        
-                    # The first item should be a TextContent object with JSON text
-                    content = status_result[0]
-                    assert hasattr(content, 'text'), "Expected TextContent object with 'text' attribute"
-                        
-                    # The text should be a JSON string that we can parse
-                    import json
-                    status_json = json.loads(content.text)
-                    assert isinstance(status_json, dict), "Expected JSON to parse to dict"
-                    assert "connection" in status_json, "Expected 'connection' key in result"
-                    assert "system" in status_json, "Expected 'system' key in result"
+                # The first item should be a TextContent object with JSON text
+                content = status_result[0]
+                assert hasattr(content, 'text'), "Expected TextContent object with 'text' attribute"
                     
-                    logger.info("Test with fixtures completed successfully")
-                except Exception as e:
-                    logger.warning(f"Error calling ssh_status: {e}")
-                    # This might be expected if no SSH connection is established
-                    if "No active SSH connection" in str(e):
-                        logger.info("Received expected 'No active SSH connection' error")
-                    else:
-                        raise
+                # The text should be a JSON string that we can parse
+                import json
+                status_json = json.loads(content.text)
+                assert isinstance(status_json, dict), "Expected JSON to parse to dict"
+                assert "connection" in status_json, "Expected 'connection' key in result"
+                assert "system" in status_json, "Expected 'system' key in result"
+                
+                logger.info("Test with fixtures completed successfully")
         finally:
             # Clean up
             logger.info("Tearing down test environment")
@@ -183,25 +198,32 @@ async def test_simple_fixture_usage():
                 # Check if ssh_status is available
                 assert "ssh_conn_status" in tool_names, "ssh_status tool not found"
 
-                # Try to call ssh_status
-                logger.info("Calling ssh_status")
-                try:
-                    status = await client.call_tool("ssh_conn_status", {})
-                    logger.info(f"Status result: {status}")
-                    assert status is not None
+                # Connect to the test server first
+                logger.info("Adding and connecting to test server...")
+                await client.call_tool("ssh_conn_add_host", {
+                    "user": SSH_TEST_USER,
+                    "host": SSH_TEST_HOST,
+                    "password": SSH_TEST_PASSWORD,
+                    "port": SSH_TEST_PORT
+                })
+                
+                host_key = f"{SSH_TEST_USER}@{SSH_TEST_HOST}"
+                await client.call_tool("ssh_conn_connect", {
+                    "host_name": host_key
+                })
+                
+                # Call ssh_status
+                logger.info("Calling ssh_conn_status")
+                status = await client.call_tool("ssh_conn_status", {})
+                logger.info(f"Status result: {status}")
+                assert status is not None
 
-                    # Parse the JSON from the TextContent
-                    if isinstance(status, list) and len(status) > 0 and hasattr(status[0], 'text'):
-                        import json
-                        status_json = json.loads(status[0].text)
-                        logger.info(f"Parsed status JSON: {status_json}")
-                except Exception as e:
-                    logger.warning(f"Error calling ssh_status: {e}")
-                    # This might be expected if no SSH connection is established
-                    if "No active SSH connection" in str(e):
-                        logger.info("Received expected 'No active SSH connection' error")
-                    else:
-                        raise
+                # Parse the JSON from the TextContent
+                import json
+                status_json = json.loads(status[0].text)
+                logger.info(f"Parsed status JSON: {status_json}")
+                assert "connection" in status_json, "Expected 'connection' key in result"
+                assert "system" in status_json, "Expected 'system' key in result"
 
                 logger.info("Simple fixture test completed")
 
@@ -266,37 +288,32 @@ async def test_ssh_connection_and_status():
                 # First, add the test server configuration to MCP
                 logger.info("Adding test server configuration to MCP")
                 await client.call_tool("ssh_conn_add_host", {
-                    "name": "test_server",
-                    "host": SSH_TEST_HOST,
                     "user": SSH_TEST_USER,
+                    "host": SSH_TEST_HOST,
                     "password": SSH_TEST_PASSWORD,
                     "port": SSH_TEST_PORT
                 })
                     
                 # Connect to the test server using MCP
                 logger.info("Connecting to test server using MCP")
+                host_key = f"{SSH_TEST_USER}@{SSH_TEST_HOST}"
                 connect_result = await client.call_tool("ssh_conn_connect", {
-                    "host_name": "test_server"
+                    "host_name": host_key
                 })
                 logger.info(f"Connection result: {connect_result}")
                     
-                # Now try to call ssh_status
-                logger.info("Calling ssh_status through MCP")
-                try:
-                    status_result = await client.call_tool("ssh_conn_status", {})
-                    logger.info(f"ssh_status result: {status_result}")
-                    assert status_result is not None, "ssh_status returned None"
-                        
-                    # Parse the JSON from the TextContent
-                    if isinstance(status_result, list) and len(status_result) > 0 and hasattr(status_result[0], 'text'):
-                        import json
-                        status_json = json.loads(status_result[0].text)
-                        logger.info(f"Parsed status JSON: {status_json}")
-                        assert "connection" in status_json, "Expected 'connection' key in result"
-                        assert "system" in status_json, "Expected 'system' key in result"
-                except Exception as e:
-                    logger.error(f"Error calling ssh_status: {e}")
-                    raise
+                # Now call ssh_status
+                logger.info("Calling ssh_conn_status through MCP")
+                status_result = await client.call_tool("ssh_conn_status", {})
+                logger.info(f"ssh_status result: {status_result}")
+                assert status_result is not None, "ssh_status returned None"
+                    
+                # Parse the JSON from the TextContent
+                import json
+                status_json = json.loads(status_result[0].text)
+                logger.info(f"Parsed status JSON: {status_json}")
+                assert "connection" in status_json, "Expected 'connection' key in result"
+                assert "system" in status_json, "Expected 'system' key in result"
                 
                 logger.info("SSH connection and status test completed successfully")
                 
