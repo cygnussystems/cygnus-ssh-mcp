@@ -1015,9 +1015,9 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
             
             # Check if we have sudo access
             sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
-            sudo_available = json.loads(sudo_check[0].text)
+            sudo_json = json.loads(sudo_check[0].text)
             
-            if not sudo_available:
+            if not sudo_json['available']:
                 print("Skipping sudo tests as sudo is not available")
                 return
             
