@@ -155,11 +155,11 @@ async def test_simple_fixture_usage():
     without relying on pytest's fixture mechanism.
     """
     logger.info("Starting simple fixture test")
-    
+
     try:
         from conftest import setup_test_environment, teardown_test_environment, SSH_TEST_USER, SSH_TEST_PASSWORD, SSH_TEST_HOST, SSH_TEST_PORT
         from mcp_ssh_server import mcp
-            
+
         # Set up the test environment
         logger.info("Setting up test environment")
         try:
@@ -169,7 +169,7 @@ async def test_simple_fixture_usage():
                 pytest.skip(f"Skipping test due to Docker container connection issues: {e}")
                 return
             raise
-        
+
         try:
             # Create a client directly instead of using get_mcp_client
             logger.info("Creating MCP client directly")
@@ -179,17 +179,17 @@ async def test_simple_fixture_usage():
                 tools = await client.list_tools()
                 tool_names = [tool.name for tool in tools]
                 logger.info(f"Available tools: {tool_names}")
-                
+
                 # Check if ssh_status is available
                 assert "ssh_conn_status" in tool_names, "ssh_status tool not found"
-                
+
                 # Try to call ssh_status
                 logger.info("Calling ssh_status")
                 try:
                     status = await client.call_tool("ssh_conn_status", {})
                     logger.info(f"Status result: {status}")
                     assert status is not None
-                    
+
                     # Parse the JSON from the TextContent
                     if isinstance(status, list) and len(status) > 0 and hasattr(status[0], 'text'):
                         import json
@@ -202,14 +202,14 @@ async def test_simple_fixture_usage():
                         logger.info("Received expected 'No active SSH connection' error")
                     else:
                         raise
-                
+
                 logger.info("Simple fixture test completed")
-                
+
         finally:
             # Clean up
             logger.info("Tearing down test environment")
             await teardown_test_environment()
-            
+
     except Exception as e:
         logger.error(f"Error in simple fixture test: {e}", exc_info=True)
         raise
