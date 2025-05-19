@@ -23,10 +23,13 @@ pytestmark = pytest.mark.skipif(
     reason="Production sudo tests are disabled. Set PROD_SUDO_TEST_ENABLED=true to enable."
 )
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 async def prod_connection():
     """Fixture to establish connection to production server."""
-    async with Client(mcp) as client:
+    client = Client(mcp)
+    await client.__aenter__()
+    
+    try:
         # First disconnect any existing connection
         await disconnect_ssh(client)
         
@@ -52,9 +55,10 @@ async def prod_connection():
             
         logger.info(f"Connected to production server: {PROD_SSH_HOST}")
         yield client
-        
+    finally:
         # Clean up
         await disconnect_ssh(client)
+        await client.__aexit__(None, None, None)
 
 
 @pytest.mark.asyncio
