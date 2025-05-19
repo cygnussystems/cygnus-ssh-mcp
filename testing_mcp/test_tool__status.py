@@ -48,23 +48,17 @@ async def test_ssh_status():
             result_json = json.loads(status_result[0].text)
             logger.info(f"Status result: {result_json}")
             
-            # Verify the structure of the result
-            assert 'connection' in result_json, "Expected 'connection' key in result"
-            assert 'system' in result_json, "Expected 'system' key in result"
-            
-            # Verify connection details
-            connection_info = result_json['connection']
-            assert 'host' in connection_info, "Expected 'host' in connection info"
-            assert 'user' in connection_info, "Expected 'user' in connection info"
-            assert 'os_type' in connection_info, "Expected 'os_type' in connection info"
+            # Verify the structure of the result - now using the simplified status format
+            assert 'user' in result_json, "Expected 'user' key in result"
+            assert 'host' in result_json, "Expected 'host' key in result"
+            assert 'os_type' in result_json, "Expected 'os_type' key in result"
+            assert 'current_directory' in result_json, "Expected 'current_directory' key in result"
+            assert 'connected' in result_json, "Expected 'connected' key in result"
             
             # Verify the host and user match what we expect from conftest defaults
-            assert connection_info['host'] == SSH_TEST_HOST, f"Expected host to be '{SSH_TEST_HOST}'"
-            assert connection_info['user'] == SSH_TEST_USER, f"Expected user to be '{SSH_TEST_USER}'"
-            
-            # Verify system information is present
-            system_info = result_json['system']
-            assert isinstance(system_info, dict), "Expected system info to be a dictionary"
+            assert result_json['host'] == SSH_TEST_HOST, f"Expected host to be '{SSH_TEST_HOST}'"
+            assert result_json['user'] == SSH_TEST_USER, f"Expected user to be '{SSH_TEST_USER}'"
+            assert result_json['connected'] is True, "Expected connected to be True"
             
             logger.info("SSH status test completed successfully")
         except Exception as e:
@@ -127,15 +121,13 @@ async def test_ssh_reconnect():
             second_status_json = json.loads(second_status_result[0].text)
             logger.info(f"Second connection status: {second_status_json}")
             
-            # The connection details (host, user, port) should be the same
-            assert second_status_json['connection']['host'] == SSH_TEST_HOST
-            assert second_status_json['connection']['user'] == SSH_TEST_USER
+            # The connection details (host, user) should be the same
+            assert second_status_json['host'] == SSH_TEST_HOST
+            assert second_status_json['user'] == SSH_TEST_USER
             
-            # Timestamps should differ as a new SshClient instance is created upon reconnection
-            assert 'timestamp' in first_status_json['connection'], "Timestamp missing in first status"
-            assert 'timestamp' in second_status_json['connection'], "Timestamp missing in second status"
-            assert first_status_json['connection']['timestamp'] != second_status_json['connection']['timestamp'], \
-                "Connection timestamps should differ after reconnection, indicating a new connection object"
+            # Both connections should show as connected
+            assert first_status_json['connected'] is True, "First connection should be connected"
+            assert second_status_json['connected'] is True, "Second connection should be connected"
                 
             logger.info("SSH reconnection test completed successfully")
         except Exception as e:
@@ -196,6 +188,70 @@ async def test_list_tools():
             logger.error(f"Error in list_tools test: {e}", exc_info=True)
             raise
         # No specific cleanup like disconnect_ssh is needed as this tool doesn't manage connections
+    
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_conn_host_info():
+    """Test retrieving detailed SSH host information."""
+    print_test_header("Testing 'ssh_conn_host_info' tool")
+    logger.info("Starting SSH host info test")
+
+    # Use the Client context manager with the imported mcp instance
+    async with Client(mcp) as client:
+        try:
+            # Ensure no connection exists at start
+            await disconnect_ssh(client) # Ensure clean state
+            assert not await is_ssh_connected(client), "Test started with an existing SSH connection"
+            logger.info("Verified no existing SSH connection")
+
+            # Establish connection using the helper from conftest
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("Verified SSH connection is active via make_connection")
+            
+            # Now get the detailed host info
+            host_info_result = await client.call_tool("ssh_conn_host_info", {})
+            
+            # Verify the result
+            assert host_info_result is not None, "Expected non-empty result"
+            assert isinstance(host_info_result, list), f"Expected list result, got {type(host_info_result)}"
+            assert len(host_info_result) > 0, "Expected non-empty list result"
+            assert hasattr(host_info_result[0], 'text'), "Expected TextContent object with 'text' attribute"
+            
+            # Parse the JSON response
+            result_json = json.loads(host_info_result[0].text)
+            logger.info(f"Host info result: {result_json}")
+            
+            # Verify the structure of the result
+            assert 'connection' in result_json, "Expected 'connection' key in result"
+            assert 'system' in result_json, "Expected 'system' key in result"
+            
+            # Verify connection details
+            connection_info = result_json['connection']
+            assert 'host' in connection_info, "Expected 'host' in connection info"
+            assert 'user' in connection_info, "Expected 'user' in connection info"
+            assert 'os_type' in connection_info, "Expected 'os_type' in connection info"
+            
+            # Verify the host and user match what we expect from conftest defaults
+            assert connection_info['host'] == SSH_TEST_HOST, f"Expected host to be '{SSH_TEST_HOST}'"
+            assert connection_info['user'] == SSH_TEST_USER, f"Expected user to be '{SSH_TEST_USER}'"
+            
+            # Verify system information is present
+            system_info = result_json['system']
+            assert isinstance(system_info, dict), "Expected system info to be a dictionary"
+            assert 'os_type' in system_info, "System info should include OS type"
+            assert 'hostname' in system_info, "System info should include hostname"
+            assert 'cpu_count' in system_info, "System info should include CPU count"
+            assert 'mem_total_mb' in system_info, "System info should include memory info"
+            
+            logger.info("SSH host info test completed successfully")
+        except Exception as e:
+            logger.error(f"Error in SSH host info test: {e}", exc_info=True)
+            raise
+        finally:
+            # Clean up the connection after the test
+            await disconnect_ssh(client)
     
     print_test_footer()
 

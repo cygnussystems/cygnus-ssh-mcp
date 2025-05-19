@@ -88,15 +88,27 @@ async def test_ssh_system_operations(mcp_test_environment):
                 logger.error(f"Sudo command failed unexpectedly: {e}")
                 raise # Re-raise if sudo command fails, as it's expected to work
             
-            # Test getting system status
-            logger.info("Getting system status")
+            # Test getting system status - first get basic status
+            logger.info("Getting basic system status")
             status_result = await client.call_tool("ssh_conn_status", {})
             assert isinstance(status_result, list) and len(status_result) > 0
             status_json = json.loads(status_result[0].text)
             
-            # Verify system information
-            assert 'system' in status_json, "Expected 'system' key in status result"
-            system_info = status_json['system']
+            # Verify basic system information
+            assert 'os_type' in status_json, "Status should include OS type"
+            assert status_json['os_type'] == 'linux', f"Expected OS type 'linux', got '{status_json['os_type']}'"
+            
+            # Now get detailed host info
+            logger.info("Getting detailed host info")
+            host_info_result = await client.call_tool("ssh_conn_host_info", {})
+            assert isinstance(host_info_result, list) and len(host_info_result) > 0
+            host_info_json = json.loads(host_info_result[0].text)
+            
+            # Verify detailed system information
+            assert 'connection' in host_info_json, "Expected 'connection' key in host info result"
+            assert 'system' in host_info_json, "Expected 'system' key in host info result"
+            
+            system_info = host_info_json['system']
             assert 'os_type' in system_info, "System info should include OS type"
             assert system_info['os_type'] == 'linux', f"Expected OS type 'linux', got '{system_info['os_type']}'"
             assert 'hostname' in system_info, "System info should include hostname"
