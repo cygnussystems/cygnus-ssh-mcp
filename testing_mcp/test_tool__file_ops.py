@@ -275,6 +275,8 @@ Line 3: This is the last line"""
 
 
 
+
+
 @pytest.mark.asyncio
 async def test_ssh_file_insert_lines_after_match(mcp_test_environment):
     """Test inserting lines after a match in a file."""
@@ -1029,7 +1031,7 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
             write_result = await client.call_tool("ssh_file_write", {
                 "file_path": test_file,
                 "content": test_content,
-                "sudo": True
+                "use_sudo": True
             })
             result = json.loads(write_result[0].text)
             
@@ -1039,7 +1041,7 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
                 cat_result = await client.call_tool("ssh_cmd_run", {
                     "command": f"cat {test_file}",
                     "io_timeout": 5.0,
-                    "sudo": True
+                    "use_sudo": True
                 })
                 output = json.loads(cat_result[0].text)['output']
                 # Strip trailing newline from output for comparison
@@ -1049,7 +1051,7 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
                 await client.call_tool("ssh_cmd_run", {
                     "command": f"rm -f {test_file}",
                     "io_timeout": 5.0,
-                    "sudo": True
+                    "use_sudo": True
                 })
             else:
                 print(f"Sudo write test failed: {result['error']}")
