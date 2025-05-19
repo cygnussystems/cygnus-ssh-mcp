@@ -15,7 +15,6 @@ PROD_SSH_HOST = os.environ.get('PROD_SSH_HOST', '137.184.14.123')
 PROD_SSH_PORT = int(os.environ.get('PROD_SSH_PORT', '22'))
 PROD_SSH_USER = os.environ.get('PROD_SSH_USER', 'claude')
 PROD_SSH_PASSWORD = os.environ.get('PROD_SSH_PASSWORD', 'claudetestpwd')
-PROD_SSH_SUDO_PASSWORD = os.environ.get('PROD_SSH_SUDO_PASSWORD', 'claudetestpwd')
 
 # Skip all tests if production testing is not enabled
 pytestmark = pytest.mark.skipif(
@@ -40,7 +39,7 @@ async def prod_connection():
             "host": PROD_SSH_HOST,
             "password": PROD_SSH_PASSWORD,
             "port": PROD_SSH_PORT,
-            "sudo_password": PROD_SSH_SUDO_PASSWORD
+            "sudo_password": PROD_SSH_PASSWORD  # Use the regular password for sudo
         })
         
         # Connect to the production host

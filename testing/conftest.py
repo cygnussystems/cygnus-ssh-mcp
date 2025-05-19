@@ -18,7 +18,6 @@ SSH_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
 SSH_USER = os.environ.get('SSH_TEST_USER', 'testuser')
 SSH_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
 SSH_KEYFILE = None
-TEST_SUDO_PASSWORD = os.environ.get('SSH_TEST_SUDO_PASSWORD', 'testpass')
 
 # Client cache
 _client_cache = None
@@ -32,7 +31,7 @@ def get_client(force_new=False, **kwargs):
         user=SSH_USER,
         password=SSH_PASSWORD,
         keyfile=SSH_KEYFILE,
-        sudo_password=None,
+        sudo_password=SSH_PASSWORD,  # Use the regular password for sudo
         connect_timeout=15
     )
     default_kwargs.update(kwargs)
