@@ -10,12 +10,12 @@ from fastmcp import Client
 logger = logging.getLogger(__name__)
 
 # Check if production test credentials are available
-PROD_TEST_ENABLED = os.environ.get('PROD_SUDO_TEST_ENABLED', 'false').lower() == 'true'
-PROD_SSH_HOST = os.environ.get('PROD_SSH_HOST', '')
+PROD_TEST_ENABLED = os.environ.get('PROD_SUDO_TEST_ENABLED', 'true').lower() == 'true'
+PROD_SSH_HOST = os.environ.get('PROD_SSH_HOST', '137.184.14.123 ')
 PROD_SSH_PORT = int(os.environ.get('PROD_SSH_PORT', '22'))
-PROD_SSH_USER = os.environ.get('PROD_SSH_USER', '')
-PROD_SSH_PASSWORD = os.environ.get('PROD_SSH_PASSWORD', '')
-PROD_SSH_SUDO_PASSWORD = os.environ.get('PROD_SSH_SUDO_PASSWORD', '')
+PROD_SSH_USER = os.environ.get('PROD_SSH_USER', 'claude')
+PROD_SSH_PASSWORD = os.environ.get('PROD_SSH_PASSWORD', 'claudetestpwd')
+PROD_SSH_SUDO_PASSWORD = os.environ.get('PROD_SSH_SUDO_PASSWORD', 'claudetestpwd')
 
 # Skip all tests if production testing is not enabled
 pytestmark = pytest.mark.skipif(
