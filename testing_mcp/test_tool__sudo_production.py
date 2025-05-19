@@ -71,12 +71,12 @@ async def test_prod_sudo_basic_command(prod_connection):
         try:
             # Verify sudo access
             sudo_verify_result = await client.call_tool("ssh_conn_verify_sudo", {})
-        sudo_verify_json = json.loads(sudo_verify_result[0].text)
-        
-        logger.info(f"Sudo verification result: {sudo_verify_json}")
-        
-        if not sudo_verify_json.get('available', False):
-            pytest.skip("Sudo is not available on this production server")
+            sudo_verify_json = json.loads(sudo_verify_result[0].text)
+            
+            logger.info(f"Sudo verification result: {sudo_verify_json}")
+            
+            if not sudo_verify_json.get('available', False):
+                pytest.skip("Sudo is not available on this production server")
         
         # Run a simple sudo command
         whoami_result = await client.call_tool("ssh_cmd_run", {
@@ -105,9 +105,9 @@ async def test_prod_sudo_file_operations(prod_connection):
     # Use the client yielded by the fixture
     async for client in prod_connection:
         try:
-        # Create a test file in a location that requires sudo
-        test_file = "/root/sudo_test_file.txt"
-        test_content = "This is a sudo test file created on a production server"
+            # Create a test file in a location that requires sudo
+            test_file = "/root/sudo_test_file.txt"
+            test_content = "This is a sudo test file created on a production server"
         
         # Write the file with sudo
         write_result = await client.call_tool("ssh_file_write", {
@@ -165,8 +165,8 @@ async def test_prod_sudo_complex_command(prod_connection):
     # Use the client yielded by the fixture
     async for client in prod_connection:
         try:
-        # Run a more complex command with pipes and redirects
-        complex_cmd = "find /etc -type f -name '*.conf' | grep -v '.dpkg' | sort | head -5 > /root/sudo_test_output.txt"
+            # Run a more complex command with pipes and redirects
+            complex_cmd = "find /etc -type f -name '*.conf' | grep -v '.dpkg' | sort | head -5 > /root/sudo_test_output.txt"
         
         cmd_result = await client.call_tool("ssh_cmd_run", {
             "command": complex_cmd,
@@ -221,8 +221,8 @@ async def test_prod_sudo_interactive_command(prod_connection):
     # Use the client yielded by the fixture
     async for client in prod_connection:
         try:
-        # Run a command that might trigger interactive prompts in some environments
-        interactive_cmd = "apt-get update -y"
+            # Run a command that might trigger interactive prompts in some environments
+            interactive_cmd = "apt-get update -y"
         
         cmd_result = await client.call_tool("ssh_cmd_run", {
             "command": interactive_cmd,
