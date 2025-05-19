@@ -228,7 +228,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
             assert 'error' in context_json
 
             # Test replace line in non-existent file
-            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+            replace_result = await client.call_tool("ssh_file_replace_line_multi", {
                 "file_path": nonexistent_file,
                 "match_line": "any line",
                 "new_lines": ["new line"]
