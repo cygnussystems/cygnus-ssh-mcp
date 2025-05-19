@@ -90,9 +90,9 @@ async def test_prod_sudo_basic_command(prod_connection):
             assert "root" in whoami_json['output'], "Expected 'root' in sudo whoami output"
             
             logger.info(f"Sudo whoami successful: {whoami_json['output'].strip()}")
-    except Exception as e:
-        logger.error(f"Error in production sudo test: {e}", exc_info=True)
-        raise
+        except Exception as e:
+            logger.error(f"Error in production sudo test: {e}", exc_info=True)
+            raise
     
     print_test_footer()
 
