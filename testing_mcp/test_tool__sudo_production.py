@@ -140,19 +140,19 @@ async def test_prod_sudo_file_operations(prod_connection):
             })
             cleanup_json = json.loads(cleanup_result[0].text)
             assert cleanup_json['status'] == 'success', f"Failed to clean up test file: {cleanup_json}"
-        
-    except Exception as e:
-        logger.error(f"Error in production sudo file operations test: {e}", exc_info=True)
-        # Try to clean up even if test fails
-        try:
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {test_file}",
-                "use_sudo": True,
-                "io_timeout": 5.0
-            })
-        except Exception:
-            pass
-        raise
+            
+        except Exception as e:
+            logger.error(f"Error in production sudo file operations test: {e}", exc_info=True)
+            # Try to clean up even if test fails
+            try:
+                await client.call_tool("ssh_cmd_run", {
+                    "command": f"rm -f {test_file}",
+                    "use_sudo": True,
+                    "io_timeout": 5.0
+                })
+            except Exception:
+                pass
+            raise
     
     print_test_footer()
 
@@ -196,19 +196,19 @@ async def test_prod_sudo_complex_command(prod_connection):
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
-        
-    except Exception as e:
-        logger.error(f"Error in production complex sudo test: {e}", exc_info=True)
-        # Try to clean up even if test fails
-        try:
-            await client.call_tool("ssh_cmd_run", {
-                "command": "rm -f /root/sudo_test_output.txt",
-                "use_sudo": True,
-                "io_timeout": 5.0
-            })
-        except Exception:
-            pass
-        raise
+            
+        except Exception as e:
+            logger.error(f"Error in production complex sudo test: {e}", exc_info=True)
+            # Try to clean up even if test fails
+            try:
+                await client.call_tool("ssh_cmd_run", {
+                    "command": "rm -f /root/sudo_test_output.txt",
+                    "use_sudo": True,
+                    "io_timeout": 5.0
+                })
+            except Exception:
+                pass
+            raise
     
     print_test_footer()
 
@@ -239,9 +239,9 @@ async def test_prod_sudo_interactive_command(prod_connection):
             else:
                 logger.warning(f"Interactive sudo command failed: {cmd_json}")
             
-    except Exception as e:
-        logger.error(f"Error in production interactive sudo test: {e}", exc_info=True)
-        # This test is allowed to fail as it's testing a challenging case
-        pytest.skip(f"Interactive sudo command test failed: {e}")
+        except Exception as e:
+            logger.error(f"Error in production interactive sudo test: {e}", exc_info=True)
+            # This test is allowed to fail as it's testing a challenging case
+            pytest.skip(f"Interactive sudo command test failed: {e}")
     
     print_test_footer()
