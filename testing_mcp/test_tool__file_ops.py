@@ -218,9 +218,9 @@ Line 5: This is the last line"""
     print_test_footer()
 
 @pytest.mark.asyncio
-async def test_ssh_file_replace_line_by_content(mcp_test_environment):
-    """Test replacing a line by content in a file."""
-    print_test_header("Testing 'ssh_file_replace_line_by_content' tool")
+async def test_ssh_file_replace_line(mcp_test_environment):
+    """Test replacing a line in a file with a single new line."""
+    print_test_header("Testing 'ssh_file_replace_line' tool")
 
     async with Client(mcp) as client:
         try:
@@ -236,11 +236,11 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
             
-            # Replace line by content
-            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+            # Replace line with single line
+            replace_result = await client.call_tool("ssh_file_replace_line", {
                 "file_path": test_file,
                 "match_line": "Line 2: This line will be replaced",
-                "new_lines": ["Line 2: This line has been replaced"]
+                "new_line": "Line 2: This line has been replaced"
             })
             result = json.loads(replace_result[0].text)
             assert result['success'] == True
@@ -255,13 +255,68 @@ Line 3: This is the last line"""
             assert "Line 2: This line will be replaced" not in output
             
             # Test non-existent line
-            replace_nonexistent = await client.call_tool("ssh_file_replace_line_by_content", {
+            replace_nonexistent = await client.call_tool("ssh_file_replace_line", {
                 "file_path": test_file,
                 "match_line": "This line does not exist",
-                "new_lines": ["New line"]
+                "new_line": "New line"
             })
             nonexistent_result = json.loads(replace_nonexistent[0].text)
             assert nonexistent_result['success'] == False, "Should fail when line doesn't exist"
+            
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+    
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_file_replace_line_multi(mcp_test_environment):
+    """Test replacing a line in a file with multiple new lines."""
+    print_test_header("Testing 'ssh_file_replace_line_multi' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_file_multi.txt"
+            file_content = """Line 1: This is a test file
+Line 2: This line will be replaced with multiple lines
+Line 3: This is the last line"""
+            
+            # Create test file
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Replace line with multiple lines
+            replace_result = await client.call_tool("ssh_file_replace_line_multi", {
+                "file_path": test_file,
+                "match_line": "Line 2: This line will be replaced with multiple lines",
+                "new_lines": ["Line 2: First replacement line", "Line 2.1: Second replacement line"]
+            })
+            result = json.loads(replace_result[0].text)
+            assert result['success'] == True
+            
+            # Verify content
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert "Line 2: First replacement line" in output
+            assert "Line 2.1: Second replacement line" in output
+            assert "Line 2: This line will be replaced with multiple lines" not in output
+            
+            # Check order of lines
+            lines = output.strip().split('\n')
+            assert lines[0] == "Line 1: This is a test file"
+            assert lines[1] == "Line 2: First replacement line"
+            assert lines[2] == "Line 2.1: Second replacement line"
+            assert lines[3] == "Line 3: This is the last line"
             
         finally:
             await client.call_tool("ssh_cmd_run", {
@@ -589,14 +644,23 @@ async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
                 "io_timeout": 5.0
             })
                 
-            # Test replace line with duplicate match
-            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+            # Test replace line with duplicate match (single line version)
+            replace_result = await client.call_tool("ssh_file_replace_line", {
                 "file_path": test_file,
                 "match_line": match_line_for_test,
-                "new_lines": ["Line 2: This has been replaced"]
+                "new_line": "Line 2: This has been replaced"
             })
             result = json.loads(replace_result[0].text)
             assert result['success'] == False, "Should fail when match line is not unique"
+            
+            # Test replace line with duplicate match (multi-line version)
+            replace_multi_result = await client.call_tool("ssh_file_replace_line_multi", {
+                "file_path": test_file,
+                "match_line": match_line_for_test,
+                "new_lines": ["Line 2: This has been replaced", "Another line"]
+            })
+            multi_result = json.loads(replace_multi_result[0].text)
+            assert multi_result['success'] == False, "Should fail when match line is not unique"
             
             # Test insert after line with duplicate match
             insert_result = await client.call_tool("ssh_file_insert_lines_after_match", {
@@ -692,7 +756,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
 @pytest.mark.asyncio
 async def test_ssh_file_replace_with_empty_content(mcp_test_environment):
     """Test replacing a line with empty content (effectively deleting it)."""
-    print_test_header("Testing 'ssh_file_replace_line_by_content' with empty content")
+    print_test_header("Testing file replace tools with empty content")
 
     async with Client(mcp) as client:
         try:
@@ -708,8 +772,66 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
             
-            # Test 1: Replace with empty list (should delete the line)
-            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+            # Test 1: Replace with None (should delete the line)
+            replace_result = await client.call_tool("ssh_file_replace_line", {
+                "file_path": test_file,
+                "match_line": "Line 2: This line will be deleted",
+                "new_line": None
+            })
+            result = json.loads(replace_result[0].text)
+            assert result['success'] == True
+            
+            # Verify content - line should be deleted
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert "Line 2: This line will be deleted" not in output
+            
+            # Check remaining lines
+            lines = output.strip().split('\n')
+            assert len(lines) == 2
+            assert lines[0] == "Line 1: This is a test file"
+            assert lines[1] == "Line 3: This is the last line"
+            
+            # Recreate test file for next test
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Test 2: Replace with empty string (should delete the line)
+            replace_result = await client.call_tool("ssh_file_replace_line", {
+                "file_path": test_file,
+                "match_line": "Line 2: This line will be deleted",
+                "new_line": ""
+            })
+            result = json.loads(replace_result[0].text)
+            assert result['success'] == True
+            
+            # Verify content - line should be deleted
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert "Line 2: This line will be deleted" not in output
+            
+            # Check remaining lines
+            lines = output.strip().split('\n')
+            assert len(lines) == 2
+            assert lines[0] == "Line 1: This is a test file"
+            assert lines[1] == "Line 3: This is the last line"
+            
+            # Recreate test file for next test
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            # Test 3: Replace with empty list using multi tool (should delete the line)
+            replace_result = await client.call_tool("ssh_file_replace_line_multi", {
                 "file_path": test_file,
                 "match_line": "Line 2: This line will be deleted",
                 "new_lines": []
@@ -737,37 +859,8 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
             
-            # Test 2: Replace with None (should delete the line)
-            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
-                "file_path": test_file,
-                "match_line": "Line 2: This line will be deleted",
-                "new_lines": None
-            })
-            result = json.loads(replace_result[0].text)
-            assert result['success'] == True
-            
-            # Verify content - line should be deleted
-            cat_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"cat {test_file}",
-                "io_timeout": 5.0
-            })
-            output = json.loads(cat_result[0].text)['output']
-            assert "Line 2: This line will be deleted" not in output
-            
-            # Check remaining lines
-            lines = output.strip().split('\n')
-            assert len(lines) == 2
-            assert lines[0] == "Line 1: This is a test file"
-            assert lines[1] == "Line 3: This is the last line"
-            
-            # Recreate test file for next test
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"echo '{file_content}' > {test_file}",
-                "io_timeout": 5.0
-            })
-            
-            # Test 3: Replace with list containing empty string (should replace with empty line)
-            replace_result = await client.call_tool("ssh_file_replace_line_by_content", {
+            # Test 4: Replace with list containing empty string (should replace with empty line)
+            replace_result = await client.call_tool("ssh_file_replace_line_multi", {
                 "file_path": test_file,
                 "match_line": "Line 2: This line will be deleted",
                 "new_lines": [""]

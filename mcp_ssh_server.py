@@ -1123,72 +1123,98 @@ async def ssh_file_get_context_around_line(
         raise
 
 @mcp.tool()
-async def ssh_file_replace_line_by_content(
+async def ssh_file_replace_line(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
-    new_lines: Annotated[Optional[list], Field(description="New line(s) to insert in place of the match (None or empty list to delete the line)")],
+    new_line: Annotated[Optional[str], Field(description="New line to insert in place of the match (None to delete the line)")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
-    Replace a unique line (identified by exact content, ignoring leading/trailing whitespace) with new lines.
+    Replace a unique line in a file with a new line.
 
     PARAMETERS:
     * file_path: Path to the file to modify
     * match_line: Exact line content to match and replace (whitespace-trimmed)
-    * new_lines: List of new lines to insert in place of the match
-      - To replace with a single line: use ["new line content"]
-      - To replace with multiple lines: use ["first line", "second line", ...]
-      - To delete the line entirely: use [] (empty list)
-      - To replace with an empty line: use [""]
-      - NOTE: This must be a list, not a string representation of a list
+    * new_line: New line to insert in place of the match
+      - To replace with a new line: use "new line content"
+      - To delete the line entirely: use None or an empty string ""
     * use_sudo: Use sudo for the operation (default: false)
     * force: Force operation even if file can't be read (sudo only) (default: false)
 
     RETURNS:
     A dictionary with operation status including:
     - success: Boolean indicating if operation succeeded
-    - matched: Boolean indicating if the line was found
-    - line_number: Line number where the match was found (if matched)
     - file_path: Path to the modified file
 
     EXAMPLES:
     Example 1: Replace a commented line with an active configuration
-    ssh_file_replace_line_by_content(
+    ssh_file_replace_line(
         file_path="/etc/ssh/sshd_config",
         match_line="#ClientAliveInterval 0",
-        new_lines=["ClientAliveInterval 300"]
+        new_line="ClientAliveInterval 300"
     )
 
-    Example 2: Replace a line with multiple lines
-    ssh_file_replace_line_by_content(
-        file_path="/etc/hosts",
-        match_line="127.0.0.1 localhost",
-        new_lines=["127.0.0.1 localhost", "127.0.0.1 myhost.local"]
-    )
-
-    Example 3: Delete a line entirely
-    ssh_file_replace_line_by_content(
+    Example 2: Delete a line entirely
+    ssh_file_replace_line(
         file_path="/etc/fstab",
         match_line="tmpfs /tmp tmpfs defaults,noatime 0 0",
-        new_lines=[]
+        new_line=None
     )
-
-    COMMON ERRORS:
-    - Providing new_lines as a string instead of a list (e.g., "new line" instead of ["new line"])
-    - Using quotes around the list (e.g., "["line"]") will not work
-    - Multiple lines in the file match the pattern (tool requires unique matches)
-    - File doesn't exist or permissions are insufficient (use sudo=true for system files)
-    - Line not found in the file (check for exact match including whitespace)
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
-        # Handle None case by converting to empty list (deletion)
-        if new_lines is None:
-            new_lines = []
+        # Convert the single line to a list as required by the underlying method
+        new_lines = []
+        if new_line is not None and new_line != "":
+            new_lines = [new_line]
             
+        return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, use_sudo, force)
+    except Exception as e:
+        logger.error(f"Failed to replace line: {e}")
+        raise
+
+
+@mcp.tool()
+async def ssh_file_replace_line_multi(
+    file_path: Annotated[str, Field(description="Path to the file to modify")],
+    match_line: Annotated[str, Field(description="Exact line content to match and replace")],
+    new_lines: Annotated[list, Field(description="List of new lines to insert in place of the match")],
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
+    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+) -> dict:
+    """
+    Replace a unique line in a file with multiple new lines.
+
+    PARAMETERS:
+    * file_path: Path to the file to modify
+    * match_line: Exact line content to match and replace (whitespace-trimmed)
+    * new_lines: List of new lines to insert in place of the match
+      - To replace with multiple lines: use ["first line", "second line", ...]
+      - To delete the line entirely: use [] (empty list)
+      - To replace with an empty line: use [""]
+    * use_sudo: Use sudo for the operation (default: false)
+    * force: Force operation even if file can't be read (sudo only) (default: false)
+
+    RETURNS:
+    A dictionary with operation status including:
+    - success: Boolean indicating if operation succeeded
+    - file_path: Path to the modified file
+
+    EXAMPLES:
+    Example: Replace a line with multiple lines
+    ssh_file_replace_line_multi(
+        file_path="/etc/hosts",
+        match_line="127.0.0.1 localhost",
+        new_lines=["127.0.0.1 localhost", "127.0.0.1 myhost.local"]
+    )
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
         # Handle case where new_lines is a string representation of a list
         if isinstance(new_lines, str):
             import json
