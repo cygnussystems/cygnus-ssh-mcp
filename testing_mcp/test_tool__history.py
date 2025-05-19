@@ -21,7 +21,7 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
             logger.info("SSH connection established for command history test")
             
             # Run a few commands to ensure we have history for the current SshClient instance
-            # Each new connection via ssh_connect tool effectively starts a new SshClient with fresh history.
+            # Each new connection via ssh_conn_connect tool effectively starts a new SshClient with fresh history.
             logger.info("Running commands to build history")
             num_commands_to_run = 3
             for i in range(num_commands_to_run):
@@ -29,7 +29,7 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
                     "command": f"echo 'History test {i}'",
                     "io_timeout": 5.0
                 }
-                run_result = await client.call_tool("ssh_run", run_params)
+                run_result = await client.call_tool("ssh_cmd_run", run_params)
                 # Log the result of ssh_run for debugging if needed
                 logger.debug(f"Ran command 'echo History test {i}', result: {run_result}")
                 # Basic check that the command succeeded
@@ -44,7 +44,7 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
                 "output_lines": 2 # Number of lines for the output snippet
             }
             
-            raw_tool_output = await client.call_tool("ssh_command_history", history_params)
+            raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
             logger.info(f"Raw history tool output: {raw_tool_output}")
 
             # Verify and parse the raw tool output
@@ -60,7 +60,7 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
             # Verify the structure and content of the parsed history
             assert isinstance(history_list, list), "Parsed history should be a list of dictionaries"
             
-            # Since ssh_connect creates a new SshClient instance, history should only contain commands from this session.
+            # Since ssh_conn_connect creates a new SshClient instance, history should only contain commands from this session.
             assert len(history_list) == num_commands_to_run, \
                 f"Expected {num_commands_to_run} history entries, got {len(history_list)}"
             
@@ -145,7 +145,7 @@ async def test_ssh_command_history_output_control(
             # Run the specified command to create a history entry
             logger.info(f"[{test_id}] Running command: {command_to_run}")
             run_params = {"command": command_to_run, "io_timeout": 10.0}
-            run_result = await client.call_tool("ssh_run", run_params)
+            run_result = await client.call_tool("ssh_cmd_run", run_params)
             # Try to parse the result, but handle the case where the command might have failed
             try:
                 run_result_json = json.loads(run_result[0].text)
@@ -165,7 +165,7 @@ async def test_ssh_command_history_output_control(
             }
             logger.info(f"[{test_id}] Retrieving command history with params: {history_params}")
             
-            raw_tool_output = await client.call_tool("ssh_command_history", history_params)
+            raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
             logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
 
             assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
@@ -245,7 +245,7 @@ async def test_ssh_command_history_limit_behaviour(
             for i in range(num_commands_to_run):
                 cmd = f"echo '{base_command_name}_{i}'"
                 run_params = {"command": cmd, "io_timeout": 5.0}
-                run_result = await client.call_tool("ssh_run", run_params)
+                run_result = await client.call_tool("ssh_cmd_run", run_params)
                 run_result_json = json.loads(run_result[0].text)
                 assert run_result_json.get('exit_code') == 0, f"Command '{cmd}' failed"
 
@@ -255,7 +255,7 @@ async def test_ssh_command_history_limit_behaviour(
                 history_params["limit"] = limit_param
             
             logger.info(f"[{test_id}] Retrieving command history with params: {history_params}")
-            raw_tool_output = await client.call_tool("ssh_command_history", history_params)
+            raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
             logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
 
             assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
@@ -332,7 +332,7 @@ async def test_ssh_command_history_reverse_order(
             for i in range(num_commands_to_run):
                 cmd = f"echo '{base_command_name}_{i}'"
                 run_params = {"command": cmd, "io_timeout": 5.0}
-                run_result = await client.call_tool("ssh_run", run_params)
+                run_result = await client.call_tool("ssh_cmd_run", run_params)
                 run_result_json = json.loads(run_result[0].text)
                 assert run_result_json.get('exit_code') == 0, f"Command '{cmd}' failed"
 
@@ -341,7 +341,7 @@ async def test_ssh_command_history_reverse_order(
                 history_params["limit"] = limit_param
             
             logger.info(f"[{test_id}] Retrieving command history with params: {history_params}")
-            raw_tool_output = await client.call_tool("ssh_command_history", history_params)
+            raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
             logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
 
             assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
