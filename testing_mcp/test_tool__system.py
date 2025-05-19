@@ -72,7 +72,7 @@ async def test_ssh_system_operations(mcp_test_environment):
                 logger.info("Running a command with sudo")
                 sudo_run_params = {
                     "command": "id",
-                    "sudo": True,
+                    "use_sudo": True,
                     "io_timeout": 5.0
                 }
                 
