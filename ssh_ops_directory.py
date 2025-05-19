@@ -465,12 +465,12 @@ class SshDirectoryOperations_Linux:
                                      format: str = "tar.gz",
                                      sudo: bool = False) -> Dict[str, Any]:
         """
-        Create a compressed archive (tar.gz or zip) from a directory.
+        Create a compressed archive (tar.gz or tar) from a directory.
         
         Args:
             source_path: Directory to archive
             archive_path: Where to write the archive
-            format: "tar.gz" or "zip"
+            format: "tar.gz" or "tar"
             sudo: Whether to use sudo for the operation
             
         Returns:
@@ -479,8 +479,8 @@ class SshDirectoryOperations_Linux:
         self.logger.info(f"Creating {format} archive from {source_path} to {archive_path} (sudo={sudo})")
         
         # Validate format
-        if format not in ["tar.gz", "zip"]:
-            error_msg = f"Unsupported archive format: {format}. Use 'tar.gz' or 'zip'."
+        if format not in ["tar.gz", "tar"]:
+            error_msg = f"Unsupported archive format: {format}. Use 'tar.gz' or 'tar'."
             self.logger.error(error_msg)
             return {
                 'status': 'error',
@@ -488,20 +488,19 @@ class SshDirectoryOperations_Linux:
             }
         
         try:
-            # Create the archive based on format
+            # Get directory name without trailing slash
+            source_dir = source_path.rstrip('/')
+            parent_dir = os.path.dirname(source_dir)
+            base_name = os.path.basename(source_dir)
+            
+            # Create archive based on format
             if format == "tar.gz":
-                # Get directory name without trailing slash
-                source_dir = source_path.rstrip('/')
-                parent_dir = os.path.dirname(source_dir)
-                base_name = os.path.basename(source_dir)
-                
-                # Create tar.gz archive
+                # Create tar.gz archive (compressed)
                 cmd = f"tar -czf {shlex.quote(archive_path)} -C {shlex.quote(parent_dir)} {shlex.quote(base_name)}"
                 handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
-                
-            else:  # zip
-                # Create zip archive
-                cmd = f"cd {shlex.quote(os.path.dirname(source_path.rstrip('/')))} && zip -r {shlex.quote(archive_path)} {shlex.quote(os.path.basename(source_path.rstrip('/')))}"
+            else:  # tar
+                # Create tar archive (uncompressed)
+                cmd = f"tar -cf {shlex.quote(archive_path)} -C {shlex.quote(parent_dir)} {shlex.quote(base_name)}"
                 handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
             
             if handle.exit_code != 0:
@@ -552,7 +551,7 @@ class SshDirectoryOperations_Linux:
                                     overwrite: bool = False,
                                     sudo: bool = False) -> Dict[str, Any]:
         """
-        Extract a zip or tar.gz archive to a directory.
+        Extract a tar or tar.gz archive to a directory.
         
         Args:
             archive_path: Path to archive file
@@ -568,10 +567,10 @@ class SshDirectoryOperations_Linux:
         # Determine archive type
         if archive_path.endswith('.tar.gz') or archive_path.endswith('.tgz'):
             archive_type = 'tar.gz'
-        elif archive_path.endswith('.zip'):
-            archive_type = 'zip'
+        elif archive_path.endswith('.tar'):
+            archive_type = 'tar'
         else:
-            error_msg = f"Unsupported archive format for {archive_path}. Supported formats: .tar.gz, .tgz, .zip"
+            error_msg = f"Unsupported archive format for {archive_path}. Supported formats: .tar.gz, .tgz, .tar"
             self.logger.error(error_msg)
             return {
                 'status': 'error',
@@ -587,8 +586,8 @@ class SshDirectoryOperations_Linux:
             # List files in the archive before extraction
             if archive_type == 'tar.gz':
                 list_cmd = f"tar -tzf {shlex.quote(archive_path)}"
-            else:  # zip
-                list_cmd = f"unzip -l {shlex.quote(archive_path)} | tail -n+4 | head -n-2 | awk '{{print $4}}'"
+            else:  # tar
+                list_cmd = f"tar -tf {shlex.quote(archive_path)}"
             
             list_handle = self.ssh_client.run(list_cmd, io_timeout=120, runtime_timeout=300, sudo=sudo)
             
@@ -609,9 +608,11 @@ class SshDirectoryOperations_Linux:
                 extract_cmd = f"tar -xzf {shlex.quote(archive_path)} -C {shlex.quote(destination_path)} --strip-components=1"
                 if not overwrite:
                     extract_cmd += " --keep-old-files"
-            else:  # zip
-                # For zip, we need to extract then move files up if they're in a subdirectory
-                extract_cmd = f"unzip {'-o' if overwrite else ''} {shlex.quote(archive_path)} -d {shlex.quote(destination_path)}"
+            else:  # tar
+                # For tar, similar to tar.gz but without the z (compression) flag
+                extract_cmd = f"tar -xf {shlex.quote(archive_path)} -C {shlex.quote(destination_path)} --strip-components=1"
+                if not overwrite:
+                    extract_cmd += " --keep-old-files"
             
             extract_handle = self.ssh_client.run(extract_cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
             

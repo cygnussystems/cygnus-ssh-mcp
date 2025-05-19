@@ -1853,7 +1853,7 @@ async def ssh_dir_copy(
 async def ssh_archive_create(
     source_path: Annotated[str, Field(description="Directory to archive")],
     archive_path: Annotated[str, Field(description="Path for the created archive")],
-    format: Annotated[Literal["tar.gz", "zip"], Field(description="Archive format")] = "tar.gz",
+    format: Annotated[Literal["tar.gz", "tar"], Field(description="Archive format")] = "tar.gz",
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
@@ -1881,7 +1881,7 @@ async def ssh_archive_extract(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Extract an archive to a directory.
+    Extract a tar or tar.gz archive to a directory.
     
     Returns:
         Dictionary with extraction information
