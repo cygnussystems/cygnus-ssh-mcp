@@ -634,6 +634,7 @@ class SshDirectoryOperations_Linux:
             self.logger.info(f"Successfully extracted {len(files)} files to {destination_path}")
             return {
                 'status': 'success',
+                'success': True,  # Add this for compatibility with tests
                 'extracted_files': files,
                 'destination_path': destination_path
             }
