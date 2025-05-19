@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Check if production test credentials are available
 PROD_TEST_ENABLED = os.environ.get('PROD_SUDO_TEST_ENABLED', 'true').lower() == 'true'
-PROD_SSH_HOST = os.environ.get('PROD_SSH_HOST', '137.184.14.123 ')
+PROD_SSH_HOST = os.environ.get('PROD_SSH_HOST', '137.184.14.123')
 PROD_SSH_PORT = int(os.environ.get('PROD_SSH_PORT', '22'))
 PROD_SSH_USER = os.environ.get('PROD_SSH_USER', 'claude')
 PROD_SSH_PASSWORD = os.environ.get('PROD_SSH_PASSWORD', 'claudetestpwd')
