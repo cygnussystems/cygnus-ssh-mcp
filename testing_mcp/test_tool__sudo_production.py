@@ -38,8 +38,7 @@ async def prod_connection():
             "user": PROD_SSH_USER,
             "host": PROD_SSH_HOST,
             "password": PROD_SSH_PASSWORD,
-            "port": PROD_SSH_PORT,
-            "sudo_password": PROD_SSH_PASSWORD  # Use the regular password for sudo
+            "port": PROD_SSH_PORT
         })
         
         # Connect to the production host
