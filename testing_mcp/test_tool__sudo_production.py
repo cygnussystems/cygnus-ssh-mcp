@@ -77,9 +77,9 @@ async def test_prod_sudo_basic_command(prod_connection):
             
             if not sudo_verify_json.get('available', False):
                 pytest.skip("Sudo is not available on this production server")
-        
-        # Run a simple sudo command
-        whoami_result = await client.call_tool("ssh_cmd_run", {
+            
+            # Run a simple sudo command
+            whoami_result = await client.call_tool("ssh_cmd_run", {
             "command": "whoami",
             "use_sudo": True,
             "io_timeout": 10.0
@@ -108,9 +108,9 @@ async def test_prod_sudo_file_operations(prod_connection):
             # Create a test file in a location that requires sudo
             test_file = "/root/sudo_test_file.txt"
             test_content = "This is a sudo test file created on a production server"
-        
-        # Write the file with sudo
-        write_result = await client.call_tool("ssh_file_write", {
+            
+            # Write the file with sudo
+            write_result = await client.call_tool("ssh_file_write", {
             "file_path": test_file,
             "content": test_content,
             "use_sudo": True
@@ -167,8 +167,8 @@ async def test_prod_sudo_complex_command(prod_connection):
         try:
             # Run a more complex command with pipes and redirects
             complex_cmd = "find /etc -type f -name '*.conf' | grep -v '.dpkg' | sort | head -5 > /root/sudo_test_output.txt"
-        
-        cmd_result = await client.call_tool("ssh_cmd_run", {
+            
+            cmd_result = await client.call_tool("ssh_cmd_run", {
             "command": complex_cmd,
             "use_sudo": True,
             "io_timeout": 20.0
@@ -223,8 +223,8 @@ async def test_prod_sudo_interactive_command(prod_connection):
         try:
             # Run a command that might trigger interactive prompts in some environments
             interactive_cmd = "apt-get update -y"
-        
-        cmd_result = await client.call_tool("ssh_cmd_run", {
+            
+            cmd_result = await client.call_tool("ssh_cmd_run", {
             "command": interactive_cmd,
             "use_sudo": True,
             "io_timeout": 60.0,  # Longer timeout for apt operations
