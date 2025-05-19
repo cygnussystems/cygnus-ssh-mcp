@@ -230,7 +230,8 @@ async def ssh_conn_add_host(
     user: Annotated[str, Field(description="Username for authentication")],
     host: Annotated[str, Field(description="Hostname or IP address")],
     password: Annotated[str, Field(description="Password for authentication", secret=True)],
-    port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22
+    port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22,
+    sudo_password: Annotated[Optional[str], Field(description="Password for sudo operations (defaults to regular password if not provided)", secret=True)] = None
 ) -> dict:
     """
     Add or update a host configuration in the host configuration TOML file.
@@ -265,8 +266,9 @@ async def ssh_conn_add_host(
                 }
             }
             
-        # Use the regular password for sudo as well
-        host_manager.add_host(user, host, port, password, password)
+        # Use the regular password for sudo if sudo_password is not provided
+        sudo_pass = sudo_password if sudo_password is not None else password
+        host_manager.add_host(user, host, port, password, sudo_pass)
         host_manager._load_hosts()  # Reload after modification
         return {
             'status': 'success',
