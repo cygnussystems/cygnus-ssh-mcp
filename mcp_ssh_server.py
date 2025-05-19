@@ -1126,7 +1126,7 @@ async def ssh_file_get_context_around_line(
 async def ssh_file_replace_line(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
-    new_line: Annotated[Optional[str], Field(description="New line to insert in place of the match")],
+    new_line: Annotated[str, Field(description="New line to insert in place of the match")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
@@ -1137,7 +1137,6 @@ async def ssh_file_replace_line(
     * file_path: Path to the file to modify
     * match_line: Exact line content to match and replace (whitespace-trimmed)
     * new_line: New line to insert in place of the match
-      - To replace with a new line: use "new line content"
     * use_sudo: Use sudo for the operation (default: false)
     * force: Force operation even if file can't be read (sudo only) (default: false)
 
@@ -1156,15 +1155,14 @@ async def ssh_file_replace_line(
     }
     ```
 
+    Note: To delete a line entirely, use the dedicated ssh_file_delete_line_by_content tool instead.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
     try:
         # Convert the single line to a list as required by the underlying method
-        new_lines = []
-        if new_line is not None and new_line != "":
-            new_lines = [new_line]
+        new_lines = [new_line]
             
         return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, use_sudo, force)
     except Exception as e:
