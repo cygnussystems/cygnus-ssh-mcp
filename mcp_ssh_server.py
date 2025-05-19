@@ -1352,10 +1352,41 @@ async def ssh_file_insert_lines_after_match(
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
-    Insert lines after a unique line match.
-    
-    Returns:
-        Dictionary with operation status
+    Insert lines after a unique line match (ignoring leading/trailing whitespace).
+
+    PARAMETERS:
+    * file_path: Path to the file to modify
+    * match_line: Exact line content to match (whitespace-trimmed)
+    * lines_to_insert: List of lines to insert after the match
+      - To insert multiple lines: use ["first line", "second line", ...]
+      - To insert a single line: use ["line to insert"]
+      - To insert an empty line: use [""]
+    * use_sudo: Use sudo for the operation (default: false)
+    * force: Force operation even if file can't be read (sudo only) (default: false)
+
+    RETURNS:
+    A dictionary with operation status including:
+    - success: Boolean indicating if operation succeeded
+    - file_path: Path to the modified file
+
+    EXAMPLES:
+    Example 1: Insert configuration lines after a marker
+    ```json
+    {
+      "file_path": "/etc/nginx/nginx.conf",
+      "match_line": "http {",
+      "lines_to_insert": ["    server_tokens off;", "    client_max_body_size 20M;"]
+    }
+    ```
+
+    Example 2: Add a new host entry after localhost
+    ```json
+    {
+      "file_path": "/etc/hosts",
+      "match_line": "127.0.0.1 localhost",
+      "lines_to_insert": ["192.168.1.10 myserver.local"]
+    }
+    ```
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
