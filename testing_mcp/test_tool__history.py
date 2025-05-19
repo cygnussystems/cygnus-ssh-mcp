@@ -336,7 +336,11 @@ async def test_ssh_command_history_reverse_order(
                 run_result_json = json.loads(run_result[0].text)
                 assert run_result_json.get('exit_code') == 0, f"Command '{cmd}' failed"
 
-            history_params = {"include_output": False, "reverse": reverse_param}
+            history_params = {
+                "include_output": False, 
+                "reverse": reverse_param,
+                "pattern": base_command_name
+            }
             if limit_param is not None:
                 history_params["limit"] = limit_param
             
