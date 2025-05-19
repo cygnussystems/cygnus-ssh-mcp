@@ -9,8 +9,8 @@ import shlex
 import time
 from pathlib import Path
 from fastmcp import FastMCP
-from pydantic import Field
-from typing import Annotated, Optional, Literal, Dict, Any
+from pydantic import Field, BaseModel
+from typing import Annotated, Optional, Literal, Dict, Any, List, Union
 from datetime import datetime, UTC
 from ssh_client import SshClient
 from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
@@ -1181,6 +1181,44 @@ async def ssh_file_replace_line(
         raise
 
 
+# Define a Pydantic model for the new_lines parameter
+class NewLinesModel(BaseModel):
+    """Pydantic model to handle the new_lines parameter for file line replacement."""
+    lines: List[str]
+    
+    @classmethod
+    def parse(cls, value: Union[List[str], str]) -> List[str]:
+        """
+        Parse the new_lines parameter, handling various input formats.
+        
+        Args:
+            value: Can be a list of strings, a JSON string representing a list,
+                  or a single string to be treated as a one-element list.
+                  
+        Returns:
+            A properly formatted list of strings.
+        """
+        if isinstance(value, list):
+            return value
+        
+        if isinstance(value, str):
+            import json
+            try:
+                # Try to parse as JSON
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return parsed
+                else:
+                    # If it's valid JSON but not a list, wrap it in a list
+                    return [str(parsed)]
+            except json.JSONDecodeError:
+                # If it's not valid JSON, treat it as a single string
+                return [value]
+        
+        # For any other type, convert to string and wrap in a list
+        return [str(value)]
+
+
 @mcp.tool()
 async def ssh_file_replace_line_multi(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
@@ -1239,20 +1277,11 @@ async def ssh_file_replace_line_multi(
         raise SshError("No active SSH connection")
         
     try:
-        # Handle case where new_lines is a string representation of a list
-        if isinstance(new_lines, str):
-            import json
-            try:
-                # Try to parse it as JSON
-                parsed_lines = json.loads(new_lines)
-                if isinstance(parsed_lines, list):
-                    new_lines = parsed_lines
-                    logger.info(f"Converted string representation of list to actual list: {new_lines}")
-            except json.JSONDecodeError:
-                # If it's not valid JSON, keep it as is (will likely fail validation)
-                logger.warning(f"Failed to parse new_lines as JSON: {new_lines}")
+        # Use the Pydantic model to parse and validate the new_lines parameter
+        parsed_new_lines = NewLinesModel.parse(new_lines)
+        logger.info(f"Processed new_lines parameter: {parsed_new_lines}")
             
-        return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, use_sudo, force)
+        return mcp.ssh_client.replace_line_by_content(file_path, match_line, parsed_new_lines, use_sudo, force)
     except Exception as e:
         logger.error(f"Failed to replace line: {e}")
         raise
