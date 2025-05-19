@@ -884,6 +884,31 @@ async def ssh_cmd_output(
 
 
 @mcp.tool()
+async def ssh_cmd_clear_history() -> dict:
+    """
+    Clear the command history for the current SSH connection.
+    
+    Returns:
+        Dictionary with operation status
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        # Access the history manager and clear its history
+        history_count = len(mcp.ssh_client.history())
+        mcp.ssh_client._history_manager._history = []
+        
+        return {
+            'status': 'success',
+            'message': f"Command history cleared ({history_count} entries removed)",
+            'cleared_entries': history_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to clear command history: {e}")
+        raise
+
+@mcp.tool()
 async def ssh_cmd_history(
         limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
         include_output: Annotated[bool, Field(description="Include command output snippets")] = False,

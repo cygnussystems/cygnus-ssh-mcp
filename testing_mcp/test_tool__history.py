@@ -41,7 +41,8 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
             history_params = {
                 "limit": 5,  # Request up to 5 entries
                 "include_output": True,
-                "output_lines": 2 # Number of lines for the output snippet
+                "output_lines": 2, # Number of lines for the output snippet
+                "pattern": "History test" # Filter to only include our test commands
             }
             
             raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
