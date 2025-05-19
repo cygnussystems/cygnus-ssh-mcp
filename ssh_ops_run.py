@@ -128,11 +128,11 @@ class SshRunOperations_Linux:
             elif sudo_n_exit_code == 1 and ("sudo:" in sudo_n_stderr or "password is required" in sudo_n_stderr.lower()):
                 if self.ssh_client.sudo_password:
                     self.logger.info("Sudo password provided. Using sudo with password.")
-                    # Use echo to pipe the password to sudo
+                    # The key fix: Use sudo -S to read password from stdin with heredoc
                     # -S flag tells sudo to read password from stdin
                     # -p '' prevents sudo from printing a password prompt
-                    # We don't log the actual command with password for security
-                    return f"echo {shlex.quote(self.ssh_client.sudo_password)} | sudo -S -p '' bash -c {shlex.quote(cmd)}", True
+                    # <<< provides the password via heredoc which is more reliable than pipe
+                    return f"sudo -S -p '' bash -c {shlex.quote(cmd)} <<< {shlex.quote(self.ssh_client.sudo_password)}", True
                 else:
                     raise SudoRequired(cmd)
             else: # Other errors during sudo -n check
