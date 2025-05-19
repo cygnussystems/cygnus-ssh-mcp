@@ -245,3 +245,200 @@ async def test_prod_sudo_interactive_command(prod_connection):
             pytest.skip(f"Interactive sudo command test failed: {e}")
     
     print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_prod_sudo_file_write(prod_connection):
+    """Test ssh_file_write with sudo on production server."""
+    print_test_header("Testing ssh_file_write with sudo on production server")
+    
+    # Use the client yielded by the fixture
+    async for client in prod_connection:
+        try:
+            # Create a file in a location that requires sudo
+            test_file = "/etc/ssh_test_sudo_write.conf"
+            test_content = "# This is a test file created with sudo privileges\n# It should be removed after the test"
+            
+            # Write the file with sudo
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": test_content,
+                "use_sudo": True,
+                "mode": 0o644
+            })
+            write_json = json.loads(write_result[0].text)
+            
+            assert write_json['success'], f"Failed to write file with sudo: {write_json}"
+            logger.info(f"Successfully wrote file with sudo: {test_file}")
+            
+            # Verify the file exists and has correct content
+            verify_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "use_sudo": True
+            })
+            verify_json = json.loads(verify_result[0].text)
+            
+            assert verify_json['status'] == 'success', f"Failed to verify file content: {verify_json}"
+            assert test_content in verify_json['output'], "File content doesn't match expected"
+            
+            # Clean up
+            cleanup_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "use_sudo": True
+            })
+            cleanup_json = json.loads(cleanup_result[0].text)
+            assert cleanup_json['status'] == 'success', f"Failed to clean up test file: {cleanup_json}"
+            
+        except Exception as e:
+            logger.error(f"Error in production sudo file write test: {e}", exc_info=True)
+            # Try to clean up even if test fails
+            try:
+                await client.call_tool("ssh_cmd_run", {
+                    "command": f"rm -f {test_file}",
+                    "use_sudo": True
+                })
+            except Exception:
+                pass
+            raise
+    
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_prod_sudo_dir_operations(prod_connection):
+    """Test directory operations with sudo on production server."""
+    print_test_header("Testing directory operations with sudo on production server")
+    
+    # Use the client yielded by the fixture
+    async for client in prod_connection:
+        try:
+            # Create a directory in a location that requires sudo
+            test_dir = "/opt/sudo_test_dir"
+            
+            # Create directory with sudo
+            mkdir_result = await client.call_tool("ssh_dir_mkdir", {
+                "path": test_dir,
+                "use_sudo": True,
+                "mode": 0o755
+            })
+            mkdir_json = json.loads(mkdir_result[0].text)
+            
+            assert mkdir_json['status'] == 'success', f"Failed to create directory with sudo: {mkdir_json}"
+            logger.info(f"Successfully created directory with sudo: {test_dir}")
+            
+            # Create a test file in the directory
+            test_file = f"{test_dir}/test_file.txt"
+            test_content = "Test file in sudo-created directory"
+            
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": test_content,
+                "use_sudo": True
+            })
+            write_json = json.loads(write_result[0].text)
+            assert write_json['success'], f"Failed to write file in sudo directory: {write_json}"
+            
+            # List directory contents with sudo
+            list_result = await client.call_tool("ssh_dir_list_files_basic", {
+                "path": test_dir
+            })
+            list_json = json.loads(list_result[0].text)
+            
+            assert "test_file.txt" in list_json, f"File not found in directory listing: {list_json}"
+            logger.info(f"Directory listing successful: {list_json}")
+            
+            # Clean up - remove directory recursively
+            cleanup_result = await client.call_tool("ssh_dir_remove", {
+                "path": test_dir,
+                "use_sudo": True,
+                "recursive": True
+            })
+            cleanup_json = json.loads(cleanup_result[0].text)
+            assert cleanup_json['status'] == 'success', f"Failed to remove directory: {cleanup_json}"
+            
+        except Exception as e:
+            logger.error(f"Error in production sudo directory operations test: {e}", exc_info=True)
+            # Try to clean up even if test fails
+            try:
+                await client.call_tool("ssh_cmd_run", {
+                    "command": f"rm -rf {test_dir}",
+                    "use_sudo": True
+                })
+            except Exception:
+                pass
+            raise
+    
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_prod_sudo_file_edit_operations(prod_connection):
+    """Test file editing operations with sudo on production server."""
+    print_test_header("Testing file editing operations with sudo on production server")
+    
+    # Use the client yielded by the fixture
+    async for client in prod_connection:
+        try:
+            # Create a test file that we'll modify with sudo
+            test_file = "/etc/sudo_test_edit.conf"
+            initial_content = "# Initial configuration\nkey1=value1\nkey2=value2\n# End of file"
+            
+            # Create the initial file
+            await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": initial_content,
+                "use_sudo": True
+            })
+            
+            # Test replace_line operation with sudo
+            replace_result = await client.call_tool("ssh_file_replace_line", {
+                "file_path": test_file,
+                "match_line": "key1=value1",
+                "new_line": "key1=new_value",
+                "use_sudo": True
+            })
+            replace_json = json.loads(replace_result[0].text)
+            assert replace_json['success'], f"Failed to replace line with sudo: {replace_json}"
+            logger.info("Successfully replaced line with sudo")
+            
+            # Test insert_lines_after_match operation with sudo
+            insert_result = await client.call_tool("ssh_file_insert_lines_after_match", {
+                "file_path": test_file,
+                "match_line": "key2=value2",
+                "lines_to_insert": ["key3=value3", "key4=value4"],
+                "use_sudo": True
+            })
+            insert_json = json.loads(insert_result[0].text)
+            assert insert_json['success'], f"Failed to insert lines with sudo: {insert_json}"
+            logger.info("Successfully inserted lines with sudo")
+            
+            # Verify the changes
+            verify_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "use_sudo": True
+            })
+            verify_json = json.loads(verify_result[0].text)
+            
+            assert "key1=new_value" in verify_json['output'], "Line replacement not found"
+            assert "key3=value3" in verify_json['output'], "Inserted line not found"
+            assert "key4=value4" in verify_json['output'], "Inserted line not found"
+            
+            # Clean up
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "use_sudo": True
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in production sudo file edit operations test: {e}", exc_info=True)
+            # Try to clean up even if test fails
+            try:
+                await client.call_tool("ssh_cmd_run", {
+                    "command": f"rm -f {test_file}",
+                    "use_sudo": True
+                })
+            except Exception:
+                pass
+            raise
+    
+    print_test_footer()
