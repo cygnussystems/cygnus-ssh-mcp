@@ -1149,18 +1149,22 @@ async def ssh_file_replace_line(
 
     EXAMPLES:
     Example 1: Replace a commented line with an active configuration
-    ssh_file_replace_line(
-        file_path="/etc/ssh/sshd_config",
-        match_line="#ClientAliveInterval 0",
-        new_line="ClientAliveInterval 300"
-    )
+    ```json
+    {
+      "file_path": "/etc/ssh/sshd_config",
+      "match_line": "#ClientAliveInterval 0",
+      "new_line": "ClientAliveInterval 300"
+    }
+    ```
 
     Example 2: Delete a line entirely
-    ssh_file_replace_line(
-        file_path="/etc/fstab",
-        match_line="tmpfs /tmp tmpfs defaults,noatime 0 0",
-        new_line=None
-    )
+    ```json
+    {
+      "file_path": "/etc/fstab",
+      "match_line": "tmpfs /tmp tmpfs defaults,noatime 0 0",
+      "new_line": null
+    }
+    ```
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1204,12 +1208,32 @@ async def ssh_file_replace_line_multi(
     - file_path: Path to the modified file
 
     EXAMPLES:
-    Example: Replace a line with multiple lines
-    ssh_file_replace_line_multi(
-        file_path="/etc/hosts",
-        match_line="127.0.0.1 localhost",
-        new_lines=["127.0.0.1 localhost", "127.0.0.1 myhost.local"]
-    )
+    Example 1: Replace a line with multiple lines
+    ```json
+    {
+      "file_path": "/etc/hosts",
+      "match_line": "127.0.0.1 localhost",
+      "new_lines": ["127.0.0.1 localhost", "127.0.0.1 myhost.local"]
+    }
+    ```
+
+    Example 2: Delete a line entirely
+    ```json
+    {
+      "file_path": "/etc/nginx/nginx.conf",
+      "match_line": "# server_tokens off;",
+      "new_lines": []
+    }
+    ```
+
+    Example 3: Replace with an empty line
+    ```json
+    {
+      "file_path": "/etc/ssh/sshd_config",
+      "match_line": "PermitRootLogin yes",
+      "new_lines": [""]
+    }
+    ```
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
