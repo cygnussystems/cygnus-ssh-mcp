@@ -200,8 +200,13 @@ async def ssh_conn_connect(
         cwd_result = mcp.ssh_client.run("pwd")
         cwd = cwd_result.get_full_output().strip() if cwd_result.exit_code == 0 else "Unknown"
         
+        # Update the connection status with the current working directory
+        mcp.ssh_client.update_connection_status(force=True)
+        
         # Get detailed system information
         status = mcp.ssh_client.get_connection_status()
+        # Update the cwd in the connection status
+        status['cwd'] = cwd
         system_info = mcp.ssh_client.full_status()
         
         return {
