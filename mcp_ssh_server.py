@@ -1726,7 +1726,8 @@ async def ssh_dir_search_glob(
     path: Annotated[str, Field(description="Base directory to search from")],
     pattern: Annotated[str, Field(description="Filename glob pattern (e.g. *.log)")],
     max_depth: Annotated[Optional[int], Field(description="Maximum recursion depth (None for unlimited)", ge=1)] = None,
-    include_dirs: Annotated[bool, Field(description="Include matching directories in results")] = False
+    include_dirs: Annotated[bool, Field(description="Include matching directories in results")] = False,
+    use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> list:
     """
     Recursively search for files matching a pattern.
@@ -1738,7 +1739,7 @@ async def ssh_dir_search_glob(
         raise SshError("No active SSH connection")
         
     try:
-        results = mcp.ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs)
+        results = mcp.ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs, use_sudo)
         return results
     except Exception as e:
         logger.error(f"Failed to search files: {e}")
