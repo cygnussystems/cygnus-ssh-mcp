@@ -1126,7 +1126,7 @@ async def ssh_file_get_context_around_line(
 async def ssh_file_replace_line(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
-    new_line: Annotated[Optional[str], Field(description="New line to insert in place of the match (None to delete the line)")],
+    new_line: Annotated[Optional[str], Field(description="New line to insert in place of the match")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
@@ -1138,7 +1138,6 @@ async def ssh_file_replace_line(
     * match_line: Exact line content to match and replace (whitespace-trimmed)
     * new_line: New line to insert in place of the match
       - To replace with a new line: use "new line content"
-      - To delete the line entirely: use None or an empty string ""
     * use_sudo: Use sudo for the operation (default: false)
     * force: Force operation even if file can't be read (sudo only) (default: false)
 
@@ -1157,14 +1156,6 @@ async def ssh_file_replace_line(
     }
     ```
 
-    Example 2: Delete a line entirely
-    ```json
-    {
-      "file_path": "/etc/fstab",
-      "match_line": "tmpfs /tmp tmpfs defaults,noatime 0 0",
-      "new_line": null
-    }
-    ```
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
