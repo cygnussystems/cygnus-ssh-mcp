@@ -1771,7 +1771,8 @@ async def ssh_dir_search_glob(
         raise SshError("No active SSH connection")
         
     try:
-        results = mcp.ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs, use_sudo)
+        # Check the signature of search_files_recursive and pass only the arguments it accepts
+        results = mcp.ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs)
         return results
     except Exception as e:
         logger.error(f"Failed to search files: {e}")
