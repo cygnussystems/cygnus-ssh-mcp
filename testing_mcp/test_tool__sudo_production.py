@@ -80,16 +80,16 @@ async def test_prod_sudo_basic_command(prod_connection):
             
             # Run a simple sudo command
             whoami_result = await client.call_tool("ssh_cmd_run", {
-            "command": "whoami",
-            "use_sudo": True,
-            "io_timeout": 10.0
-        })
-        whoami_json = json.loads(whoami_result[0].text)
-        
-        assert whoami_json['status'] == 'success', f"Sudo whoami command failed: {whoami_json}"
-        assert "root" in whoami_json['output'], "Expected 'root' in sudo whoami output"
-        
-        logger.info(f"Sudo whoami successful: {whoami_json['output'].strip()}")
+                "command": "whoami",
+                "use_sudo": True,
+                "io_timeout": 10.0
+            })
+            whoami_json = json.loads(whoami_result[0].text)
+            
+            assert whoami_json['status'] == 'success', f"Sudo whoami command failed: {whoami_json}"
+            assert "root" in whoami_json['output'], "Expected 'root' in sudo whoami output"
+            
+            logger.info(f"Sudo whoami successful: {whoami_json['output'].strip()}")
     except Exception as e:
         logger.error(f"Error in production sudo test: {e}", exc_info=True)
         raise
@@ -111,35 +111,35 @@ async def test_prod_sudo_file_operations(prod_connection):
             
             # Write the file with sudo
             write_result = await client.call_tool("ssh_file_write", {
-            "file_path": test_file,
-            "content": test_content,
-            "use_sudo": True
-        })
-        write_json = json.loads(write_result[0].text)
-        
-        assert write_json['success'], f"Failed to write file with sudo: {write_json}"
-        logger.info(f"Successfully wrote file with sudo: {test_file}")
-        
-        # Read the file with sudo
-        read_result = await client.call_tool("ssh_cmd_run", {
-            "command": f"cat {test_file}",
-            "use_sudo": True,
-            "io_timeout": 10.0
-        })
-        read_json = json.loads(read_result[0].text)
-        
-        assert read_json['status'] == 'success', f"Failed to read file with sudo: {read_json}"
-        assert test_content in read_json['output'], "File content doesn't match expected"
-        logger.info(f"Successfully read file with sudo: {test_file}")
-        
-        # Clean up
-        cleanup_result = await client.call_tool("ssh_cmd_run", {
-            "command": f"rm -f {test_file}",
-            "use_sudo": True,
-            "io_timeout": 10.0
-        })
-        cleanup_json = json.loads(cleanup_result[0].text)
-        assert cleanup_json['status'] == 'success', f"Failed to clean up test file: {cleanup_json}"
+                "file_path": test_file,
+                "content": test_content,
+                "use_sudo": True
+            })
+            write_json = json.loads(write_result[0].text)
+            
+            assert write_json['success'], f"Failed to write file with sudo: {write_json}"
+            logger.info(f"Successfully wrote file with sudo: {test_file}")
+            
+            # Read the file with sudo
+            read_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "use_sudo": True,
+                "io_timeout": 10.0
+            })
+            read_json = json.loads(read_result[0].text)
+            
+            assert read_json['status'] == 'success', f"Failed to read file with sudo: {read_json}"
+            assert test_content in read_json['output'], "File content doesn't match expected"
+            logger.info(f"Successfully read file with sudo: {test_file}")
+            
+            # Clean up
+            cleanup_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "use_sudo": True,
+                "io_timeout": 10.0
+            })
+            cleanup_json = json.loads(cleanup_result[0].text)
+            assert cleanup_json['status'] == 'success', f"Failed to clean up test file: {cleanup_json}"
         
     except Exception as e:
         logger.error(f"Error in production sudo file operations test: {e}", exc_info=True)
@@ -169,33 +169,33 @@ async def test_prod_sudo_complex_command(prod_connection):
             complex_cmd = "find /etc -type f -name '*.conf' | grep -v '.dpkg' | sort | head -5 > /root/sudo_test_output.txt"
             
             cmd_result = await client.call_tool("ssh_cmd_run", {
-            "command": complex_cmd,
-            "use_sudo": True,
-            "io_timeout": 20.0
-        })
-        cmd_json = json.loads(cmd_result[0].text)
-        
-        assert cmd_json['status'] == 'success', f"Complex sudo command failed: {cmd_json}"
-        logger.info("Complex sudo command executed successfully")
-        
-        # Verify the output file was created
-        verify_result = await client.call_tool("ssh_cmd_run", {
-            "command": "cat /root/sudo_test_output.txt",
-            "use_sudo": True,
-            "io_timeout": 10.0
-        })
-        verify_json = json.loads(verify_result[0].text)
-        
-        assert verify_json['status'] == 'success', f"Failed to verify output file: {verify_json}"
-        assert len(verify_json['output'].strip().split('\n')) > 0, "Expected output file to contain data"
-        logger.info(f"Output file contents: {verify_json['output']}")
-        
-        # Clean up
-        await client.call_tool("ssh_cmd_run", {
-            "command": "rm -f /root/sudo_test_output.txt",
-            "use_sudo": True,
-            "io_timeout": 5.0
-        })
+                "command": complex_cmd,
+                "use_sudo": True,
+                "io_timeout": 20.0
+            })
+            cmd_json = json.loads(cmd_result[0].text)
+            
+            assert cmd_json['status'] == 'success', f"Complex sudo command failed: {cmd_json}"
+            logger.info("Complex sudo command executed successfully")
+            
+            # Verify the output file was created
+            verify_result = await client.call_tool("ssh_cmd_run", {
+                "command": "cat /root/sudo_test_output.txt",
+                "use_sudo": True,
+                "io_timeout": 10.0
+            })
+            verify_json = json.loads(verify_result[0].text)
+            
+            assert verify_json['status'] == 'success', f"Failed to verify output file: {verify_json}"
+            assert len(verify_json['output'].strip().split('\n')) > 0, "Expected output file to contain data"
+            logger.info(f"Output file contents: {verify_json['output']}")
+            
+            # Clean up
+            await client.call_tool("ssh_cmd_run", {
+                "command": "rm -f /root/sudo_test_output.txt",
+                "use_sudo": True,
+                "io_timeout": 5.0
+            })
         
     except Exception as e:
         logger.error(f"Error in production complex sudo test: {e}", exc_info=True)
@@ -225,19 +225,19 @@ async def test_prod_sudo_interactive_command(prod_connection):
             interactive_cmd = "apt-get update -y"
             
             cmd_result = await client.call_tool("ssh_cmd_run", {
-            "command": interactive_cmd,
-            "use_sudo": True,
-            "io_timeout": 60.0,  # Longer timeout for apt operations
-            "runtime_timeout": 120.0
-        })
-        cmd_json = json.loads(cmd_result[0].text)
-        
-        # This might fail on some systems, so we log the result but don't assert
-        logger.info(f"Interactive sudo command result: {cmd_json['status']}")
-        if cmd_json['status'] == 'success':
-            logger.info("Interactive sudo command executed successfully")
-        else:
-            logger.warning(f"Interactive sudo command failed: {cmd_json}")
+                "command": interactive_cmd,
+                "use_sudo": True,
+                "io_timeout": 60.0,  # Longer timeout for apt operations
+                "runtime_timeout": 120.0
+            })
+            cmd_json = json.loads(cmd_result[0].text)
+            
+            # This might fail on some systems, so we log the result but don't assert
+            logger.info(f"Interactive sudo command result: {cmd_json['status']}")
+            if cmd_json['status'] == 'success':
+                logger.info("Interactive sudo command executed successfully")
+            else:
+                logger.warning(f"Interactive sudo command failed: {cmd_json}")
             
     except Exception as e:
         logger.error(f"Error in production interactive sudo test: {e}", exc_info=True)
