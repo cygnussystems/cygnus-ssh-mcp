@@ -1392,7 +1392,11 @@ async def ssh_file_insert_lines_after_match(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.insert_lines_after_match(file_path, match_line, lines_to_insert, use_sudo, force)
+        # Use the Pydantic model to parse and validate the lines_to_insert parameter
+        parsed_lines_to_insert = NewLinesModel.parse(lines_to_insert)
+        logger.info(f"Processed lines_to_insert parameter: {parsed_lines_to_insert}")
+            
+        return mcp.ssh_client.insert_lines_after_match(file_path, match_line, parsed_lines_to_insert, use_sudo, force)
     except Exception as e:
         logger.error(f"Failed to insert lines: {e}")
         raise
