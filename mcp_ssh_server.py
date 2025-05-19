@@ -888,7 +888,8 @@ async def ssh_cmd_history(
         limit: Annotated[Optional[int], Field(description="Number of history entries to return", ge=1)] = None,
         include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
         output_lines: Annotated[int, Field(description="Number of output lines to include (0 for none)", ge=0)] = 3,
-        reverse: Annotated[bool, Field(description="Return in reverse order (newest first)")] = False
+        reverse: Annotated[bool, Field(description="Return in reverse order (newest first)")] = False,
+        pattern: Annotated[Optional[str], Field(description="Filter commands containing this pattern")] = None
 ) -> list:
     """
     Retrieve command execution history with optional output snippets.
@@ -908,6 +909,10 @@ async def ssh_cmd_history(
 
     try:
         history = mcp.ssh_client.history()
+        
+        # Filter by pattern if specified
+        if pattern is not None:
+            history = [entry for entry in history if pattern in entry.get('cmd', '')]
 
         # Apply limit if specified
         if limit is not None:
