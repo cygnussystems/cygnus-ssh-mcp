@@ -287,8 +287,8 @@ async def test_ssh_host_disconnect():
             # Get connection details before disconnecting
             status_result = await client.call_tool("ssh_conn_status", {})
             status_json = json.loads(status_result[0].text)
-            conn_user = status_json['connection']['user']
-            conn_host = status_json['connection']['host']
+            conn_user = status_json['user']
+            conn_host = status_json['host']
             logger.info(f"Connected to {conn_user}@{conn_host}")
             
             # Test disconnecting an active connection
