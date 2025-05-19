@@ -533,6 +533,7 @@ class SshDirectoryOperations_Linux:
             self.logger.info(f"Successfully created archive at {archive_path} ({archive_size} bytes)")
             return {
                 'status': 'success',
+                'success': True,  # Add this for compatibility with tests
                 'archive_created': archive_path,
                 'format': format,
                 'size_bytes': archive_size
