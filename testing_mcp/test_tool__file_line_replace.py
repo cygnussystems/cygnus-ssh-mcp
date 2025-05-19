@@ -261,7 +261,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
 
 @pytest.mark.asyncio
 async def test_ssh_file_replace_with_empty_content(mcp_test_environment):
-    """Test replacing a line with empty content (effectively deleting it)."""
+    """Test replacing a line with empty content and using the multi-line version for deletion."""
     print_test_header("Testing file replace tools with empty content")
 
     async with Client(mcp) as client:
@@ -269,7 +269,7 @@ async def test_ssh_file_replace_with_empty_content(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             test_file = "/tmp/ssh_test_replace_empty.txt"
             file_content = """Line 1: This is a test file
-Line 2: This line will be deleted
+Line 2: This line will be modified
 Line 3: This is the last line"""
 
             # Create test file
@@ -278,57 +278,29 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
 
-            # Test 1: Replace with None (should delete the line)
+            # Test 1: Replace with empty string (should replace with empty line)
             replace_result = await client.call_tool("ssh_file_replace_line", {
                 "file_path": test_file,
-                "match_line": "Line 2: This line will be deleted",
-                "new_line": None
-            })
-            result = json.loads(replace_result[0].text)
-            assert result['success'] == True
-
-            # Verify content - line should be deleted
-            cat_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"cat {test_file}",
-                "io_timeout": 5.0
-            })
-            output = json.loads(cat_result[0].text)['output']
-            assert "Line 2: This line will be deleted" not in output
-
-            # Check remaining lines
-            lines = output.strip().split('\n')
-            assert len(lines) == 2
-            assert lines[0] == "Line 1: This is a test file"
-            assert lines[1] == "Line 3: This is the last line"
-
-            # Recreate test file for next test
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"echo '{file_content}' > {test_file}",
-                "io_timeout": 5.0
-            })
-
-            # Test 2: Replace with empty string (should delete the line)
-            replace_result = await client.call_tool("ssh_file_replace_line", {
-                "file_path": test_file,
-                "match_line": "Line 2: This line will be deleted",
+                "match_line": "Line 2: This line will be modified",
                 "new_line": ""
             })
             result = json.loads(replace_result[0].text)
             assert result['success'] == True
 
-            # Verify content - line should be deleted
+            # Verify content - line should be replaced with empty line
             cat_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
             output = json.loads(cat_result[0].text)['output']
-            assert "Line 2: This line will be deleted" not in output
+            assert "Line 2: This line will be modified" not in output
 
-            # Check remaining lines
+            # Check lines - should have an empty line between Line 1 and Line 3
             lines = output.strip().split('\n')
-            assert len(lines) == 2
+            assert len(lines) == 3
             assert lines[0] == "Line 1: This is a test file"
-            assert lines[1] == "Line 3: This is the last line"
+            assert lines[1] == ""
+            assert lines[2] == "Line 3: This is the last line"
 
             # Recreate test file for next test
             await client.call_tool("ssh_cmd_run", {
@@ -336,10 +308,10 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
 
-            # Test 3: Replace with empty list using multi tool (should delete the line)
+            # Test 2: Replace with empty list using multi tool (should delete the line)
             replace_result = await client.call_tool("ssh_file_replace_line_multi", {
                 "file_path": test_file,
-                "match_line": "Line 2: This line will be deleted",
+                "match_line": "Line 2: This line will be modified",
                 "new_lines": []
             })
             result = json.loads(replace_result[0].text)
@@ -351,7 +323,7 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
             output = json.loads(cat_result[0].text)['output']
-            assert "Line 2: This line will be deleted" not in output
+            assert "Line 2: This line will be modified" not in output
 
             # Check remaining lines
             lines = output.strip().split('\n')
@@ -365,10 +337,10 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
 
-            # Test 4: Replace with list containing empty string (should replace with empty line)
+            # Test 3: Replace with list containing empty string (should replace with empty line)
             replace_result = await client.call_tool("ssh_file_replace_line_multi", {
                 "file_path": test_file,
-                "match_line": "Line 2: This line will be deleted",
+                "match_line": "Line 2: This line will be modified",
                 "new_lines": [""]
             })
             result = json.loads(replace_result[0].text)
@@ -380,7 +352,7 @@ Line 3: This is the last line"""
                 "io_timeout": 5.0
             })
             output = json.loads(cat_result[0].text)['output']
-            assert "Line 2: This line will be deleted" not in output
+            assert "Line 2: This line will be modified" not in output
 
             # Check lines - should have an empty line between Line 1 and Line 3
             lines = output.strip().split('\n')
@@ -388,6 +360,34 @@ Line 3: This is the last line"""
             assert lines[0] == "Line 1: This is a test file"
             assert lines[1] == ""
             assert lines[2] == "Line 3: This is the last line"
+
+            # Test 4: Use delete_line_by_content tool to delete a line
+            # Recreate test file for next test
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"echo '{file_content}' > {test_file}",
+                "io_timeout": 5.0
+            })
+            
+            delete_result = await client.call_tool("ssh_file_delete_line_by_content", {
+                "file_path": test_file,
+                "match_line": "Line 2: This line will be modified"
+            })
+            delete_json = json.loads(delete_result[0].text)
+            assert delete_json['success'] == True
+
+            # Verify content - line should be deleted
+            cat_result = await client.call_tool("ssh_cmd_run", {
+                "command": f"cat {test_file}",
+                "io_timeout": 5.0
+            })
+            output = json.loads(cat_result[0].text)['output']
+            assert "Line 2: This line will be modified" not in output
+
+            # Check remaining lines
+            lines = output.strip().split('\n')
+            assert len(lines) == 2
+            assert lines[0] == "Line 1: This is a test file"
+            assert lines[1] == "Line 3: This is the last line"
 
         finally:
             await client.call_tool("ssh_cmd_run", {
