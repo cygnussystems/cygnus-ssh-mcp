@@ -251,7 +251,10 @@ async def test_ssh_command_history_limit_behaviour(
                 assert run_result_json.get('exit_code') == 0, f"Command '{cmd}' failed"
 
             # Get command history
-            history_params = {"include_output": False} # Output not relevant for this test
+            history_params = {
+                "include_output": False, # Output not relevant for this test
+                "pattern": base_command_name # Filter to only include our test commands
+            }
             if limit_param is not None:
                 history_params["limit"] = limit_param
             
