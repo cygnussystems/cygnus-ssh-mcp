@@ -177,7 +177,7 @@ async def ssh_conn_connect(
     The host must be defined in the TOML configuration file using the 'user@hostname' format.
     
     Returns:
-        Dictionary with connection status
+        Dictionary with connection status and detailed system information
     """
     try:
         host_config = host_manager.get_host(host_name)
@@ -196,12 +196,24 @@ async def ssh_conn_connect(
             sudo_password=host_config.get('sudo_password')  # Add sudo_password if available
         )
         
+        # Get current working directory
+        cwd_result = mcp.ssh_client.run("pwd")
+        cwd = cwd_result.get_full_output().strip() if cwd_result.exit_code == 0 else "Unknown"
+        
+        # Get detailed system information
+        status = mcp.ssh_client.get_connection_status()
+        system_info = mcp.ssh_client.full_status()
+        
         return {
             'status': 'success',
             'connected_to': host_name, # Reflects the user@host key used
             'host': host_config['parsed_host'],
             'user': host_config['parsed_user'],
-            'port': host_config['port']
+            'port': host_config['port'],
+            'current_directory': cwd,
+            'os_type': status.get('os_type', 'Unknown'),
+            'connection': status,
+            'system': system_info
         }
     except Exception as e:
         logger.error(f"Failed to connect to {host_name}: {e}")
@@ -267,10 +279,41 @@ async def ssh_conn_add_host(
 @mcp.tool()
 async def ssh_conn_status() -> dict:
     """
-    Get current SSH connection status and system information.
+    Get essential SSH connection status information.
     
     Returns:
-        Dictionary containing connection status and system info
+        Dictionary containing basic connection status (user, working directory, OS type)
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+        
+    try:
+        status = mcp.ssh_client.get_connection_status()
+        
+        # Get current working directory
+        cwd_result = mcp.ssh_client.run("pwd")
+        cwd = cwd_result.get_full_output().strip() if cwd_result.exit_code == 0 else "Unknown"
+        
+        return {
+            'user': status.get('user', 'Unknown'),
+            'host': status.get('host', 'Unknown'),
+            'os_type': status.get('os_type', 'Unknown'),
+            'current_directory': cwd,
+            'connected': True
+        }
+    except Exception as e:
+        logger.error(f"Failed to get status: {e}")
+        raise
+
+
+@mcp.tool()
+async def ssh_conn_host_info() -> dict:
+    """
+    Get detailed SSH connection status and system information.
+    
+    Returns:
+        Dictionary containing full connection status and detailed system info
+        including hardware, memory, disk usage, and more.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -283,7 +326,7 @@ async def ssh_conn_status() -> dict:
             'system': system_info
         }
     except Exception as e:
-        logger.error(f"Failed to get status: {e}")
+        logger.error(f"Failed to get host info: {e}")
         raise
 
 
