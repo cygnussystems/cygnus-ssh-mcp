@@ -1,7 +1,7 @@
 import pytest
 import json
 import time
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -17,7 +17,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
             
             # Check if we have sudo access
             sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
-            sudo_json = json.loads(sudo_check[0].text)
+            sudo_json = json.loads(extract_result_text(sudo_check))
             
             if not sudo_json['available']:
                 print("Skipping sudo tests as sudo is not available")
@@ -35,7 +35,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 "use_sudo": True,
                 "mode": 0o700  # Restrictive permissions
             })
-            mkdir_json = json.loads(mkdir_result[0].text)
+            mkdir_json = json.loads(extract_result_text(mkdir_result))
             assert mkdir_json['status'] == 'success', f"Failed to create directory with sudo: {mkdir_json}"
             
             # Create some test files in the protected directory
@@ -53,7 +53,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 "format": "tar.gz",
                 "use_sudo": True
             })
-            create_json = json.loads(create_result[0].text)
+            create_json = json.loads(extract_result_text(create_result))
             assert create_json['success'], f"Failed to create archive with sudo: {create_json}"
             
             # Verify archive exists
@@ -61,7 +61,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 "command": f"ls -la {archive_path}",
                 "use_sudo": True
             })
-            verify_json = json.loads(verify_archive[0].text)
+            verify_json = json.loads(extract_result_text(verify_archive))
             assert verify_json['status'] == 'success', "Failed to verify archive"
             assert archive_path in verify_json['output'], "Archive not found"
             
@@ -72,7 +72,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 "overwrite": False,
                 "use_sudo": True
             })
-            extract_json = json.loads(extract_result[0].text)
+            extract_json = json.loads(extract_result_text(extract_result))
             assert extract_json['success'], f"Failed to extract archive with sudo: {extract_json}"
             
             # Verify extraction
@@ -80,7 +80,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 "command": f"ls -la {extract_dir}",
                 "use_sudo": True
             })
-            verify_extract_json = json.loads(verify_extract[0].text)
+            verify_extract_json = json.loads(extract_result_text(verify_extract))
             assert verify_extract_json['status'] == 'success', "Failed to verify extraction"
             assert "test_file_0.txt" in verify_extract_json['output'], "Extracted files not found"
             assert "test_file_1.txt" in verify_extract_json['output'], "Extracted files not found"

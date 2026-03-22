@@ -1,7 +1,7 @@
 import pytest
 import json
 import os
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 import time # For unique file/dir names
@@ -38,7 +38,7 @@ async def test_ssh_file_modify_sudo_and_force(mcp_test_environment):
                 "io_timeout": 5.0,
                 "use_sudo": True
             })
-            chown_json = json.loads(chown_result[0].text)
+            chown_json = json.loads(extract_result_text(chown_result))
             assert chown_json['status'] == 'success', f"sudo chown failed: {chown_json.get('error', '')}"
 
             # 3. Attempt to replace line with sudo=True and force=True
@@ -51,7 +51,7 @@ async def test_ssh_file_modify_sudo_and_force(mcp_test_environment):
                 "use_sudo": True,
                 "force": True
             })
-            replace_json = json.loads(replace_result[0].text)
+            replace_json = json.loads(extract_result_text(replace_result))
             assert replace_json['success'] == True, f"ssh_file_replace_line_multi with sudo/force failed: {replace_json.get('error', '')}"
 
             # 4. Verify content (read as root to be sure)
@@ -60,7 +60,7 @@ async def test_ssh_file_modify_sudo_and_force(mcp_test_environment):
                 "io_timeout": 5.0,
                 "use_sudo": True # Read with sudo to ensure we can access it
             })
-            cat_json = json.loads(cat_result[0].text)
+            cat_json = json.loads(extract_result_text(cat_result))
             assert cat_json['status'] == 'success'
             output = cat_json['output']
             assert new_line_content in output, "New line not found after sudo/force replace."
@@ -73,7 +73,7 @@ async def test_ssh_file_modify_sudo_and_force(mcp_test_environment):
                 "io_timeout": 5.0,
                 "use_sudo": False # Check as normal user
             })
-            stat_perm_json = json.loads(stat_perm_result[0].text)
+            stat_perm_json = json.loads(extract_result_text(stat_perm_result))
             assert stat_perm_json['status'] == 'success'
             perms_owner_group = stat_perm_json['output'].strip()
             # Expected: root:root and original perms (or perms of temp file if original couldn't be stat'd)
@@ -127,7 +127,7 @@ Line 4: orange123"""
             find_regex_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
                 "file_path": test_file, "pattern": "^Line [0-9]: [aA]pple.*", "regex": True
             })
-            regex_json = json.loads(find_regex_result[0].text)
+            regex_json = json.loads(extract_result_text(find_regex_result))
             assert regex_json['total_matches'] == 2, "Regex search failed to find correct matches"
             assert "Line 1: apple" in regex_json['matches'][0]['content']
             assert "Line 3: Apple Pie" in regex_json['matches'][1]['content']
@@ -136,7 +136,7 @@ Line 4: orange123"""
             find_no_match_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
                 "file_path": test_file, "pattern": "nonexistent_pattern", "regex": False
             })
-            no_match_json = json.loads(find_no_match_result[0].text)
+            no_match_json = json.loads(extract_result_text(find_no_match_result))
             assert no_match_json['total_matches'] == 0, "Pattern not found test failed"
             assert len(no_match_json['matches']) == 0
 
@@ -144,7 +144,7 @@ Line 4: orange123"""
             find_empty_file_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
                 "file_path": empty_file, "pattern": "anything", "regex": False
             })
-            empty_file_json = json.loads(find_empty_file_result[0].text)
+            empty_file_json = json.loads(extract_result_text(find_empty_file_result))
             assert empty_file_json['total_matches'] == 0, "Search on empty file failed"
             assert len(empty_file_json['matches']) == 0
             
@@ -191,7 +191,7 @@ Line B""" # Only 2 lines
             context_begin_result = await client.call_tool("ssh_file_get_context_around_line", {
                 "file_path": test_file_normal, "match_line": "Line 1: First line", "context": 2
             })
-            begin_json = json.loads(context_begin_result[0].text)
+            begin_json = json.loads(extract_result_text(context_begin_result))
             assert begin_json['match_found'] == True
             assert begin_json['match_line_number'] == 1
             assert len(begin_json['context_block']) == 3 # Line 1, Line 2, Line 3
@@ -204,7 +204,7 @@ Line B""" # Only 2 lines
             context_end_result = await client.call_tool("ssh_file_get_context_around_line", {
                 "file_path": test_file_normal, "match_line": "Line 5: Last line", "context": 2
             })
-            end_json = json.loads(context_end_result[0].text)
+            end_json = json.loads(extract_result_text(context_end_result))
             assert end_json['match_found'] == True
             assert end_json['match_line_number'] == 5
             assert len(end_json['context_block']) == 3 # Line 3, Line 4, Line 5
@@ -216,7 +216,7 @@ Line B""" # Only 2 lines
             context_short_file_result = await client.call_tool("ssh_file_get_context_around_line", {
                 "file_path": test_file_short, "match_line": "Line A", "context": 3
             })
-            short_file_json = json.loads(context_short_file_result[0].text)
+            short_file_json = json.loads(extract_result_text(context_short_file_result))
             assert short_file_json['match_found'] == True
             assert short_file_json['match_line_number'] == 1
             assert len(short_file_json['context_block']) == 2 # Line A, Line B (all lines)
@@ -268,7 +268,7 @@ async def test_ssh_file_copy_overwrite(mcp_test_environment):
                 "append_timestamp": False,
                 "use_sudo": False # Test non-sudo path first
             })
-            copy_json = json.loads(copy_result[0].text)
+            copy_json = json.loads(extract_result_text(copy_result))
             assert copy_json['success'] == True, f"ssh_file_copy failed: {copy_json.get('error', '')}"
             assert copy_json['copied_to'] == dest_file
 
@@ -276,7 +276,7 @@ async def test_ssh_file_copy_overwrite(mcp_test_environment):
             cat_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {dest_file}", "io_timeout": 5.0
             })
-            cat_json = json.loads(cat_result[0].text)
+            cat_json = json.loads(extract_result_text(cat_result))
             assert cat_json['status'] == 'success'
             output = cat_json['output'].strip()
             assert output == new_content_source, "Destination file content was not overwritten."
@@ -301,7 +301,7 @@ async def test_ssh_file_copy_overwrite(mcp_test_environment):
                 "append_timestamp": False,
                 "use_sudo": True
             })
-            copy_sudo_json = json.loads(copy_sudo_result[0].text)
+            copy_sudo_json = json.loads(extract_result_text(copy_sudo_result))
             assert copy_sudo_json['success'] == True, f"ssh_file_copy with sudo failed: {copy_sudo_json.get('error', '')}"
             assert copy_sudo_json['copied_to'] == dest_file
             
@@ -309,7 +309,7 @@ async def test_ssh_file_copy_overwrite(mcp_test_environment):
             cat_sudo_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {dest_file}", "io_timeout": 5.0, "use_sudo": True
             })
-            cat_sudo_json = json.loads(cat_sudo_result[0].text)
+            cat_sudo_json = json.loads(extract_result_text(cat_sudo_result))
             assert cat_sudo_json['status'] == 'success'
             output_sudo = cat_sudo_json['output'].strip()
             assert output_sudo == new_content_source, "Destination file content was not overwritten with sudo."

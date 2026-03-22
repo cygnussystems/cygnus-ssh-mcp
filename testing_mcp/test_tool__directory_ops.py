@@ -1,6 +1,6 @@
 import pytest
 import json
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, remote_temp_path
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, remote_temp_path, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -32,7 +32,7 @@ async def test_ssh_search_files(mcp_test_environment):
                 "max_depth": None,
                 "include_dirs": False
             })
-            files = json.loads(result[0].text)
+            files = json.loads(extract_result_text(result))
             paths = [f['path'] for f in files]
             assert all(f"{test_dir}/{p}" in paths for p in ["file1.txt", "dir1/file3.txt"])
 
@@ -43,7 +43,7 @@ async def test_ssh_search_files(mcp_test_environment):
                 "max_depth": None,
                 "include_dirs": False
             })
-            assert len(json.loads(result[0].text)) >= 2
+            assert len(json.loads(extract_result_text(result))) >= 2
             
         finally:
             await client.call_tool("ssh_cmd_run", {"command": f"rm -rf {test_dir}", "io_timeout": 5.0})
@@ -73,7 +73,7 @@ async def test_ssh_directory_size(mcp_test_environment):
             })
 
             result = await client.call_tool("ssh_dir_calc_size", {"path": test_dir})
-            size_data = json.loads(result[0].text)
+            size_data = json.loads(extract_result_text(result))
             
             assert 'size_bytes' in size_data and 'size_human' in size_data
             assert size_data['size_bytes'] >= 3 * 1024 * 1024  # 3MB minimum
@@ -105,7 +105,7 @@ async def test_ssh_list_directory(mcp_test_environment):
 
             # Test full recursive list
             result = await client.call_tool("ssh_dir_list_advanced", {"path": test_dir})
-            entries = json.loads(result[0].text)
+            entries = json.loads(extract_result_text(result))
             paths = [e['path'] for e in entries]
             assert all(p in paths for p in [
                 f"{test_dir}/dir1/subdir1/file3.txt",
@@ -118,7 +118,7 @@ async def test_ssh_list_directory(mcp_test_environment):
                 "path": test_dir,
                 "max_depth": 1
             })
-            assert len(json.loads(result[0].text)) <= 4  # dir1, dir2, file1.txt
+            assert len(json.loads(extract_result_text(result))) <= 4  # dir1, dir2, file1.txt
             
         finally:
             await client.call_tool("ssh_cmd_run", {"command": f"rm -rf {test_dir}", "io_timeout": 5.0})
@@ -159,7 +159,7 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
                 "mode": 0o755,
                 "use_sudo": True
             })
-            mkdir_json = json.loads(mkdir_result[0].text)
+            mkdir_json = json.loads(extract_result_text(mkdir_result))
             assert mkdir_json['status'] == 'success', f"ssh_dir_mkdir with sudo failed: {mkdir_json.get('message', '')}"
 
             # Verify directory exists and check ownership (should be root if sudo worked as expected)
@@ -168,7 +168,7 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
                 "io_timeout": 5.0,
                 "use_sudo": False # Stat can be run as normal user
             })
-            stat_json = json.loads(stat_result[0].text)
+            stat_json = json.loads(extract_result_text(stat_result))
             assert stat_json['status'] == 'success', f"Stat command failed: {stat_json.get('error', '')}"
             owner = stat_json['output'].strip()
             # This assertion depends on the SSH user NOT being root.
@@ -212,22 +212,22 @@ async def test_ssh_dir_remove_recursive_with_content(mcp_test_environment):
                 "path": parent_dir,
                 "recursive": True
             })
-            rmdir_json = json.loads(rmdir_result[0].text)
+            rmdir_json = json.loads(extract_result_text(rmdir_result))
             assert rmdir_json[
                        'status'] == 'success', f"ssh_dir_remove recursive failed: {rmdir_json.get('message', '')}"
 
             # Verify directory no longer exists
             stat_result = await client.call_tool("ssh_file_stat", {"path": parent_dir})
-            stat_json = json.loads(stat_result[0].text)  # ssh_file_stat returns JSON directly
+            stat_json = json.loads(extract_result_text(stat_result))  # ssh_file_stat returns JSON directly
             assert stat_json.get('exists') == False, f"Directory '{parent_dir}' should have been removed."
 
         finally:
             # Ensure cleanup if test failed before removal
             # Check if it exists before trying to remove, to avoid error if already gone
             stat_check_result = await client.call_tool("ssh_file_stat", {"path": parent_dir})
-            # Ensure stat_check_result[0].text is valid JSON before parsing
+            # Ensure extract_result_text(stat_check_result) is valid JSON before parsing
             try:
-                stat_check_json = json.loads(stat_check_result[0].text)
+                stat_check_json = json.loads(extract_result_text(stat_check_result))
                 if stat_check_json.get('exists') == True:
                     await client.call_tool("ssh_dir_remove", {
                         "path": parent_dir,
@@ -276,7 +276,7 @@ async def test_ssh_dir_remove_non_empty_no_recursive(mcp_test_environment):
 
             # Verify directory still exists
             stat_result = await client.call_tool("ssh_file_stat", {"path": parent_dir})
-            stat_json = json.loads(stat_result[0].text)
+            stat_json = json.loads(extract_result_text(stat_result))
             assert stat_json.get('exists') == True, f"Directory '{parent_dir}' should still exist."
 
         finally:

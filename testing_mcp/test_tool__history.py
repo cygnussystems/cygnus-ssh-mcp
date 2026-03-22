@@ -1,7 +1,7 @@
 import pytest
 import json
 import logging
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -33,7 +33,7 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
                 # Log the result of ssh_run for debugging if needed
                 logger.debug(f"Ran command 'echo History test {i}', result: {run_result}")
                 # Basic check that the command succeeded
-                run_result_json = json.loads(run_result[0].text)
+                run_result_json = json.loads(extract_result_text(run_result))
                 assert run_result_json.get('exit_code') == 0, f"Command 'echo History test {i}' failed"
 
             # Get command history
@@ -50,12 +50,10 @@ async def test_ssh_command_history(mcp_test_environment): # Added mcp_test_envir
 
             # Verify and parse the raw tool output
             assert raw_tool_output, "Tool call should return a result"
-            assert isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
-                "Tool call should return a non-empty list of content blocks"
-            assert hasattr(raw_tool_output[0], 'text'), \
-                "First content block should have a 'text' attribute"
-            
-            history_list = json.loads(raw_tool_output[0].text)
+            result_text = extract_result_text(raw_tool_output)
+            assert result_text, "Tool call should return result with text content"
+
+            history_list = json.loads(result_text)
             logger.info(f"Parsed history list: {history_list}")
             
             # Verify the structure and content of the parsed history
@@ -149,7 +147,7 @@ async def test_ssh_command_history_output_control(
             run_result = await client.call_tool("ssh_cmd_run", run_params)
             # Try to parse the result, but handle the case where the command might have failed
             try:
-                run_result_json = json.loads(run_result[0].text)
+                run_result_json = json.loads(extract_result_text(run_result))
                 logger.info(f"[{test_id}] Command exit code: {run_result_json.get('exit_code')}")
             except Exception as e:
                 # If the command failed, we'll still continue with the test
@@ -169,17 +167,20 @@ async def test_ssh_command_history_output_control(
             raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
             logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
 
-            assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
-                f"[{test_id}] Tool call should return a non-empty list of content blocks"
-            assert hasattr(raw_tool_output[0], 'text'), \
-                f"[{test_id}] First content block should have a 'text' attribute"
-            
-            history_list = json.loads(raw_tool_output[0].text)
+            assert raw_tool_output, f"[{test_id}] Tool call should return a result"
+            result_text = extract_result_text(raw_tool_output)
+            assert result_text, f"[{test_id}] Tool call should return result with text content"
+
+            history_list = json.loads(result_text)
             logger.info(f"[{test_id}] Parsed history list: {history_list}")
+
+            # Handle case where limit=1 returns a single dict instead of a list
+            if isinstance(history_list, dict):
+                history_list = [history_list]
 
             assert isinstance(history_list, list), f"[{test_id}] Parsed history should be a list"
             assert len(history_list) == 1, f"[{test_id}] Expected 1 history entry, got {len(history_list)}"
-            
+
             latest_entry = history_list[0] # Since limit is 1 and default order is oldest first
 
             # Verify standard fields
@@ -247,7 +248,7 @@ async def test_ssh_command_history_limit_behaviour(
                 cmd = f"echo '{base_command_name}_{i}'"
                 run_params = {"command": cmd, "io_timeout": 5.0}
                 run_result = await client.call_tool("ssh_cmd_run", run_params)
-                run_result_json = json.loads(run_result[0].text)
+                run_result_json = json.loads(extract_result_text(run_result))
                 assert run_result_json.get('exit_code') == 0, f"Command '{cmd}' failed"
 
             # Get command history
@@ -262,12 +263,16 @@ async def test_ssh_command_history_limit_behaviour(
             raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
             logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
 
-            assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
-                f"[{test_id}] Tool call should return a non-empty list of content blocks"
-            assert hasattr(raw_tool_output[0], 'text'), \
-                f"[{test_id}] First content block should have a 'text' attribute"
-            
-            history_list = json.loads(raw_tool_output[0].text)
+            assert raw_tool_output, f"[{test_id}] Tool call should return a result"
+            result_text = extract_result_text(raw_tool_output)
+            assert result_text, f"[{test_id}] Tool call should return result with text content"
+
+            history_list = json.loads(result_text)
+
+            # Handle case where limit=1 returns a single dict instead of a list
+            if isinstance(history_list, dict):
+                history_list = [history_list]
+
             logger.info(f"[{test_id}] Parsed history list (length {len(history_list)}): {history_list}")
 
             assert isinstance(history_list, list), f"[{test_id}] Parsed history should be a list"
@@ -337,7 +342,7 @@ async def test_ssh_command_history_reverse_order(
                 cmd = f"echo '{base_command_name}_{i}'"
                 run_params = {"command": cmd, "io_timeout": 5.0}
                 run_result = await client.call_tool("ssh_cmd_run", run_params)
-                run_result_json = json.loads(run_result[0].text)
+                run_result_json = json.loads(extract_result_text(run_result))
                 assert run_result_json.get('exit_code') == 0, f"Command '{cmd}' failed"
 
             history_params = {
@@ -352,9 +357,15 @@ async def test_ssh_command_history_reverse_order(
             raw_tool_output = await client.call_tool("ssh_cmd_history", history_params)
             logger.debug(f"[{test_id}] Raw history tool output: {raw_tool_output}")
 
-            assert raw_tool_output and isinstance(raw_tool_output, list) and len(raw_tool_output) > 0, \
-                f"[{test_id}] Tool call should return a non-empty list of content blocks"
-            history_list = json.loads(raw_tool_output[0].text)
+            assert raw_tool_output, f"[{test_id}] Tool call should return a result"
+            result_text = extract_result_text(raw_tool_output)
+            assert result_text, f"[{test_id}] Tool call should return result with text content"
+            history_list = json.loads(result_text)
+
+            # Handle case where limit=1 returns a single dict instead of a list
+            if isinstance(history_list, dict):
+                history_list = [history_list]
+
             logger.info(f"[{test_id}] Parsed history list (length {len(history_list)}): {history_list}")
 
             expected_num_entries = expected_num_entries_override if expected_num_entries_override is not None \

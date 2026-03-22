@@ -8,11 +8,42 @@ import time
 
 from mcp_ssh_server import mcp
 
-from docker_manager import docker_test_environment, teardown_test_environment
+# Hardcoded to use VM (Debian 12 at 192.168.1.27) instead of Docker
+USE_VM = True
+
+if not USE_VM:
+    from docker_manager import docker_test_environment, teardown_test_environment
+
+# Synchronous VM workspace setup (called directly, not via async fixture)
+def setup_vm_workspace():
+    """Create and clean workspace directory on VM using paramiko directly."""
+    import paramiko
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(SSH_TEST_HOST, port=SSH_TEST_PORT, username=SSH_TEST_USER, password=SSH_TEST_PASSWORD)
+
+        # Create workspace directory, ensure correct ownership, and clean it
+        workspace = f"/home/{SSH_TEST_USER}/mcp_test_workspace"
+        # Use sudo to create and fix ownership if needed
+        cmd = f"mkdir -p {workspace} && echo {SSH_TEST_PASSWORD} | sudo -S chown {SSH_TEST_USER}:{SSH_TEST_USER} {workspace} 2>/dev/null; rm -rf {workspace}/* 2>/dev/null; echo 'Workspace ready'"
+        stdin, stdout, stderr = client.exec_command(cmd)
+        result = stdout.read().decode().strip()
+        logging.info(f"VM workspace setup: {result}")
+        client.close()
+    except Exception as e:
+        logging.error(f"Failed to setup VM workspace: {e}")
+        raise
 
 # Create a wrapper function that supplies default arguments
 async def setup_test_environment():
-    """Wrapper around docker_test_environment that supplies default arguments"""
+    """Wrapper around docker_test_environment that supplies default arguments.
+    If USE_VM=1, skips Docker setup and creates workspace directory on VM.
+    """
+    if USE_VM:
+        logging.info(f"USE_VM=1: Skipping Docker setup, using VM at {SSH_TEST_HOST}:{SSH_TEST_PORT}")
+        # Workspace setup is done synchronously before tests start
+        return
     return await docker_test_environment(
         user=SSH_TEST_USER,
         password=SSH_TEST_PASSWORD,
@@ -33,10 +64,27 @@ logging.getLogger('PIL').setLevel(logging.WARNING) # To silence potential Pillow
 
 
 # Test environment configuration
-SSH_TEST_HOST = os.environ.get('SSH_TEST_HOST', 'localhost')
-SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
-SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
-SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
+# Defaults differ based on whether we're using VM or Docker
+if USE_VM:
+    # VM defaults (Debian 12 VM at 192.168.1.27)
+    SSH_TEST_HOST = os.environ.get('SSH_TEST_HOST', '192.168.1.27')
+    SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 22))
+    SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'test')
+    SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpwd')
+else:
+    # Docker defaults
+    SSH_TEST_HOST = os.environ.get('SSH_TEST_HOST', 'localhost')
+    SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 2222))
+    SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'testuser')
+    SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpass')
+
+# Run VM workspace setup at module load time if using VM (after variables are defined)
+if USE_VM:
+    setup_vm_workspace()
+
+# Test workspace directory (wiped at start of each session for clean slate)
+# Path dynamically constructed based on the user
+TEST_WORKSPACE = f"/home/{SSH_TEST_USER}/mcp_test_workspace"
 # Helper functions for SSH connection management
 async def disconnect_ssh(client):
     """
@@ -57,6 +105,24 @@ async def disconnect_ssh(client):
 
 
 
+def extract_result_text(result):
+    """
+    Extract text from a tool result, handling both old list API and new CallToolResult API.
+    Args:
+        result: The result from client.call_tool()
+    Returns:
+        str: The text content of the result, or None if not available
+    """
+    # New API: result has .content attribute
+    if hasattr(result, 'content') and len(result.content) > 0:
+        return result.content[0].text
+    # Old API: result is a list
+    elif isinstance(result, list) and len(result) > 0:
+        if hasattr(result[0], 'text'):
+            return result[0].text
+    return None
+
+
 async def is_ssh_connected(client):
     """
     Check if SSH is connected using the ssh_conn_is_connected tool.
@@ -67,8 +133,11 @@ async def is_ssh_connected(client):
     """
     try:
         is_connected_result = await client.call_tool("ssh_conn_is_connected", {})
-        is_connected_json = json.loads(is_connected_result[0].text)
-        return is_connected_json
+        result_text = extract_result_text(is_connected_result)
+        if result_text:
+            is_connected_json = json.loads(result_text)
+            return is_connected_json
+        return False
     except Exception as e:
         logging.error(f"Error checking SSH connection: {e}")
         return False
@@ -107,7 +176,11 @@ async def make_connection(client):
         "host_name": host_key_for_connection
     }
     connect_result = await client.call_tool("ssh_conn_connect", connect_params)
-    connect_json = json.loads(connect_result[0].text)
+    result_text = extract_result_text(connect_result)
+    if not result_text:
+        logging.error("Failed to get connection result")
+        return False
+    connect_json = json.loads(result_text)
     
     # Verify connection was successful
     if connect_json.get('status') == 'success':
@@ -143,7 +216,7 @@ def event_loop():
     yield loop
     loop.close()
 
-@pytest.fixture(scope="session", autouse=True) # Autouse to ensure it runs for the session
+@pytest.fixture(scope="session", autouse=True)
 async def mcp_test_environment():
     """Session-wide test environment setup and teardown."""
     global SSH_TEST_PORT  # Access the global variable
@@ -152,16 +225,19 @@ async def mcp_test_environment():
         await setup_test_environment()
         # Wait a bit longer to ensure the container is fully ready
         await asyncio.sleep(5)
-        
+
         # Log the port being used for debugging
         logging.info(f"Test environment setup complete. Using SSH port: {SSH_TEST_PORT}")
-        
+
         yield
     except Exception as e:
         logging.error(f"Error setting up test environment: {e}", exc_info=True)
         raise
     finally:
-        await teardown_test_environment()
+        if not USE_VM:
+            await teardown_test_environment()
+
+
 
 
 def print_test_header(test_name):
@@ -180,4 +256,4 @@ def print_test_footer():
 def remote_temp_path(base_name):
     """Generate a temporary path on the remote system with timestamp to avoid collisions."""
     timestamp = int(time.time())
-    return f"/tmp/{base_name}_{timestamp}"
+    return f"{TEST_WORKSPACE}/{base_name}_{timestamp}"

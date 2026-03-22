@@ -3,7 +3,7 @@ import json
 import logging
 import time
 import asyncio
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -35,7 +35,7 @@ async def test_ssh_launch_task(mcp_test_environment):
             logger.info(f"launch_task result: {launch_result}")
             
             # Verify launch_task result
-            launch_json = json.loads(launch_result[0].text)
+            launch_json = json.loads(extract_result_text(launch_result))
             assert 'pid' in launch_json, "Result should include PID"
             pid = launch_json['pid']
             assert isinstance(pid, int) and pid > 0, "PID should be a positive integer"
@@ -53,7 +53,7 @@ async def test_ssh_launch_task(mcp_test_environment):
             logger.info(f"task_status result: {status_result}")
             
             # Verify task_status result
-            status_json = json.loads(status_result[0].text)
+            status_json = json.loads(extract_result_text(status_result))
             assert 'status' in status_json, "Result should include status"
             assert status_json['status'] == 'running', f"Task should be running, got {status_json['status']}"
             
@@ -70,7 +70,7 @@ async def test_ssh_launch_task(mcp_test_environment):
             logger.info(f"task_kill result: {kill_result}")
             
             # Verify task_kill result
-            kill_json = json.loads(kill_result[0].text)
+            kill_json = json.loads(extract_result_text(kill_result))
             assert 'result' in kill_json, "Result should include result status"
             # Possible results: 'terminated', 'killed', 'not_found', 'error'
             assert kill_json['result'] in ['terminated', 'killed'], f"Kill result unexpected: {kill_json['result']}"
@@ -78,7 +78,7 @@ async def test_ssh_launch_task(mcp_test_environment):
             # Check status again to confirm it's not running
             time.sleep(1)  # Give it a moment to process the kill
             status_result_after_kill = await client.call_tool("ssh_task_status", status_params)
-            status_json_after_kill = json.loads(status_result_after_kill[0].text)
+            status_json_after_kill = json.loads(extract_result_text(status_result_after_kill))
             assert status_json_after_kill['status'] != 'running', "Task should not be running after kill"
             
             # Clean up files created by the task
@@ -152,7 +152,7 @@ chmod +x {script_path}
             }
             
             launch_result = await client.call_tool("ssh_task_launch", launch_params)
-            launch_json = json.loads(launch_result[0].text)
+            launch_json = json.loads(extract_result_text(launch_result))
             pid = launch_json['pid']
             logger.info(f"Launched task with PID: {pid}")
             
@@ -164,7 +164,7 @@ chmod +x {script_path}
             task_completed = False
             while elapsed_time < max_wait_time:
                 status_result = await client.call_tool("ssh_task_status", {"pid": pid})
-                status_json = json.loads(status_result[0].text)
+                status_json = json.loads(extract_result_text(status_result))
                 if status_json['status'] != 'running':
                     logger.info(f"Task completed with status: {status_json['status']}")
                     task_completed = True
@@ -181,7 +181,7 @@ chmod +x {script_path}
                 "io_timeout": 5.0
             })
             
-            cat_json = json.loads(cat_result[0].text)
+            cat_json = json.loads(extract_result_text(cat_result))
             script_output = cat_json['output']
             logger.info(f"Script output: {script_output}")
             
@@ -224,8 +224,12 @@ async def test_task_not_in_history(mcp_test_environment):
             # Get initial command history
             history_before = await client.call_tool("ssh_cmd_history", {})
             # Handle case where history might be empty
-            if history_before and len(history_before) > 0:
-                history_before_json = json.loads(history_before[0].text)
+            result_text = extract_result_text(history_before)
+            if result_text:
+                history_before_json = json.loads(result_text)
+                # Handle case where limit=1 returns a single dict instead of a list
+                if isinstance(history_before_json, dict):
+                    history_before_json = [history_before_json]
                 initial_history_count = len(history_before_json)
             else:
                 history_before_json = []
@@ -237,7 +241,7 @@ async def test_task_not_in_history(mcp_test_environment):
             task_result = await client.call_tool("ssh_task_launch", {
                 "command": task_cmd
             })
-            task_json = json.loads(task_result[0].text)
+            task_json = json.loads(extract_result_text(task_result))
             task_pid = task_json.get('pid')
             logger.info(f"Launched task with PID: {task_pid}")
 
@@ -247,8 +251,12 @@ async def test_task_not_in_history(mcp_test_environment):
             # Get command history after launching task
             history_after = await client.call_tool("ssh_cmd_history", {})
             # Handle case where history might be empty
-            if history_after and len(history_after) > 0:
-                history_after_json = json.loads(history_after[0].text)
+            result_text = extract_result_text(history_after)
+            if result_text:
+                history_after_json = json.loads(result_text)
+                # Handle case where limit=1 returns a single dict instead of a list
+                if isinstance(history_after_json, dict):
+                    history_after_json = [history_after_json]
                 after_history_count = len(history_after_json)
             else:
                 history_after_json = []
@@ -266,8 +274,12 @@ async def test_task_not_in_history(mcp_test_environment):
             # Get history again
             history_final = await client.call_tool("ssh_cmd_history", {})
             # Handle case where history might be empty
-            if history_final and len(history_final) > 0:
-                history_final_json = json.loads(history_final[0].text)
+            result_text = extract_result_text(history_final)
+            if result_text:
+                history_final_json = json.loads(result_text)
+                # Handle case where limit=1 returns a single dict instead of a list
+                if isinstance(history_final_json, dict):
+                    history_final_json = [history_final_json]
                 final_history_count = len(history_final_json)
             else:
                 history_final_json = []

@@ -2,7 +2,7 @@ import pytest
 import json
 import os
 import time
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -18,7 +18,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             
             # Check if we have sudo access
             sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
-            sudo_json = json.loads(sudo_check[0].text)
+            sudo_json = json.loads(extract_result_text(sudo_check))
             
             if not sudo_json['available']:
                 print("Skipping sudo tests as sudo is not available")
@@ -34,7 +34,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 "use_sudo": True,
                 "mode": 0o700  # Restrictive permissions
             })
-            mkdir_json = json.loads(mkdir_result[0].text)
+            mkdir_json = json.loads(extract_result_text(mkdir_result))
             assert mkdir_json['status'] == 'success', f"Failed to create directory with sudo: {mkdir_json}"
             
             # Verify directory exists and has correct permissions
@@ -42,7 +42,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 "command": f"stat -c '%a %U:%G' {protected_dir}",
                 "use_sudo": True
             })
-            stat_json = json.loads(stat_result[0].text)
+            stat_json = json.loads(extract_result_text(stat_result))
             assert stat_json['status'] == 'success', "Failed to stat directory"
             # Should be "700 root:root" or similar
             assert "700" in stat_json['output'], f"Directory should have 700 permissions, got: {stat_json['output']}"
@@ -66,7 +66,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 "path": protected_dir,
                 "use_sudo": True
             })
-            list_json = json.loads(list_result[0].text)
+            list_json = json.loads(extract_result_text(list_result))
             assert len(list_json) > 0, "Directory listing should return items"
             # The full path is returned, so we need to check if any item contains the test file name
             assert any('test_file.txt' in item.get('path', '') for item in list_json), "Test file not found in directory listing"
@@ -78,7 +78,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 "destination_path": copy_dest,
                 "use_sudo": True
             })
-            copy_json = json.loads(copy_result[0].text)
+            copy_json = json.loads(extract_result_text(copy_result))
             # The ssh_dir_copy tool might not return a 'success' key directly
             assert 'error' not in copy_json, f"Failed to copy directory with sudo: {copy_json}"
             
@@ -87,7 +87,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 "command": f"ls -la {copy_dest}",
                 "use_sudo": True
             })
-            verify_json = json.loads(verify_copy[0].text)
+            verify_json = json.loads(extract_result_text(verify_copy))
             assert verify_json['status'] == 'success', "Failed to verify copied directory"
             assert "test_file.txt" in verify_json['output'], "Test file not found in copied directory"
             
@@ -97,7 +97,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 "dry_run": False,
                 "use_sudo": True
             })
-            delete_json = json.loads(delete_result[0].text)
+            delete_json = json.loads(extract_result_text(delete_result))
             # The ssh_dir_delete tool might not return a 'success' key directly
             assert 'error' not in delete_json, f"Failed to delete directory with sudo: {delete_json}"
             
@@ -106,7 +106,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 "command": f"ls -la {protected_dir} 2>/dev/null || echo 'Directory not found'",
                 "use_sudo": True
             })
-            verify_delete_json = json.loads(verify_delete[0].text)
+            verify_delete_json = json.loads(extract_result_text(verify_delete))
             assert "Directory not found" in verify_delete_json['output'], "Directory should have been deleted"
             
             # Clean up the copied directory

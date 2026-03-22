@@ -1546,7 +1546,7 @@ async def ssh_file_write(
     try:
         # Create a local temporary file with the content
         # Ensure we use Unix-style line endings (LF) for consistency
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, newline='\n') as temp_file:
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False, newline='\n', encoding='utf-8') as temp_file:
             temp_file.write(content)
             local_temp_path = temp_file.name
         
@@ -1609,9 +1609,12 @@ async def ssh_file_write(
                 else:
                     # For append, we need to check if the file exists first
                     try:
-                        # Check if file exists
-                        stat_result = await ssh_file_stat(file_path)
-                        file_exists = stat_result.get('exists', False)
+                        # Check if file exists using SFTP
+                        try:
+                            mcp.ssh_client.stat(file_path)
+                            file_exists = True
+                        except IOError:
+                            file_exists = False
                         
                         if file_exists:
                             # File exists, so we need to append
@@ -1620,7 +1623,7 @@ async def ssh_file_write(
                                 pass
                             else:
                                 # For non-sudo append, download, append locally, then upload
-                                with tempfile.NamedTemporaryFile(mode='w+', delete=False) as combined_file:
+                                with tempfile.NamedTemporaryFile(mode='w+', delete=False, encoding='utf-8') as combined_file:
                                     combined_path = combined_file.name
                                     
                                 try:
@@ -1628,7 +1631,7 @@ async def ssh_file_write(
                                     mcp.ssh_client.get(file_path, combined_path)
                                     
                                     # Append new content with Unix-style line endings
-                                    with open(combined_path, 'a', newline='\n') as f:
+                                    with open(combined_path, 'a', newline='\n', encoding='utf-8') as f:
                                         f.write(content)
                                     
                                     # Upload combined file
@@ -1700,8 +1703,11 @@ async def ssh_file_write(
                         logger.warning(f"Failed to set ownership of {file_path}: {e}")
             
             # Get file size for reporting
-            stat_result = await ssh_file_stat(file_path)
-            file_size = stat_result.get('size', 0) if stat_result.get('exists', False) else len(content)
+            try:
+                sftp_attrs = mcp.ssh_client.stat(file_path)
+                file_size = sftp_attrs.st_size
+            except IOError:
+                file_size = len(content)
             
             return {
                 'success': True,

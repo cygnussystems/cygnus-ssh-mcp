@@ -3,7 +3,7 @@ import json
 import asyncio # Retained as pytest.mark.asyncio might use it or for general async context
 import logging
 import time
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
@@ -34,12 +34,9 @@ async def test_ssh_run_basic(mcp_test_environment):
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
-            assert isinstance(run_result, list), f"Expected list result, got {type(run_result)}"
-            assert len(run_result) > 0, "Expected non-empty list result"
-            assert hasattr(run_result[0], 'text'), "Expected TextContent object with 'text' attribute"
-            
+
             # Parse the JSON response
-            result_json = json.loads(run_result[0].text)
+            result_json = json.loads(extract_result_text(run_result))
             logger.info(f"Command result: {result_json}")
             
             assert result_json['status'] == 'success', f"Expected status 'success', got {result_json.get('status')}"
@@ -82,11 +79,9 @@ async def test_ssh_run_multiline(mcp_test_environment):
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
-            assert isinstance(run_result, list), f"Expected list result, got {type(run_result)}"
-            assert len(run_result) > 0, "Expected non-empty list result"
-            
+
             # Parse the JSON response
-            result_json = json.loads(run_result[0].text)
+            result_json = json.loads(extract_result_text(run_result))
             logger.info(f"Multi-line command result: {result_json}")
             
             # Verify the result
@@ -132,7 +127,7 @@ async def test_ssh_run_failure(mcp_test_environment):
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
-            result_json = json.loads(run_result[0].text)
+            result_json = json.loads(extract_result_text(run_result))
             logger.info(f"Command failure result: {result_json}")
             
             # Verify the failure status
@@ -174,8 +169,8 @@ async def test_ssh_cmd_check(mcp_test_environment):
             # Run the command
             run_result = await client.call_tool("ssh_cmd_run", run_params)
             assert run_result is not None, "Expected non-empty result"
-            result_json = json.loads(run_result[0].text)
-            
+            result_json = json.loads(extract_result_text(run_result))
+
             # The handle ID might be in different fields depending on implementation
             # Try to find it in various possible locations
             handle_id = None
@@ -186,7 +181,7 @@ async def test_ssh_cmd_check(mcp_test_environment):
             else:
                 # If we can't find a specific ID field, we can use command history to get the latest command
                 history_result = await client.call_tool("ssh_cmd_history", {"limit": 1, "reverse": True})
-                history_json = json.loads(history_result[0].text)
+                history_json = json.loads(extract_result_text(history_result))
                 if history_json and len(history_json) > 0:
                     handle_id = history_json[0]['id']
             
@@ -202,7 +197,7 @@ async def test_ssh_cmd_check(mcp_test_environment):
             # Call the cmd_check tool
             check_result = await client.call_tool("ssh_cmd_check_status", check_params)
             assert check_result is not None, "Expected non-empty result"
-            check_json = json.loads(check_result[0].text)
+            check_json = json.loads(extract_result_text(check_result))
             logger.info(f"Command check result: {check_json}")
             
             # Verify the result
@@ -219,7 +214,7 @@ async def test_ssh_cmd_check(mcp_test_environment):
             
             # Call the cmd_check tool again
             check_result = await client.call_tool("ssh_cmd_check_status", check_params)
-            check_json = json.loads(check_result[0].text)
+            check_json = json.loads(extract_result_text(check_result))
             logger.info(f"Second command check result: {check_json}")
             
             # Verify the command completed
@@ -334,9 +329,9 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
-            result_json = json.loads(run_result[0].text)
+            result_json = json.loads(extract_result_text(run_result))
             logger.info(f"Runtime timeout result: {result_json}")
-            
+
             # Verify the timeout status
             assert result_json['status'] == 'runtime_timeout', f"Expected status 'runtime_timeout', got {result_json.get('status')}"
             assert 'id' in result_json, "Handle ID should be included in result"
@@ -358,12 +353,12 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             }
             
             verify_result = await client.call_tool("ssh_cmd_run", verify_params)
-            verify_json = json.loads(verify_result[0].text)
-            
+            verify_json = json.loads(extract_result_text(verify_result))
+
             assert verify_json['status'] == 'success', "Follow-up command should succeed"
             assert verify_json['exit_code'] == 0, "Follow-up command should have exit code 0"
             assert "System is responsive again" in verify_json['output'], "Expected output not found"
-            
+
             logger.info("SSH runtime timeout test completed successfully")
         except Exception as e:
             logger.error(f"Error in SSH runtime timeout test: {e}")
@@ -406,12 +401,12 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             
             # Verify the result
             assert run_result is not None, "Expected non-empty result"
-            result_json = json.loads(run_result[0].text)
+            result_json = json.loads(extract_result_text(run_result))
             logger.info(f"Runtime timeout result: {result_json}")
-            
+
             # Verify the timeout status
             assert result_json['status'] == 'runtime_timeout', f"Expected status 'runtime_timeout', got {result_json.get('status')}"
-            
+
             # Get the handle ID directly from the result
             handle_id = result_json.get('id')
             assert handle_id is not None, "Handle ID should be included in result"
@@ -428,8 +423,8 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
                 "wait_seconds": 1.0  # Short wait
             }
             check_result = await client.call_tool("ssh_cmd_check_status", check_params)
-            check_json = json.loads(check_result[0].text)
-            
+            check_json = json.loads(extract_result_text(check_result))
+
             logger.info(f"Command status before kill: {check_json}")
             
             # The process might still be running even though the command timed out
@@ -441,8 +436,8 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             }
             
             kill_result = await client.call_tool("ssh_cmd_kill", kill_params)
-            kill_json = json.loads(kill_result[0].text)
-            
+            kill_json = json.loads(extract_result_text(kill_result))
+
             logger.info(f"Kill result: {kill_json}")
             assert kill_json['result'] in ['killed', 'terminated', 'not_running'], \
                 f"Command should be successfully killed, got: {kill_json['result']}"
@@ -450,8 +445,8 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             # Verify the command is no longer running
             await asyncio.sleep(1)  # Give it a moment to update
             check_result = await client.call_tool("ssh_cmd_check_status", check_params)
-            check_json = json.loads(check_result[0].text)
-            
+            check_json = json.loads(extract_result_text(check_result))
+
             logger.info(f"Command status after kill: {check_json}")
             assert check_json['status'] in ['completed', 'not_found'], \
                 f"Command should no longer be running, status: {check_json['status']}"
@@ -464,11 +459,11 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             }
             
             verify_result = await client.call_tool("ssh_cmd_run", verify_params)
-            verify_json = json.loads(verify_result[0].text)
-            
+            verify_json = json.loads(extract_result_text(verify_result))
+
             assert verify_json['exit_code'] == 0, "Follow-up command should succeed"
             assert "System is responsive after manual kill" in verify_json['output'], "Expected output not found"
-            
+
             logger.info("SSH manual interrupt test completed successfully")
         except Exception as e:
             logger.error(f"Error in SSH manual interrupt test: {e}")

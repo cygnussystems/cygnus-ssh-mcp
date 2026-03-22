@@ -12,7 +12,7 @@ from conftest import (
     is_ssh_connected, 
     make_connection, 
     disconnect_ssh
-)
+, extract_result_text)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -40,12 +40,11 @@ async def test_ssh_status():
             
             # Verify the result
             assert status_result is not None, "Expected non-empty result"
-            assert isinstance(status_result, list), f"Expected list result, got {type(status_result)}"
-            assert len(status_result) > 0, "Expected non-empty list result"
-            assert hasattr(status_result[0], 'text'), "Expected TextContent object with 'text' attribute"
-            
+            result_text = extract_result_text(status_result)
+            assert result_text, "Expected result with text content"
+
             # Parse the JSON response
-            result_json = json.loads(status_result[0].text)
+            result_json = json.loads(result_text)
             logger.info(f"Status result: {result_json}")
             
             # Verify the structure of the result - now using the simplified status format
@@ -96,7 +95,7 @@ async def test_ssh_reconnect():
             
             # Get status of first connection
             first_status_result = await client.call_tool("ssh_conn_status", {})
-            first_status_json = json.loads(first_status_result[0].text)
+            first_status_json = json.loads(extract_result_text(first_status_result))
             logger.info(f"First connection status: {first_status_json}")
             
             # Now attempt to reconnect to the same host using its user@hostname key
@@ -105,7 +104,7 @@ async def test_ssh_reconnect():
                 "host_name": host_key_for_connection
             }
             reconnect_result = await client.call_tool("ssh_conn_connect", reconnect_params)
-            reconnect_json = json.loads(reconnect_result[0].text)
+            reconnect_json = json.loads(extract_result_text(reconnect_result))
             
             # Verify reconnection was successful
             assert reconnect_json.get('status') == 'success', f"Reconnection should succeed, got: {reconnect_json}"
@@ -118,7 +117,7 @@ async def test_ssh_reconnect():
             
             # Get status after reconnection
             second_status_result = await client.call_tool("ssh_conn_status", {})
-            second_status_json = json.loads(second_status_result[0].text)
+            second_status_json = json.loads(extract_result_text(second_status_result))
             logger.info(f"Second connection status: {second_status_json}")
             
             # The connection details (host, user) should be the same
@@ -154,12 +153,11 @@ async def test_list_tools():
 
             # Verify the result structure from client.call_tool
             assert result is not None, "Expected non-empty result from call_tool"
-            assert isinstance(result, list), f"Expected list result from call_tool, got {type(result)}"
-            assert len(result) > 0, "Expected non-empty list from call_tool"
-            assert hasattr(result[0], 'text'), "Expected TextContent object with 'text' attribute"
+            result_text = extract_result_text(result)
+            assert result_text, "Expected result with text content"
 
             # Parse the JSON response
-            tools_list = json.loads(result[0].text)
+            tools_list = json.loads(result_text)
             logger.info(f"Parsed tools list: {tools_list}")
 
             # Verify the parsed list
@@ -215,12 +213,11 @@ async def test_ssh_conn_host_info():
             
             # Verify the result
             assert host_info_result is not None, "Expected non-empty result"
-            assert isinstance(host_info_result, list), f"Expected list result, got {type(host_info_result)}"
-            assert len(host_info_result) > 0, "Expected non-empty list result"
-            assert hasattr(host_info_result[0], 'text'), "Expected TextContent object with 'text' attribute"
-            
+            result_text = extract_result_text(host_info_result)
+            assert result_text, "Expected result with text content"
+
             # Parse the JSON response
-            result_json = json.loads(host_info_result[0].text)
+            result_json = json.loads(result_text)
             logger.info(f"Host info result: {result_json}")
             
             # Verify the structure of the result
@@ -272,7 +269,7 @@ async def test_ssh_host_disconnect():
             
             # Test disconnecting when no connection exists
             no_conn_result = await client.call_tool("ssh_host_disconnect", {})
-            no_conn_json = json.loads(no_conn_result[0].text)
+            no_conn_json = json.loads(extract_result_text(no_conn_result))
             
             # Verify the result when no connection exists
             assert no_conn_json['status'] == 'success', "Expected success status when no connection exists"
@@ -286,14 +283,14 @@ async def test_ssh_host_disconnect():
             
             # Get connection details before disconnecting
             status_result = await client.call_tool("ssh_conn_status", {})
-            status_json = json.loads(status_result[0].text)
+            status_json = json.loads(extract_result_text(status_result))
             conn_user = status_json['user']
             conn_host = status_json['host']
             logger.info(f"Connected to {conn_user}@{conn_host}")
             
             # Test disconnecting an active connection
             disconnect_result = await client.call_tool("ssh_host_disconnect", {})
-            disconnect_json = json.loads(disconnect_result[0].text)
+            disconnect_json = json.loads(extract_result_text(disconnect_result))
             
             # Verify the disconnect result
             assert disconnect_json['status'] == 'success', "Expected success status for disconnect"

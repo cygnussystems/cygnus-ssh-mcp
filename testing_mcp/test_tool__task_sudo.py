@@ -1,7 +1,7 @@
 import pytest
 import json
 import time
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -17,7 +17,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
             
             # Check if we have sudo access
             sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
-            sudo_json = json.loads(sudo_check[0].text)
+            sudo_json = json.loads(extract_result_text(sudo_check))
             
             if not sudo_json['available']:
                 print("Skipping sudo tests as sudo is not available")
@@ -32,7 +32,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
                 "use_sudo": True,
                 "log_output": True
             })
-            launch_json = json.loads(launch_result[0].text)
+            launch_json = json.loads(extract_result_text(launch_result))
             assert 'pid' in launch_json, f"Failed to launch task with sudo: {launch_json}"
             pid = launch_json['pid']
             
@@ -46,7 +46,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
             status_result = await client.call_tool("ssh_task_status", {
                 "pid": pid
             })
-            status_json = json.loads(status_result[0].text)
+            status_json = json.loads(extract_result_text(status_result))
             assert status_json['status'] in ['exited', 'invalid'], f"Task should have completed, status: {status_json['status']}"
             
             # Verify the file was created
@@ -54,7 +54,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
                 "command": f"cat {protected_file}",
                 "use_sudo": True
             })
-            verify_json = json.loads(verify_result[0].text)
+            verify_json = json.loads(extract_result_text(verify_result))
             assert verify_json['status'] == 'success', "Failed to verify file creation"
             assert "This file was created with sudo" in verify_json['output'], "File content doesn't match expected"
             
@@ -63,14 +63,14 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
                 "command": "sleep 30",
                 "use_sudo": True
             })
-            long_task_json = json.loads(long_task_result[0].text)
+            long_task_json = json.loads(extract_result_text(long_task_result))
             long_task_pid = long_task_json['pid']
             
             # Verify task is running
             status_result = await client.call_tool("ssh_task_status", {
                 "pid": long_task_pid
             })
-            status_json = json.loads(status_result[0].text)
+            status_json = json.loads(extract_result_text(status_result))
             assert status_json['status'] == 'running', "Long task should be running"
             
             # Kill the task with sudo
@@ -79,14 +79,14 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
                 "signal": 15,
                 "use_sudo": True
             })
-            kill_json = json.loads(kill_result[0].text)
+            kill_json = json.loads(extract_result_text(kill_result))
             assert kill_json['result'] in ['killed', 'terminated'], f"Failed to kill task with sudo: {kill_json}"
             
             # Verify task was killed
             status_after_kill = await client.call_tool("ssh_task_status", {
                 "pid": long_task_pid
             })
-            status_after_json = json.loads(status_after_kill[0].text)
+            status_after_json = json.loads(extract_result_text(status_after_kill))
             assert status_after_json['status'] != 'running', f"Task should not be running after kill, status: {status_after_json['status']}"
             
         finally:

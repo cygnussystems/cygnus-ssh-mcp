@@ -2,7 +2,7 @@ import pytest
 import json
 import os
 import tempfile
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -36,7 +36,7 @@ Line 3: This is the last line"""
                 "match_line": "Line 2: This line will be replaced",
                 "new_line": "Line 2: This line has been replaced"
             })
-            result = json.loads(replace_result[0].text)
+            result = json.loads(extract_result_text(replace_result))
             assert result['success'] == True
 
             # Verify content
@@ -44,7 +44,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2: This line has been replaced" in output
             assert "Line 2: This line will be replaced" not in output
 
@@ -54,7 +54,7 @@ Line 3: This is the last line"""
                 "match_line": "This line does not exist",
                 "new_line": "New line"
             })
-            nonexistent_result = json.loads(replace_nonexistent[0].text)
+            nonexistent_result = json.loads(extract_result_text(replace_nonexistent))
             assert nonexistent_result['success'] == False, "Should fail when line doesn't exist"
 
         finally:
@@ -92,7 +92,7 @@ Line 3: This is the last line"""
                 "match_line": "Line 2: This line will be replaced with multiple lines",
                 "new_lines": ["Line 2: First replacement line", "Line 2.1: Second replacement line"]
             })
-            result = json.loads(replace_result[0].text)
+            result = json.loads(extract_result_text(replace_result))
             assert result['success'] == True
 
             # Verify content
@@ -100,7 +100,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2: First replacement line" in output
             assert "Line 2.1: Second replacement line" in output
             assert "Line 2: This line will be replaced with multiple lines" not in output
@@ -158,7 +158,7 @@ async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
                 "match_line": match_line_for_test,
                 "new_line": "Line 2: This has been replaced"
             })
-            result = json.loads(replace_result[0].text)
+            result = json.loads(extract_result_text(replace_result))
             assert result['success'] == False, "Should fail when match line is not unique"
 
             # Test replace line with duplicate match (multi-line version)
@@ -167,7 +167,7 @@ async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
                 "match_line": match_line_for_test,
                 "new_lines": ["Line 2: This has been replaced", "Another line"]
             })
-            multi_result = json.loads(replace_multi_result[0].text)
+            multi_result = json.loads(extract_result_text(replace_multi_result))
             assert multi_result['success'] == False, "Should fail when match line is not unique"
 
             # Test insert after line with duplicate match
@@ -176,7 +176,7 @@ async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
                 "match_line": match_line_for_test,
                 "lines_to_insert": ["New inserted line"]
             })
-            insert_json = json.loads(insert_result[0].text)
+            insert_json = json.loads(extract_result_text(insert_result))
             assert insert_json['success'] == False, "Should fail when match line is not unique"
 
             # Test delete line with duplicate match
@@ -184,7 +184,7 @@ async def test_ssh_file_operations_with_duplicate_lines(mcp_test_environment):
                 "file_path": test_file,
                 "match_line": match_line_for_test
             })
-            delete_json = json.loads(delete_result[0].text)
+            delete_json = json.loads(extract_result_text(delete_result))
             assert delete_json['success'] == False, "Should fail when match line is not unique"
 
         finally:
@@ -213,7 +213,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
                 "pattern": "any pattern",
                 "regex": False
             })
-            find_json = json.loads(find_result[0].text)
+            find_json = json.loads(extract_result_text(find_result))
             assert find_json['total_matches'] == 0
             assert 'error' in find_json
 
@@ -223,7 +223,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
                 "match_line": "any line",
                 "context": 1
             })
-            context_json = json.loads(context_result[0].text)
+            context_json = json.loads(extract_result_text(context_result))
             assert context_json['match_found'] == False
             assert 'error' in context_json
 
@@ -233,7 +233,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
                 "match_line": "any line",
                 "new_lines": ["new line"]
             })
-            replace_json = json.loads(replace_result[0].text)
+            replace_json = json.loads(extract_result_text(replace_result))
             assert replace_json['success'] == False
 
             # Test insert line in non-existent file
@@ -242,7 +242,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
                 "match_line": "any line",
                 "lines_to_insert": ["new line"]
             })
-            insert_json = json.loads(insert_result[0].text)
+            insert_json = json.loads(extract_result_text(insert_result))
             assert insert_json['success'] == False
 
             # Test delete line in non-existent file
@@ -250,7 +250,7 @@ async def test_ssh_file_operations_with_nonexistent_file(mcp_test_environment):
                 "file_path": nonexistent_file,
                 "match_line": "any line"
             })
-            delete_json = json.loads(delete_result[0].text)
+            delete_json = json.loads(extract_result_text(delete_result))
             assert delete_json['success'] == False
 
         finally:
@@ -284,7 +284,7 @@ Line 3: This is the last line"""
                 "match_line": "Line 2: This line will be modified",
                 "new_line": ""
             })
-            result = json.loads(replace_result[0].text)
+            result = json.loads(extract_result_text(replace_result))
             assert result['success'] == True
 
             # Verify content - line should be replaced with empty line
@@ -292,7 +292,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2: This line will be modified" not in output
 
             # Check lines - should have an empty line between Line 1 and Line 3
@@ -314,7 +314,7 @@ Line 3: This is the last line"""
                 "match_line": "Line 2: This line will be modified",
                 "new_lines": []
             })
-            result = json.loads(replace_result[0].text)
+            result = json.loads(extract_result_text(replace_result))
             assert result['success'] == True
 
             # Verify content - line should be deleted
@@ -322,7 +322,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2: This line will be modified" not in output
 
             # Check remaining lines
@@ -343,7 +343,7 @@ Line 3: This is the last line"""
                 "match_line": "Line 2: This line will be modified",
                 "new_lines": [""]
             })
-            result = json.loads(replace_result[0].text)
+            result = json.loads(extract_result_text(replace_result))
             assert result['success'] == True
 
             # Verify content - line should be replaced with empty line
@@ -351,7 +351,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2: This line will be modified" not in output
 
             # Check lines - should have an empty line between Line 1 and Line 3
@@ -372,7 +372,7 @@ Line 3: This is the last line"""
                 "file_path": test_file,
                 "match_line": "Line 2: This line will be modified"
             })
-            delete_json = json.loads(delete_result[0].text)
+            delete_json = json.loads(extract_result_text(delete_result))
             assert delete_json['success'] == True
 
             # Verify content - line should be deleted
@@ -380,7 +380,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2: This line will be modified" not in output
 
             # Check remaining lines

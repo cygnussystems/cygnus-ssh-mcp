@@ -2,7 +2,7 @@ import pytest
 import json
 import os
 import tempfile
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
 from mcp_ssh_server import mcp
 from fastmcp import Client
 
@@ -34,7 +34,7 @@ async def test_ssh_file_transfer(mcp_test_environment):
                 "local_path": local_path,
                 "remote_path": remote_path
             })
-            upload_json = json.loads(upload_result[0].text)
+            upload_json = json.loads(extract_result_text(upload_result))
             assert upload_json['success'], "Upload failed"
             
             # Test download
@@ -44,7 +44,7 @@ async def test_ssh_file_transfer(mcp_test_environment):
                 "local_path": download_path,
                 "remote_path": remote_path
             })
-            download_json = json.loads(download_result[0].text)
+            download_json = json.loads(extract_result_text(download_result))
             assert download_json['success'], "Download failed"
             
             # Verify content
@@ -88,11 +88,11 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
                 "path": test_dir,
                 "mode": 0o755
             })
-            assert json.loads(mkdir_result[0].text)['status'] == 'success'
+            assert json.loads(extract_result_text(mkdir_result))['status'] == 'success'
             
             # Verify directory exists using ssh_file_stat
             stat_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
-            stat_info = json.loads(stat_result[0].text) # Should be valid JSON from the tool
+            stat_info = json.loads(extract_result_text(stat_result)) # Should be valid JSON from the tool
                 
             # Print for debugging
             print(f"stat_info type: {type(stat_info)}")
@@ -106,17 +106,17 @@ async def test_ssh_mkdir_rmdir(mcp_test_environment):
                 "path": test_dir,
                 "recursive": False # Should succeed as it's empty
             })
-            assert json.loads(rmdir_result[0].text)['status'] == 'success'
+            assert json.loads(extract_result_text(rmdir_result))['status'] == 'success'
 
             # Verify directory no longer exists
             stat_after_rm_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
-            stat_info_after_rm = json.loads(stat_after_rm_result[0].text)
+            stat_info_after_rm = json.loads(extract_result_text(stat_after_rm_result))
             assert stat_info_after_rm.get('exists') == False, f"Directory {test_dir} should not exist after rmdir. Stat info: {stat_info_after_rm}"
             
         finally:
             # Additional cleanup just in case, though the test should handle it
             stat_check_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
-            stat_check_info = json.loads(stat_check_result[0].text)
+            stat_check_info = json.loads(extract_result_text(stat_check_result))
             if stat_check_info.get('exists'):
                 await client.call_tool("ssh_dir_remove", {"path": test_dir, "recursive": True})
             await disconnect_ssh(client)
@@ -152,7 +152,7 @@ Line 4: This is the last line"""
                 "pattern": "pattern",
                 "regex": False
             })
-            result = json.loads(find_result[0].text)
+            result = json.loads(extract_result_text(find_result))
             
             # Verify results
             assert result['total_matches'] == 2
@@ -198,7 +198,7 @@ Line 5: This is the last line"""
                 "match_line": "Line 3: This is the target line",
                 "context": 1
             })
-            result = json.loads(context_result[0].text)
+            result = json.loads(extract_result_text(context_result))
             
             # Verify results
             assert result['match_found'] == True
@@ -246,7 +246,7 @@ Line 3: This is the last line"""
                 "match_line": "Line 2: This is the target line",
                 "lines_to_insert": ["Line 2.5: This is an inserted line"]
             })
-            result = json.loads(insert_result[0].text)
+            result = json.loads(extract_result_text(insert_result))
             assert result['success'] == True
             
             # Verify content
@@ -254,7 +254,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2.5: This is an inserted line" in output
             
             # Check order of lines
@@ -270,7 +270,7 @@ Line 3: This is the last line"""
                 "match_line": "This line does not exist",
                 "lines_to_insert": ["New line"]
             })
-            nonexistent_result = json.loads(insert_nonexistent[0].text)
+            nonexistent_result = json.loads(extract_result_text(insert_nonexistent))
             assert nonexistent_result['success'] == False, "Should fail when line doesn't exist"
             
         finally:
@@ -308,7 +308,7 @@ Line 3: This is the last line"""
                 "file_path": test_file,
                 "match_line": "Line 2: This line will be deleted"
             })
-            result = json.loads(delete_result[0].text)
+            result = json.loads(extract_result_text(delete_result))
             assert result['success'] == True
             
             # Verify content
@@ -316,7 +316,7 @@ Line 3: This is the last line"""
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert "Line 2: This line will be deleted" not in output
             
             # Check remaining lines
@@ -330,7 +330,7 @@ Line 3: This is the last line"""
                 "file_path": test_file,
                 "match_line": "This line does not exist"
             })
-            nonexistent_result = json.loads(delete_nonexistent[0].text)
+            nonexistent_result = json.loads(extract_result_text(delete_nonexistent))
             assert nonexistent_result['success'] == False, "Should fail when line doesn't exist"
             
         finally:
@@ -366,7 +366,7 @@ async def test_ssh_file_copy(mcp_test_environment):
                 "destination_path": dest_file,
                 "append_timestamp": False
             })
-            result = json.loads(copy_result[0].text)
+            result = json.loads(extract_result_text(copy_result))
             assert result['success'] == True
             assert result['copied_to'] == dest_file
             
@@ -375,7 +375,7 @@ async def test_ssh_file_copy(mcp_test_environment):
                 "command": f"cat {dest_file}",
                 "io_timeout": 5.0
             })
-            assert file_content in json.loads(cat_result[0].text)['output']
+            assert file_content in json.loads(extract_result_text(cat_result))['output']
             
             # Copy file with timestamp
             timestamped_copy_result = await client.call_tool("ssh_file_copy", {
@@ -383,7 +383,7 @@ async def test_ssh_file_copy(mcp_test_environment):
                 "destination_path": dest_file,
                 "append_timestamp": True
             })
-            timestamped_result = json.loads(timestamped_copy_result[0].text)
+            timestamped_result = json.loads(extract_result_text(timestamped_copy_result))
             assert timestamped_result['success'] == True
                 
             # Check that the timestamped path contains the base destination path
@@ -397,7 +397,7 @@ async def test_ssh_file_copy(mcp_test_environment):
                 "command": f"ls -la {timestamped_result['copied_to']}",
                 "io_timeout": 5.0
             })
-            assert timestamped_result['copied_to'] in json.loads(ls_result[0].text)['output']
+            assert timestamped_result['copied_to'] in json.loads(extract_result_text(ls_result))['output']
             
             # Test non-existent source file
             nonexistent_copy = await client.call_tool("ssh_file_copy", {
@@ -405,7 +405,7 @@ async def test_ssh_file_copy(mcp_test_environment):
                 "destination_path": dest_file,
                 "append_timestamp": False
             })
-            nonexistent_result = json.loads(nonexistent_copy[0].text)
+            nonexistent_result = json.loads(extract_result_text(nonexistent_copy))
             assert nonexistent_result['success'] == False, "Should fail when source file doesn't exist"
             
         finally:
@@ -441,7 +441,7 @@ async def test_ssh_file_move(mcp_test_environment):
                 "destination": dest_file,
                 "overwrite": False
             })
-            result = json.loads(move_result[0].text)
+            result = json.loads(extract_result_text(move_result))
             assert result['success'] == True
             
             # Verify source file no longer exists
@@ -449,14 +449,14 @@ async def test_ssh_file_move(mcp_test_environment):
                 "command": f"ls {source_file} 2>/dev/null || echo 'File not found'",
                 "io_timeout": 5.0
             })
-            assert "File not found" in json.loads(source_check[0].text)['output']
+            assert "File not found" in json.loads(extract_result_text(source_check))['output']
             
             # Verify destination file exists with correct content
             cat_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {dest_file}",
                 "io_timeout": 5.0
             })
-            assert file_content in json.loads(cat_result[0].text)['output']
+            assert file_content in json.loads(extract_result_text(cat_result))['output']
             
             # Test overwrite behavior
             # Create a new source file
@@ -471,7 +471,7 @@ async def test_ssh_file_move(mcp_test_environment):
                 "destination": dest_file,
                 "overwrite": False
             })
-            no_overwrite_result = json.loads(move_no_overwrite[0].text)
+            no_overwrite_result = json.loads(extract_result_text(move_no_overwrite))
             assert no_overwrite_result['success'] == False, "Should fail when destination exists and overwrite=False"
             
             # Move with overwrite
@@ -480,7 +480,7 @@ async def test_ssh_file_move(mcp_test_environment):
                 "destination": dest_file,
                 "overwrite": True
             })
-            overwrite_result = json.loads(move_with_overwrite[0].text)
+            overwrite_result = json.loads(extract_result_text(move_with_overwrite))
             assert overwrite_result['success'] == True
             
             # Verify content was updated
@@ -488,7 +488,7 @@ async def test_ssh_file_move(mcp_test_environment):
                 "command": f"cat {dest_file}",
                 "io_timeout": 5.0
             })
-            assert "New content" in json.loads(cat_result[0].text)['output']
+            assert "New content" in json.loads(extract_result_text(cat_result))['output']
             
         finally:
             # Clean up test files
@@ -521,7 +521,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "file_path": test_file,
                 "content": test_content
             })
-            result = json.loads(write_result[0].text)
+            result = json.loads(extract_result_text(write_result))
             assert result['success'] == True
             assert result['file_path'] == test_file
             assert result['bytes_written'] > 0
@@ -531,7 +531,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert output.rstrip('\n') == test_content
             
             # Test 2: Overwrite existing file
@@ -540,7 +540,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "file_path": test_file,
                 "content": new_content
             })
-            overwrite_json = json.loads(overwrite_result[0].text)
+            overwrite_json = json.loads(extract_result_text(overwrite_result))
             assert overwrite_json['success'] == True
             
             # Verify content was overwritten
@@ -548,7 +548,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert output.rstrip('\n') == new_content
             assert "This is a test file" not in output
             
@@ -558,7 +558,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
                 "content": "Content with specific permissions",
                 "mode": 0o600
             })
-            chmod_json = json.loads(chmod_result[0].text)
+            chmod_json = json.loads(extract_result_text(chmod_result))
             assert chmod_json['success'] == True
             assert chmod_json['mode'] == "600"
             
@@ -566,7 +566,7 @@ async def test_ssh_file_write_basic(mcp_test_environment):
             stat_result = await client.call_tool("ssh_file_stat", {
                 "path": test_file
             })
-            stat_json = json.loads(stat_result[0].text)
+            stat_json = json.loads(extract_result_text(stat_result))
             # The mode includes file type bits (0o100000 for regular files)
             # so we check if the permission bits (last 3 digits) match
             assert stat_json['mode'].endswith('600')
@@ -598,7 +598,7 @@ async def test_ssh_file_write_append(mcp_test_environment):
                 "file_path": test_file,
                 "content": initial_content
             })
-            result = json.loads(write_result[0].text)
+            result = json.loads(extract_result_text(write_result))
             assert result['success'] == True
             
             # Test append mode
@@ -607,7 +607,7 @@ async def test_ssh_file_write_append(mcp_test_environment):
                 "content": append_content,
                 "append": True
             })
-            append_json = json.loads(append_result[0].text)
+            append_json = json.loads(extract_result_text(append_result))
             assert append_json['success'] == True
             assert append_json['append'] == True
             
@@ -616,7 +616,7 @@ async def test_ssh_file_write_append(mcp_test_environment):
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             expected_content = initial_content + append_content
             assert output.rstrip('\n') == expected_content
             
@@ -627,7 +627,7 @@ async def test_ssh_file_write_append(mcp_test_environment):
                 "content": "Content in a new file with append mode",
                 "append": True
             })
-            nonexistent_json = json.loads(nonexistent_append[0].text)
+            nonexistent_json = json.loads(extract_result_text(nonexistent_append))
             assert nonexistent_json['success'] == True
             
             # Verify content was created
@@ -635,7 +635,7 @@ async def test_ssh_file_write_append(mcp_test_environment):
                 "command": f"cat {nonexistent_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert output.rstrip('\n') == "Content in a new file with append mode"
             
         finally:
@@ -672,7 +672,7 @@ async def test_ssh_file_write_create_dirs(mcp_test_environment):
                 "content": test_content,
                 "create_dirs": False
             })
-            result = json.loads(write_result[0].text)
+            result = json.loads(extract_result_text(write_result))
             assert result['success'] == False
             assert "Parent directory does not exist" in result.get('error', '')
             
@@ -682,7 +682,7 @@ async def test_ssh_file_write_create_dirs(mcp_test_environment):
                 "content": test_content,
                 "create_dirs": True
             })
-            dirs_result = json.loads(write_with_dirs[0].text)
+            dirs_result = json.loads(extract_result_text(write_with_dirs))
             assert dirs_result['success'] == True
             
             # Verify file exists and has correct content
@@ -690,7 +690,7 @@ async def test_ssh_file_write_create_dirs(mcp_test_environment):
                 "command": f"cat {test_file}",
                 "io_timeout": 5.0
             })
-            output = json.loads(cat_result[0].text)['output']
+            output = json.loads(extract_result_text(cat_result))['output']
             assert output.rstrip('\n') == test_content
             
             # Verify parent directories were created
@@ -698,7 +698,7 @@ async def test_ssh_file_write_create_dirs(mcp_test_environment):
                 "command": f"ls -la {test_dir}/nested/path",
                 "io_timeout": 5.0
             })
-            ls_output = json.loads(ls_result[0].text)['output']
+            ls_output = json.loads(extract_result_text(ls_result))['output']
             assert "test_file.txt" in ls_output
             
         finally:
@@ -722,7 +722,7 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
             
             # Check if we have sudo access
             sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
-            sudo_json = json.loads(sudo_check[0].text)
+            sudo_json = json.loads(extract_result_text(sudo_check))
             
             if not sudo_json['available']:
                 print("Skipping sudo tests as sudo is not available")
@@ -738,7 +738,7 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
                 "content": test_content,
                 "use_sudo": True
             })
-            result = json.loads(write_result[0].text)
+            result = json.loads(extract_result_text(write_result))
             
             # If sudo worked, verify the file
             if result['success']:
@@ -748,7 +748,7 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
                     "io_timeout": 5.0,
                     "use_sudo": True
                 })
-                output = json.loads(cat_result[0].text)['output']
+                output = json.loads(extract_result_text(cat_result))['output']
                 # Strip trailing newline from output for comparison
                 assert output.rstrip('\n') == test_content
                 

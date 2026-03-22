@@ -1,7 +1,7 @@
 import pytest
 import json
 import logging
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text
 # Import necessary modules
 from mcp_ssh_server import mcp
 from fastmcp import Client
@@ -28,11 +28,10 @@ async def test_ssh_verify_sudo(mcp_test_environment):
             
             # Verify the result
             assert sudo_result is not None, "Expected non-empty result"
-            assert isinstance(sudo_result, list), f"Expected list result, got {type(sudo_result)}"
-            assert len(sudo_result) > 0, "Expected non-empty list result"
-            assert hasattr(sudo_result[0], 'text'), "Expected TextContent object with 'text' attribute"
-            
-            sudo_json = json.loads(sudo_result[0].text)
+            result_text = extract_result_text(sudo_result)
+            assert result_text, "Expected result with text content"
+
+            sudo_json = json.loads(result_text)
             
             # The result should be a dictionary with specific keys
             assert isinstance(sudo_json, dict), f"Expected dictionary result, got {type(sudo_json)}"
@@ -77,8 +76,9 @@ async def test_ssh_system_operations(mcp_test_environment):
                 }
                 
                 sudo_run_result = await client.call_tool("ssh_cmd_run", sudo_run_params)
-                assert isinstance(sudo_run_result, list) and len(sudo_run_result) > 0
-                sudo_run_json = json.loads(sudo_run_result[0].text)
+                result_text = extract_result_text(sudo_run_result)
+                assert result_text, "Expected result with text content"
+                sudo_run_json = json.loads(result_text)
                 logger.info(f"Sudo command result: {sudo_run_json}")
                 
                 # If sudo works, the output should contain "uid=0(root)"
@@ -91,8 +91,9 @@ async def test_ssh_system_operations(mcp_test_environment):
             # Test getting system status - first get basic status
             logger.info("Getting basic system status")
             status_result = await client.call_tool("ssh_conn_status", {})
-            assert isinstance(status_result, list) and len(status_result) > 0
-            status_json = json.loads(status_result[0].text)
+            result_text = extract_result_text(status_result)
+            assert result_text, "Expected result with text content"
+            status_json = json.loads(result_text)
             
             # Verify basic system information
             assert 'os_type' in status_json, "Status should include OS type"
@@ -101,8 +102,9 @@ async def test_ssh_system_operations(mcp_test_environment):
             # Now get detailed host info
             logger.info("Getting detailed host info")
             host_info_result = await client.call_tool("ssh_conn_host_info", {})
-            assert isinstance(host_info_result, list) and len(host_info_result) > 0
-            host_info_json = json.loads(host_info_result[0].text)
+            result_text = extract_result_text(host_info_result)
+            assert result_text, "Expected result with text content"
+            host_info_json = json.loads(result_text)
             
             # Verify detailed system information
             assert 'connection' in host_info_json, "Expected 'connection' key in host info result"
