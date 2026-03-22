@@ -305,25 +305,25 @@ def test_disk_info(ssh_client): # Use the fixture
     print_test_footer()
 
 
-if __name__ == "__main__":
-    print("Running basic tests directly (pytest recommended)...")
-    client = None
-    try:
-        client = get_client(force_new=True)
-        test_connection(client)
-        test_full_status(client)
-        test_user_status(client)
-        test_hardware_info(client)
-        test_network_info(client)
-        test_disk_info(client)
-        print("\nAll basic tests completed.")
-    except Exception as e:
-        print(f"\n*** Test run failed ***")
-        print(f"Exception type: {type(e).__name__}")
-        print(f"Exception message: {str(e)}")
-        print("Stack trace:")
-        import traceback
-        traceback.print_exc()
-    finally:
-        if client:
-            cleanup_client(client)
+# if __name__ == "__main__":
+#     print("Running basic tests directly (pytest recommended)...")
+#     client = None
+#     try:
+#         client = get_client(force_new=True)
+#         test_connection(client)
+#         test_full_status(client)
+#         test_user_status(client)
+#         test_hardware_info(client)
+#         test_network_info(client)
+#         test_disk_info(client)
+#         print("\nAll basic tests completed.")
+#     except Exception as e:
+#         print(f"\n*** Test run failed ***")
+#         print(f"Exception type: {type(e).__name__}")
+#         print(f"Exception message: {str(e)}")
+#         print("Stack trace:")
+#         import traceback
+#         traceback.print_exc()
+#     finally:
+#         if client:
+#             cleanup_client(client)

@@ -31,7 +31,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             # Create directory with sudo
             mkdir_result = await client.call_tool("ssh_dir_mkdir", {
                 "path": protected_dir,
-                "sudo": True,
+                "use_sudo": True,
                 "mode": 0o700  # Restrictive permissions
             })
             mkdir_json = json.loads(mkdir_result[0].text)
@@ -40,7 +40,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             # Verify directory exists and has correct permissions
             stat_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"stat -c '%a %U:%G' {protected_dir}",
-                "sudo": True
+                "use_sudo": True
             })
             stat_json = json.loads(stat_result[0].text)
             assert stat_json['status'] == 'success', "Failed to stat directory"
@@ -51,20 +51,20 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             subdir = f"{protected_dir}/subdir"
             await client.call_tool("ssh_dir_mkdir", {
                 "path": subdir,
-                "sudo": True
+                "use_sudo": True
             })
             
             # Create a test file in the protected directory
             test_file = f"{protected_dir}/test_file.txt"
             await client.call_tool("ssh_cmd_run", {
                 "command": f"echo 'Test content' > {test_file}",
-                "sudo": True
+                "use_sudo": True
             })
             
             # Test directory listing with sudo
             list_result = await client.call_tool("ssh_dir_list_advanced", {
                 "path": protected_dir,
-                "sudo": True
+                "use_sudo": True
             })
             list_json = json.loads(list_result[0].text)
             assert len(list_json) > 0, "Directory listing should return items"
@@ -76,7 +76,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             copy_result = await client.call_tool("ssh_dir_copy", {
                 "source_path": protected_dir,
                 "destination_path": copy_dest,
-                "sudo": True
+                "use_sudo": True
             })
             copy_json = json.loads(copy_result[0].text)
             # The ssh_dir_copy tool might not return a 'success' key directly
@@ -85,7 +85,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             # Verify copy exists
             verify_copy = await client.call_tool("ssh_cmd_run", {
                 "command": f"ls -la {copy_dest}",
-                "sudo": True
+                "use_sudo": True
             })
             verify_json = json.loads(verify_copy[0].text)
             assert verify_json['status'] == 'success', "Failed to verify copied directory"
@@ -95,7 +95,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             delete_result = await client.call_tool("ssh_dir_delete", {
                 "path": protected_dir,
                 "dry_run": False,
-                "sudo": True
+                "use_sudo": True
             })
             delete_json = json.loads(delete_result[0].text)
             # The ssh_dir_delete tool might not return a 'success' key directly
@@ -104,7 +104,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             # Verify directory was deleted
             verify_delete = await client.call_tool("ssh_cmd_run", {
                 "command": f"ls -la {protected_dir} 2>/dev/null || echo 'Directory not found'",
-                "sudo": True
+                "use_sudo": True
             })
             verify_delete_json = json.loads(verify_delete[0].text)
             assert "Directory not found" in verify_delete_json['output'], "Directory should have been deleted"
@@ -113,7 +113,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
             await client.call_tool("ssh_dir_delete", {
                 "path": copy_dest,
                 "dry_run": False,
-                "sudo": True
+                "use_sudo": True
             })
             
         finally:
@@ -122,7 +122,7 @@ async def test_ssh_dir_operations_with_sudo(mcp_test_environment):
                 try:
                     await client.call_tool("ssh_cmd_run", {
                         "command": f"rm -rf {path}",
-                        "sudo": True,
+                        "use_sudo": True,
                         "io_timeout": 5.0
                     })
                 except Exception:

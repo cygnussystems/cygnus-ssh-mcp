@@ -5,7 +5,7 @@
 ### ssh_cmd_run (Primary Tool)
 - Executes commands on remote host
 - Handles both immediate and long-running operations
-- Manages timeouts (I/O and runtime)
+- Manages timeouts (I/O timeout and runtime timeout)
 - Returns structured response with:
   - Command output
   - Execution metadata (PID, timestamps)
@@ -18,35 +18,7 @@
 
 ---
 
-## Test Sequence & Flow
 
-1. **Basic Validation** (`test_ssh_run_basic`)
-   - Simple "echo" command verification
-   - Checks success status, output capture, and metadata integrity
-
-2. **Output Handling** (`test_ssh_run_multiline`)
-   - Verifies multi-line output capture
-   - Tests buffer management and line counting
-
-3. **Error Conditions** (`test_ssh_run_failure`)
-   - Forces command failure (exit code 42)
-   - Validates error reporting and status propagation
-
-4. **Asynchronous Monitoring** (`test_ssh_cmd_check`)
-   - Tests status polling mechanism
-   - Verifies transition from running->completed states
-
-5. **Concurrency Control** (`test_ssh_busy_lock`)
-   - Ensures single-command-at-a-time enforcement
-   - Validates BusyError handling
-
-6. **Timeout Handling** (`test_ssh_runtime_timeout`)
-   - Verifies automatic process termination
-   - Tests cleanup and post-timeout system availability
-
-7. **Manual Intervention** (`test_ssh_manual_interrupt`)
-   - Combines timeout detection with manual kill
-   - Tests PID tracking and process management
 
 ---
 

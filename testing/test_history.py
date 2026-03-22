@@ -151,26 +151,26 @@ def test_output_after_truncation():
     assert len(handle1.tail(100)) == 50  # Truncated to last 50
     assert len(handle2.tail(100)) == 75  # Full output available
 
-if __name__ == "__main__":
-    print("Running command history tests...")
-    test_add_and_retrieve_command()
-    test_update_handle()
-    test_history_order()
-    test_output_retrieval()
-    test_output_truncation()
-    test_empty_output()
-    test_command_metadata()
-    test_output_after_truncation()
-    try:
-        test_get_nonexistent_handle()
-        print("test_get_nonexistent_handle passed")
-    except Exception as e:
-        print(f"test_get_nonexistent_handle failed: {e}")
-    
-    try:
-        test_update_nonexistent_handle()
-        print("test_update_nonexistent_handle passed")
-    except Exception as e:
-        print(f"test_update_nonexistent_handle failed: {e}")
-    
-    print("All command history tests completed.")
+# if __name__ == "__main__":
+#     print("Running command history tests...")
+#     test_add_and_retrieve_command()
+#     test_update_handle()
+#     test_history_order()
+#     test_output_retrieval()
+#     test_output_truncation()
+#     test_empty_output()
+#     test_command_metadata()
+#     test_output_after_truncation()
+#     try:
+#         test_get_nonexistent_handle()
+#         print("test_get_nonexistent_handle passed")
+#     except Exception as e:
+#         print(f"test_get_nonexistent_handle failed: {e}")
+#
+#     try:
+#         test_update_nonexistent_handle()
+#         print("test_update_nonexistent_handle passed")
+#     except Exception as e:
+#         print(f"test_update_nonexistent_handle failed: {e}")
+#
+#     print("All command history tests completed.")

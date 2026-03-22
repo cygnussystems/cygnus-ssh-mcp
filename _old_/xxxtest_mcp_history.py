@@ -15,7 +15,7 @@ async def test_ssh_command_history():
                 "command": f"echo 'History test {i}'",
                 "io_timeout": 5.0
             }
-            await client.call_tool("ssh_run", run_params)
+            await client.call_tool("ssh_cmd_run", run_params)
         
         # Get command history
         history_params = {
@@ -24,7 +24,7 @@ async def test_ssh_command_history():
             "output_lines": 2
         }
         
-        history_result = await client.call_tool("ssh_command_history", history_params)
+        history_result = await client.call_tool("ssh_cmd_history", history_params)
         
         print(f"History result: {history_result}")
         

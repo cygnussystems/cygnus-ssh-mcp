@@ -1,0 +1,13 @@
+["testuser@localhost"]
+password = "testpass"
+port = 2222
+
+["claude@137.184.14.123 "]
+password = "claudetestpwd"
+port = 22
+sudo_password = "claudetestpwd"
+
+["claude@137.184.14.123"]
+password = "claudetestpwd"
+port = 22
+sudo_password = "claudetestpwd"

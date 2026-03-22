@@ -131,12 +131,12 @@ def test_disk_info(ssh_client):
     print("Disk info assertions passed.")
 
 
-if __name__ == "__main__":
-    print("Running basic tests...")
-    test_connection()
-    test_status_command()
-    test_user_status()
-    test_hardware_info()
-    test_network_info()
-    test_disk_info()
-    print("All basic tests completed.")
+# if __name__ == "__main__":
+#     print("Running basic tests...")
+#     test_connection()
+#     test_status_command()
+#     test_user_status()
+#     test_hardware_info()
+#     test_network_info()
+#     test_disk_info()
+#     print("All basic tests completed.")

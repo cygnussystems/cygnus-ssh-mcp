@@ -32,7 +32,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
             # Create directory with sudo
             mkdir_result = await client.call_tool("ssh_dir_mkdir", {
                 "path": protected_dir,
-                "sudo": True,
+                "use_sudo": True,
                 "mode": 0o700  # Restrictive permissions
             })
             mkdir_json = json.loads(mkdir_result[0].text)
@@ -43,7 +43,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 file_path = f"{protected_dir}/test_file_{i}.txt"
                 await client.call_tool("ssh_cmd_run", {
                     "command": f"echo 'Test content {i}' > {file_path}",
-                    "sudo": True
+                    "use_sudo": True
                 })
             
             # Create archive with sudo
@@ -51,7 +51,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 "source_path": protected_dir,
                 "archive_path": archive_path,
                 "format": "tar.gz",
-                "sudo": True
+                "use_sudo": True
             })
             create_json = json.loads(create_result[0].text)
             assert create_json['success'], f"Failed to create archive with sudo: {create_json}"
@@ -59,7 +59,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
             # Verify archive exists
             verify_archive = await client.call_tool("ssh_cmd_run", {
                 "command": f"ls -la {archive_path}",
-                "sudo": True
+                "use_sudo": True
             })
             verify_json = json.loads(verify_archive[0].text)
             assert verify_json['status'] == 'success', "Failed to verify archive"
@@ -70,7 +70,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 "archive_path": archive_path,
                 "destination_path": extract_dir,
                 "overwrite": False,
-                "sudo": True
+                "use_sudo": True
             })
             extract_json = json.loads(extract_result[0].text)
             assert extract_json['success'], f"Failed to extract archive with sudo: {extract_json}"
@@ -78,7 +78,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
             # Verify extraction
             verify_extract = await client.call_tool("ssh_cmd_run", {
                 "command": f"ls -la {extract_dir}",
-                "sudo": True
+                "use_sudo": True
             })
             verify_extract_json = json.loads(verify_extract[0].text)
             assert verify_extract_json['status'] == 'success', "Failed to verify extraction"
@@ -92,7 +92,7 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
                 try:
                     await client.call_tool("ssh_cmd_run", {
                         "command": f"rm -rf {path}",
-                        "sudo": True,
+                        "use_sudo": True,
                         "io_timeout": 5.0
                     })
                 except Exception:

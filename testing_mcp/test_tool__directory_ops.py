@@ -150,14 +150,14 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
             await client.call_tool("ssh_cmd_run", {
                 "command": f"sudo rm -rf {test_dir}",
                 "io_timeout": 10.0,
-                "sudo": True # The cleanup command itself might need sudo
+                "use_sudo": True # The cleanup command itself might need sudo
             })
 
             # Test create directory with sudo
             mkdir_result = await client.call_tool("ssh_dir_mkdir", {
                 "path": test_dir,
                 "mode": 0o755,
-                "sudo": True
+                "use_sudo": True
             })
             mkdir_json = json.loads(mkdir_result[0].text)
             assert mkdir_json['status'] == 'success', f"ssh_dir_mkdir with sudo failed: {mkdir_json.get('message', '')}"
@@ -166,7 +166,7 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
             stat_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"stat -c '%U' {test_dir}", # Get username of owner
                 "io_timeout": 5.0,
-                "sudo": False # Stat can be run as normal user
+                "use_sudo": False # Stat can be run as normal user
             })
             stat_json = json.loads(stat_result[0].text)
             assert stat_json['status'] == 'success', f"Stat command failed: {stat_json.get('error', '')}"
@@ -181,7 +181,7 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
             await client.call_tool("ssh_cmd_run", {
                 "command": f"sudo rm -rf {test_dir}",
                 "io_timeout": 10.0,
-                "sudo": True
+                "use_sudo": True
             })
             await disconnect_ssh(client)
     print_test_footer()
@@ -284,7 +284,7 @@ async def test_ssh_dir_remove_non_empty_no_recursive(mcp_test_environment):
             await client.call_tool("ssh_dir_remove", {
                 "path": parent_dir,
                 "recursive": True,
-                "sudo": False  # Assuming normal user created it
+                "use_sudo": False  # Assuming normal user created it
             })
             await disconnect_ssh(client)
     print_test_footer()

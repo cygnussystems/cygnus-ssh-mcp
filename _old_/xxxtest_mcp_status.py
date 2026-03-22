@@ -4,19 +4,21 @@ import json
 import logging
 from conftest import print_test_header, print_test_footer, setup_test_environment, teardown_test_environment
 
+# Import necessary modules
+from mcp_ssh_server import mcp
+from fastmcp import Client
+
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
 
 @pytest.mark.asyncio
 async def test_ssh_status():
     """Test retrieving SSH connection status."""
     print_test_header("Testing 'ssh_status' tool")
     logger.info("Starting SSH status test")
-    
-    # Import necessary modules
-    from mcp_ssh_server import mcp
-    from fastmcp import Client
-    
+
     # Use the Client context manager with the imported mcp instance
     async with Client(mcp) as client:
         # First, add the test server configuration
@@ -25,13 +27,13 @@ async def test_ssh_status():
         try:
             # Try to get status first (might fail if no connection)
             try:
-                status_result = await client.call_tool("ssh_status", {})
+                status_result = await client.call_tool("ssh_conn_status", {})
                 logger.info("SSH connection already established")
             except Exception as e:
                 if "No active SSH connection" in str(e):
                     # Add the test server configuration
                     logger.info("Adding test server configuration")
-                    await client.call_tool("ssh_add_host", {
+                    await client.call_tool("ssh_conn_add_host", {
                         "name": "test_server",
                         "host": "localhost",
                         "user": SSH_TEST_USER,
@@ -41,12 +43,12 @@ async def test_ssh_status():
                     
                     # Connect to the test server
                     logger.info("Connecting to test server")
-                    await client.call_tool("ssh_connect", {
+                    await client.call_tool("ssh_conn_connect", {
                         "host_name": "test_server"
                     })
                     
                     # Now get the status
-                    status_result = await client.call_tool("ssh_status", {})
+                    status_result = await client.call_tool("ssh_conn_status", {})
                 else:
                     raise
             

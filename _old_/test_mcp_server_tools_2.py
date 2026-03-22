@@ -105,7 +105,7 @@ async def run_mcp_ssh_integration_tests():
                 }
                 
                 print(f"Running command via MCP: {run_params['command']}")
-                run_result = await client.call_tool("ssh_run", run_params)
+                run_result = await client.call_tool("ssh_cmd_run", run_params)
                 
                 print(f"Command result: {run_result}")
                 
@@ -125,7 +125,7 @@ async def run_mcp_ssh_integration_tests():
                 }
                 
                 print(f"Running multi-line command via MCP: {run_params['command']}")
-                run_result = await client.call_tool("ssh_run", run_params)
+                run_result = await client.call_tool("ssh_cmd_run", run_params)
                 
                 print(f"Command result: {run_result}")
                 
@@ -144,7 +144,7 @@ async def run_mcp_ssh_integration_tests():
                 
                 print(f"Running failing command via MCP: {run_params['command']}")
                 try:
-                    run_result = await client.call_tool("ssh_run", run_params)
+                    run_result = await client.call_tool("ssh_cmd_run", run_params)
                     print("Command should have failed but didn't")
                     assert False, "Command should have failed with exit code 42"
                 except Exception as e:
@@ -162,7 +162,7 @@ async def run_mcp_ssh_integration_tests():
             try:
                 print_test_header("Testing 'ssh_status' tool")
                 
-                status_result = await client.call_tool("ssh_status", {})
+                status_result = await client.call_tool("ssh_conn_status", {})
                 
                 print(f"Status result: {status_result}")
                 
@@ -195,7 +195,7 @@ async def run_mcp_ssh_integration_tests():
                         "command": f"echo 'History test {i}'",
                         "io_timeout": 5.0
                     }
-                    await client.call_tool("ssh_run", run_params)
+                    await client.call_tool("ssh_cmd_run", run_params)
                 
                 # Get command history
                 history_params = {
@@ -204,7 +204,7 @@ async def run_mcp_ssh_integration_tests():
                     "output_lines": 2
                 }
                 
-                history_result = await client.call_tool("ssh_command_history", history_params)
+                history_result = await client.call_tool("ssh_cmd_history", history_params)
                 
                 print(f"History result: {history_result}")
                 

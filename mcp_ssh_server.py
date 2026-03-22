@@ -73,9 +73,7 @@ setup_logging()
 # Create the main MCP server instance
 try:
     mcp = FastMCP(
-        name="SSH_Management_Server",
-        description="MCP server for managing SSH connections and operations",
-        version="0.1.0"
+        name="SSH_Management_Server"
     )
     # Initialize ssh_client as a member variable
     mcp.ssh_client = None

@@ -253,10 +253,10 @@ def test_launch_sudo(ssh_client):
         print_test_footer()
 
 
-if __name__ == "__main__":
-    print("Running task management tests...")
-    test_launch_and_status(get_client(force_new=True))
-    test_launch_with_redirection(get_client(force_new=True))
-    test_task_kill(get_client(force_new=True))
-    test_launch_sudo(get_client(force_new=True, sudo_password=TEST_SUDO_PASSWORD))
-    print("All task management tests completed.")
+# if __name__ == "__main__":
+#     print("Running task management tests...")
+#     test_launch_and_status(get_client(force_new=True))
+#     test_launch_with_redirection(get_client(force_new=True))
+#     test_task_kill(get_client(force_new=True))
+#     test_launch_sudo(get_client(force_new=True, sudo_password=TEST_SUDO_PASSWORD))
+#     print("All task management tests completed.")

@@ -156,7 +156,7 @@ async def test_ssh_run_failure(mcp_test_environment):
 @pytest.mark.asyncio
 async def test_ssh_cmd_check(mcp_test_environment):
     """Test waiting and checking command status."""
-    print_test_header("Testing 'ssh_cmd_check' tool")
+    print_test_header("Testing 'ssh_cmd_check_status' tool")
     logger.info("Starting SSH command check test")
     
     async with Client(mcp) as client:
@@ -200,7 +200,7 @@ async def test_ssh_cmd_check(mcp_test_environment):
             }
             
             # Call the cmd_check tool
-            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            check_result = await client.call_tool("ssh_cmd_check_status", check_params)
             assert check_result is not None, "Expected non-empty result"
             check_json = json.loads(check_result[0].text)
             logger.info(f"Command check result: {check_json}")
@@ -218,7 +218,7 @@ async def test_ssh_cmd_check(mcp_test_environment):
             }
             
             # Call the cmd_check tool again
-            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            check_result = await client.call_tool("ssh_cmd_check_status", check_params)
             check_json = json.loads(check_result[0].text)
             logger.info(f"Second command check result: {check_json}")
             
@@ -422,12 +422,12 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             # Verify the handle ID was found
             assert handle_id is not None, "Could not determine handle ID of the command"
             
-            # Check if the command is still running using ssh_cmd_check
+            # Check if the command is still running using ssh_cmd_check_status
             check_params = {
                 "handle_id": handle_id,
                 "wait_seconds": 1.0  # Short wait
             }
-            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            check_result = await client.call_tool("ssh_cmd_check_status", check_params)
             check_json = json.loads(check_result[0].text)
             
             logger.info(f"Command status before kill: {check_json}")
@@ -449,7 +449,7 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             
             # Verify the command is no longer running
             await asyncio.sleep(1)  # Give it a moment to update
-            check_result = await client.call_tool("ssh_cmd_check", check_params)
+            check_result = await client.call_tool("ssh_cmd_check_status", check_params)
             check_json = json.loads(check_result[0].text)
             
             logger.info(f"Command status after kill: {check_json}")

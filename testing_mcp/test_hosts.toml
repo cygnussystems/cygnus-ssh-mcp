@@ -1,0 +1,9 @@
+# List of hosts for SSH MCP server
+
+["testuser@localhost"]
+password = "testpass"
+port = 2222
+
+["testuser@192.168.1.6"]
+password = "testpass"
+port = 2222

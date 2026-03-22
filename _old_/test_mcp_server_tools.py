@@ -45,9 +45,9 @@ async def run_mcp_server_tests():
                 print(f"  -> Found {len(tools)} tool(s):")
 
                 expected_tool_ids = {
-                    "ssh_connect", "ssh_add_host", "ssh_run", "ssh_file_transfer",
-                    "ssh_status", "ssh_verify_sudo", "ssh_replace_block", 
-                    "ssh_output", "ssh_command_history"
+                    "ssh_conn_connect", "ssh_conn_add_host", "ssh_cmd_run", "ssh_file_transfer",
+                    "ssh_conn_status", "ssh_conn_verify_sudo", "ssh_file_replace_block", 
+                    "ssh_cmd_output", "ssh_cmd_history"
                 }
                 found_tool_ids = set()
 
@@ -67,9 +67,9 @@ async def run_mcp_server_tests():
                 print(f"  -> Error testing list_tools: {e}", file=sys.stderr)
                 raise
 
-            # --- Test ssh_add_host tool ---
+            # --- Test ssh_conn_add_host tool ---
             try:
-                print("\nTesting 'ssh_add_host' tool...")
+                print("\nTesting 'ssh_conn_add_host' tool...")
                 add_host_params = {
                     "name": "test_host2",
                     "host": "example.com",
@@ -77,7 +77,7 @@ async def run_mcp_server_tests():
                     "password": "pass2",
                     "port": 2222
                 }
-                add_host_result = await client.call_tool("ssh_add_host", add_host_params)
+                add_host_result = await client.call_tool("ssh_conn_add_host", add_host_params)
                 print(f"  -> Got result: {add_host_result}")
 
                 # Verify the host was added
@@ -85,27 +85,27 @@ async def run_mcp_server_tests():
                 assert host is not None, "Host was not added to configuration"
                 assert host["host"] == "example.com", f"Host address mismatch: {host['host']} != example.com"
                 assert host["port"] == 2222, f"Port mismatch: {host['port']} != 2222"
-                print("  -> ssh_add_host test passed!")
+                print("  -> ssh_conn_add_host test passed!")
             except Exception as e:
-                print(f"  -> Error testing 'ssh_add_host': {e}", file=sys.stderr)
+                print(f"  -> Error testing 'ssh_conn_add_host': {e}", file=sys.stderr)
                 raise
 
-            # Note: We can't fully test ssh_connect, ssh_run, etc. without a real SSH server
+            # Note: We can't fully test ssh_conn_connect, ssh_run, etc. without a real SSH server
             # But we can test that the tools exist and validate their parameters
 
-            # --- Test ssh_connect tool parameters ---
+            # --- Test ssh_conn_connect tool parameters ---
             try:
-                print("\nTesting 'ssh_connect' tool parameters...")
+                print("\nTesting 'ssh_conn_connect' tool parameters...")
                 # This would fail with a connection error, but we can check the parameter validation
                 try:
                     connect_params = {"host_name": "nonexistent_host"}
-                    await client.call_tool("ssh_connect", connect_params)
+                    await client.call_tool("ssh_conn_connect", connect_params)
                 except Exception as e:
                     print(f"  -> Expected error: {e}")
                     assert "not found" in str(e), "Expected 'not found' error for nonexistent host"
-                print("  -> ssh_connect parameter validation test passed!")
+                print("  -> ssh_conn_connect parameter validation test passed!")
             except Exception as e:
-                print(f"  -> Error testing 'ssh_connect' parameters: {e}", file=sys.stderr)
+                print(f"  -> Error testing 'ssh_conn_connect' parameters: {e}", file=sys.stderr)
                 raise
                 
             # --- Test task management tools existence ---
@@ -114,7 +114,7 @@ async def run_mcp_server_tests():
                 tools = await client.list_tools()
                 tool_names = {tool.name for tool in tools}
                 
-                task_tools = {"ssh_launch_task", "ssh_task_status", "ssh_task_kill"}
+                task_tools = {"ssh_task_launch", "ssh_task_status", "ssh_task_kill"}
                 missing_tools = task_tools - tool_names
                 
                 assert not missing_tools, f"Missing task management tools: {missing_tools}"
@@ -133,7 +133,7 @@ async def run_mcp_server_tests():
                 tools = await client.list_tools()
                 tool_names = {tool.name for tool in tools}
                 
-                file_tools = {"ssh_mkdir", "ssh_rmdir", "ssh_listdir", "ssh_stat", "ssh_replace_line"}
+                file_tools = {"ssh_dir_mkdir", "ssh_dir_remove", "ssh_dir_list_files_basic", "ssh_file_stat", "ssh_file_replace_line"}
                 missing_tools = file_tools - tool_names
                 
                 assert not missing_tools, f"Missing file operation tools: {missing_tools}"
@@ -153,10 +153,10 @@ async def run_mcp_server_tests():
                 tool_names = {tool.name for tool in tools}
                 
                 dir_tools = {
-                    "ssh_search_files", "ssh_directory_size", "ssh_delete_directory", 
-                    "ssh_batch_delete", "ssh_move", "ssh_list_directory",
-                    "ssh_create_archive", "ssh_extract_archive", "ssh_search_content",
-                    "ssh_copy_directory"
+                    "ssh_dir_search_glob", "ssh_dir_calc_size", "ssh_dir_delete", 
+                    "ssh_dir_batch_delete_files", "ssh_file_move", "ssh_dir_list_advanced",
+                    "ssh_archive_create", "ssh_archive_extract", "ssh_dir_search_files_content",
+                    "ssh_dir_copy"
                 }
                 missing_tools = dir_tools - tool_names
                 

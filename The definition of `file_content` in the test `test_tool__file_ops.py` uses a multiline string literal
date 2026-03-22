@@ -1,5 +1,0 @@
-            file_content = """Line 1: This is a test file
-Line 2: This is a duplicate line
-Line 3: Some other content
-Line 4: This is a duplicate line
-Line 5: This is the last line"""

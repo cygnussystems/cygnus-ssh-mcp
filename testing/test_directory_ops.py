@@ -463,26 +463,26 @@ def test_listdir_stat(ssh_client):
         client.run(f"rm -rf {shlex.quote(test_dir)}", sudo=False)
         print_test_footer()
 
-if __name__ == "__main__":
-    print("Running directory operations tests...")
-    client = get_client(force_new=True)
-    
-    try:
-        test_search_files_recursive(client)
-        test_calculate_directory_size(client)
-        test_delete_directory_recursive(client)
-        test_batch_delete_by_pattern(client)
-        test_list_directory_recursive(client)
-        test_copy_directory_recursive(client)
-        test_create_and_extract_archive(client)
-        test_search_file_contents(client)
-        test_safe_move_or_rename(client)
-        
-        # Added tests from test_directory.py
-        test_mkdir_rmdir(client)
-        test_mkdir_sudo(client)
-        test_listdir_stat(client)
-        
-        print("All directory operations tests completed successfully.")
-    finally:
-        cleanup_client(client)
+# if __name__ == "__main__":
+#     print("Running directory operations tests...")
+#     client = get_client(force_new=True)
+#
+#     try:
+#         test_search_files_recursive(client)
+#         test_calculate_directory_size(client)
+#         test_delete_directory_recursive(client)
+#         test_batch_delete_by_pattern(client)
+#         test_list_directory_recursive(client)
+#         test_copy_directory_recursive(client)
+#         test_create_and_extract_archive(client)
+#         test_search_file_contents(client)
+#         test_safe_move_or_rename(client)
+#
+#         # Added tests from test_directory.py
+#         test_mkdir_rmdir(client)
+#         test_mkdir_sudo(client)
+#         test_listdir_stat(client)
+#
+#         print("All directory operations tests completed successfully.")
+#     finally:
+#         cleanup_client(client)

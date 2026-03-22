@@ -27,24 +27,24 @@ logger = logging.getLogger("mcp_tools_test")
 
 # Test data constants
 EXPECTED_CORE_TOOLS = {
-    "ssh_connect", "ssh_add_host", "ssh_run", "ssh_file_transfer",
-    "ssh_status", "ssh_verify_sudo", "ssh_replace_block", 
-    "ssh_output", "ssh_command_history"
+    "ssh_conn_connect", "ssh_conn_add_host", "ssh_cmd_run", "ssh_file_transfer",
+    "ssh_conn_status", "ssh_conn_verify_sudo", "ssh_file_replace_block", 
+    "ssh_cmd_output", "ssh_cmd_history"
 }
 
 TASK_MANAGEMENT_TOOLS = {
-    "ssh_launch_task", "ssh_task_status", "ssh_task_kill"
+    "ssh_task_launch", "ssh_task_status", "ssh_task_kill"
 }
 
 FILE_OPERATION_TOOLS = {
-    "ssh_mkdir", "ssh_rmdir", "ssh_listdir", "ssh_stat", "ssh_replace_line"
+    "ssh_dir_mkdir", "ssh_dir_remove", "ssh_dir_list_files_basic", "ssh_file_stat", "ssh_file_replace_line"
 }
 
 DIRECTORY_OPERATION_TOOLS = {
-    "ssh_search_files", "ssh_directory_size", "ssh_delete_directory", 
-    "ssh_batch_delete", "ssh_move", "ssh_list_directory",
-    "ssh_create_archive", "ssh_extract_archive", "ssh_search_content",
-    "ssh_copy_directory"
+    "ssh_dir_search_glob", "ssh_dir_calc_size", "ssh_dir_delete", 
+    "ssh_dir_batch_delete_files", "ssh_file_move", "ssh_dir_list_advanced",
+    "ssh_archive_create", "ssh_archive_extract", "ssh_dir_search_files_content",
+    "ssh_dir_copy"
 }
 
 # Fixtures
@@ -106,7 +106,7 @@ async def test_tool_listing(mcp_client):
 @pytest.mark.asyncio
 async def test_ssh_add_host(temp_host_manager, mcp_client):
     """
-    Test the ssh_add_host tool functionality.
+    Test the ssh_conn_add_host tool functionality.
     
     This test verifies that:
     1. The tool accepts valid parameters
@@ -114,7 +114,7 @@ async def test_ssh_add_host(temp_host_manager, mcp_client):
     3. The host can be retrieved from the configuration
     4. The host properties match what was provided
     """
-    logger.info("Testing 'ssh_add_host' tool...")
+    logger.info("Testing 'ssh_conn_add_host' tool...")
     
     # Test parameters
     add_host_params = {
@@ -126,7 +126,7 @@ async def test_ssh_add_host(temp_host_manager, mcp_client):
     }
     
     # Call the tool
-    add_host_result = await mcp_client.call_tool("ssh_add_host", add_host_params)
+    add_host_result = await mcp_client.call_tool("ssh_conn_add_host", add_host_params)
     logger.info(f"Tool result: {add_host_result}")
     
     # Verify the host was added
@@ -136,31 +136,31 @@ async def test_ssh_add_host(temp_host_manager, mcp_client):
     assert host["port"] == 2222, f"Port mismatch: {host['port']} != 2222"
     assert host["user"] == "user2", f"Username mismatch: {host['user']} != user2"
     
-    logger.info("ssh_add_host test passed")
+    logger.info("ssh_conn_add_host test passed")
 
 @pytest.mark.asyncio
 async def test_ssh_connect_parameters(mcp_client):
     """
-    Test parameter validation for ssh_connect.
+    Test parameter validation for ssh_conn_connect.
     
     This test verifies that:
     1. The tool properly validates its parameters
     2. Appropriate errors are raised for invalid parameters
     """
-    logger.info("Testing 'ssh_connect' parameter validation...")
+    logger.info("Testing 'ssh_conn_connect' parameter validation...")
     
     # Test with nonexistent host
     connect_params = {"host_name": "nonexistent_host"}
     
     with pytest.raises(Exception) as excinfo:
-        await mcp_client.call_tool("ssh_connect", connect_params)
+        await mcp_client.call_tool("ssh_conn_connect", connect_params)
     
     # Verify the error message
     error_message = str(excinfo.value)
     logger.info(f"Got expected error: {error_message}")
     assert "not found" in error_message, f"Expected 'not found' error, got: {error_message}"
     
-    logger.info("ssh_connect parameter validation test passed")
+    logger.info("ssh_conn_connect parameter validation test passed")
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool_category,expected_tools", [

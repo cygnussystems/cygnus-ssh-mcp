@@ -83,14 +83,14 @@ def test_listdir_stat(ssh_client):
         client.run(f"rm -rf {shlex.quote(test_dir)}", sudo=False)
         print_test_footer()
 
-if __name__ == "__main__":
-    print("Running directory tests...")
-    client = get_client(force_new=True)
-    test_mkdir_rmdir(client)
-    
-    client_with_sudo = get_client(force_new=True, sudo_password=TEST_SUDO_PASSWORD)
-    test_mkdir_sudo(client_with_sudo)
-    
-    client_for_stat = get_client(force_new=True)
-    test_listdir_stat(client_for_stat)
-    print("All directory tests completed.")
+# if __name__ == "__main__":
+#     print("Running directory tests...")
+#     client = get_client(force_new=True)
+#     test_mkdir_rmdir(client)
+#
+#     client_with_sudo = get_client(force_new=True, sudo_password=TEST_SUDO_PASSWORD)
+#     test_mkdir_sudo(client_with_sudo)
+#
+#     client_for_stat = get_client(force_new=True)
+#     test_listdir_stat(client_for_stat)
+#     print("All directory tests completed.")

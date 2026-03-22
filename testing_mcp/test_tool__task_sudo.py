@@ -29,7 +29,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
             # Launch task with sudo
             launch_result = await client.call_tool("ssh_task_launch", {
                 "command": f"echo 'This file was created with sudo' > {protected_file} && sleep 2",
-                "sudo": True,
+                "use_sudo": True,
                 "log_output": True
             })
             launch_json = json.loads(launch_result[0].text)
@@ -52,7 +52,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
             # Verify the file was created
             verify_result = await client.call_tool("ssh_cmd_run", {
                 "command": f"cat {protected_file}",
-                "sudo": True
+                "use_sudo": True
             })
             verify_json = json.loads(verify_result[0].text)
             assert verify_json['status'] == 'success', "Failed to verify file creation"
@@ -61,7 +61,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
             # Launch another task to test kill with sudo
             long_task_result = await client.call_tool("ssh_task_launch", {
                 "command": "sleep 30",
-                "sudo": True
+                "use_sudo": True
             })
             long_task_json = json.loads(long_task_result[0].text)
             long_task_pid = long_task_json['pid']
@@ -77,7 +77,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
             kill_result = await client.call_tool("ssh_task_kill", {
                 "pid": long_task_pid,
                 "signal": 15,
-                "sudo": True
+                "use_sudo": True
             })
             kill_json = json.loads(kill_result[0].text)
             assert kill_json['result'] in ['killed', 'terminated'], f"Failed to kill task with sudo: {kill_json}"
@@ -93,7 +93,7 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
             # Clean up
             await client.call_tool("ssh_cmd_run", {
                 "command": f"rm -f {protected_file}",
-                "sudo": True,
+                "use_sudo": True,
                 "io_timeout": 5.0
             })
             await disconnect_ssh(client)
