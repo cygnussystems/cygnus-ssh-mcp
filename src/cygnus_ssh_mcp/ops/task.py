@@ -3,7 +3,7 @@ import logging
 import shlex
 from typing import Optional
 from datetime import datetime, UTC
-from ssh_models import (
+from cygnus_ssh_mcp.models import (
     CommandHandle, SshError, TaskNotFound, SudoRequired
 )
 

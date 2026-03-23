@@ -10,8 +10,8 @@ import logging
 import threading
 import select
 from typing import Optional, Callable, Dict, Deque, Any, Union, List, Literal
-from ssh_ops_history import CommandHistoryManager
-from ssh_models import (
+from cygnus_ssh_mcp.ops.history import CommandHistoryManager
+from cygnus_ssh_mcp.models import (
     SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
     SudoRequired, BusyError, OutputPurged, TaskNotFound, CommandHandle
 )
@@ -33,11 +33,11 @@ class SshClient:
                  password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
         # Only import Linux-specific operations
-        from ssh_ops_file import SshFileOperations_Linux
-        from ssh_ops_task import SshTaskOperations_Linux
-        from ssh_ops_run import SshRunOperations_Linux
-        from ssh_ops_directory import SshDirectoryOperations_Linux
-        from ssh_ops_os import SshOsOperations_Linux
+        from cygnus_ssh_mcp.ops.file import SshFileOperations_Linux
+        from cygnus_ssh_mcp.ops.task import SshTaskOperations_Linux
+        from cygnus_ssh_mcp.ops.run import SshRunOperations_Linux
+        from cygnus_ssh_mcp.ops.directory import SshDirectoryOperations_Linux
+        from cygnus_ssh_mcp.ops.os_ops import SshOsOperations_Linux
         
         # Initialize platform detection
         self.os_type = None  # 'windows', 'linux', 'macos'
@@ -143,11 +143,11 @@ class SshClient:
 
     def _create_operations(self):
         """Create platform-specific operation classes."""
-        from ssh_ops_file import SshFileOperations_Linux, SshFileOperations_Win
-        from ssh_ops_task import SshTaskOperations_Linux, SshTaskOperations_Win
-        from ssh_ops_run import SshRunOperations_Linux, SshRunOperations_Win
-        from ssh_ops_directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Win
-        from ssh_ops_os import SshOsOperations_Linux, SshOsOperations_Win
+        from cygnus_ssh_mcp.ops.file import SshFileOperations_Linux, SshFileOperations_Win
+        from cygnus_ssh_mcp.ops.task import SshTaskOperations_Linux, SshTaskOperations_Win
+        from cygnus_ssh_mcp.ops.run import SshRunOperations_Linux, SshRunOperations_Win
+        from cygnus_ssh_mcp.ops.directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Win
+        from cygnus_ssh_mcp.ops.os_ops import SshOsOperations_Linux, SshOsOperations_Win
 
         # Always use Linux operations since we're testing against Linux containers
         self.run_ops = SshRunOperations_Linux(self, self.tail_keep)

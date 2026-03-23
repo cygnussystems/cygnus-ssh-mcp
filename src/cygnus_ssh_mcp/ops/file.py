@@ -4,7 +4,7 @@ import shlex
 import logging
 import time
 from typing import Optional, Callable
-from ssh_models import SshError, CommandFailed # Added CommandFailed import
+from cygnus_ssh_mcp.models import SshError, CommandFailed
 
 class SshFileOperations_Win:
     """Handles file operations on Windows systems."""

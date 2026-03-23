@@ -1,7 +1,7 @@
 import pytest
 import json
 from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, remote_temp_path, extract_result_text
-from mcp_ssh_server import mcp
+from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 
 @pytest.mark.asyncio

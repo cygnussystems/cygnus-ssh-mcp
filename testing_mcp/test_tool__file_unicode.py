@@ -24,7 +24,7 @@ from conftest import (
     remote_temp_path,
     extract_result_text
 )
-from mcp_ssh_server import mcp
+from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 
 # Configure logging

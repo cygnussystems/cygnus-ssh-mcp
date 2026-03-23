@@ -1,7 +1,7 @@
 import time
 import logging
 from typing import Dict, Any
-from ssh_models import SshError, CommandTimeout, BusyError, CommandFailed # Import CommandFailed
+from cygnus_ssh_mcp.models import SshError, CommandTimeout, BusyError, CommandFailed
 
 class SshOsOperations_Win:
     """Handles OS-level operations on Windows systems."""

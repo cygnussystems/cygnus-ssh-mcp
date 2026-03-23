@@ -11,12 +11,12 @@ from fastmcp import FastMCP
 from pydantic import Field, BaseModel
 from typing import Annotated, Optional, Literal, Dict, Any, List, Union
 from datetime import datetime, UTC
-from ssh_client import SshClient
-from ssh_models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
-import stat as stat_module # Added import
-import errno # Added import
+from cygnus_ssh_mcp.client import SshClient
+from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
+import stat as stat_module
+import errno
 
-from ssh_host_manager import SshHostManager
+from cygnus_ssh_mcp.host_manager import SshHostManager
 
 
 def parse_args():

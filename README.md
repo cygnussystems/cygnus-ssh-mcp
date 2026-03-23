@@ -331,7 +331,7 @@ Detailed guides available in [docs/](docs/):
 
 <div align="center">
 
-**Built by [Peter Ritter](https://github.com/cygnussystems)**
+**Built by [Cygnus Systems](https://github.com/cygnussystems)**
 
 *Star this repo if you find it useful!*
 

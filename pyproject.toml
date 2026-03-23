@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cygnus-ssh-mcp"
-version = "1.0.0"
+version = "1.1.0"
 description = "MCP server for SSH remote server management"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.10"
-authors = [{ name = "Peter Ritter" }]
+authors = [{ name = "Cygnus Systems" }]
 keywords = ["mcp", "ssh", "claude", "anthropic", "remote", "server", "automation"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cygnus-ssh-mcp = "mcp_ssh_server:main"
+cygnus-ssh-mcp = "cygnus_ssh_mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/cygnussystems/cygnus-ssh-mcp"
@@ -40,20 +40,11 @@ Documentation = "https://github.com/cygnussystems/cygnus-ssh-mcp/tree/main/docs"
 Issues = "https://github.com/cygnussystems/cygnus-ssh-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
-include = [
-    "mcp_ssh_server.py",
-    "ssh_client.py",
-    "ssh_host_manager.py",
-    "ssh_models.py",
-    "ssh_ops_*.py",
-    "ssh_history.py",
-]
+packages = ["src/cygnus_ssh_mcp"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "mcp_ssh_server.py",
-    "ssh_*.py",
+    "src/cygnus_ssh_mcp/",
     "docs/",
     "README.md",
     "LICENSE",
@@ -62,7 +53,6 @@ include = [
 exclude = [
     "testing/",
     "testing_mcp/",
-    "_old_/",
     "planning/",
     ".aider*",
     "CLAUDE.md",

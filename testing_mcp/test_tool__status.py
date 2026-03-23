@@ -4,7 +4,7 @@ import logging
 from conftest import print_test_header, print_test_footer
 
 # Import necessary modules and constants from conftest
-from mcp_ssh_server import mcp
+from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 from conftest import (
     SSH_TEST_USER, 

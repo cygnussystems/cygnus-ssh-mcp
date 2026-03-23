@@ -2,7 +2,7 @@ from collections import deque
 from datetime import datetime
 from typing import Optional, Self, List, Dict, Any
 from datetime import UTC
-from ssh_models import (
+from cygnus_ssh_mcp.models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
     CommandFailed, SudoRequired, SshError
 )

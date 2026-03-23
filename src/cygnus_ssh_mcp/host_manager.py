@@ -4,7 +4,7 @@ import logging
 import tomlkit
 from pathlib import Path
 from typing import Dict, Any, Optional
-from ssh_models import SshError
+from cygnus_ssh_mcp.models import SshError
 
 logger = logging.getLogger("SSH_Host_Manager")
 

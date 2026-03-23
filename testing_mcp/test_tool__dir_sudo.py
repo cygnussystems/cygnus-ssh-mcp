@@ -3,7 +3,7 @@ import json
 import os
 import time
 from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
-from mcp_ssh_server import mcp
+from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 
 

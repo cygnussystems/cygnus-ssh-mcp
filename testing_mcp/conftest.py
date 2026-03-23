@@ -6,7 +6,12 @@ import logging
 import json
 import time
 
-from mcp_ssh_server import mcp
+# Add project src to path (must be before importing cygnus_ssh_mcp)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+sys.path.insert(0, src_path)
+
+from cygnus_ssh_mcp.server import mcp
 
 # Hardcoded to use VM (Debian 12 at 192.168.1.27) instead of Docker
 USE_VM = True
@@ -51,9 +56,6 @@ async def setup_test_environment():
         base_port=SSH_TEST_PORT
     )
 
-# Add project root to path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
 
 
 

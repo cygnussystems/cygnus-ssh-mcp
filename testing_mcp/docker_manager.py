@@ -9,11 +9,17 @@ import subprocess
 import time
 from pathlib import Path
 
+# Add project src to path (must be before importing cygnus_ssh_mcp)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+src_path = os.path.join(project_root, 'src')
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 # Import necessary modules
-from mcp_ssh_server import mcp, host_manager # Import host_manager for potential cleanup
+from cygnus_ssh_mcp.server import mcp, host_manager  # Import host_manager for potential cleanup
 from fastmcp import Client
-from ssh_client import SshClient
-from ssh_host_manager import SshHostManager
+from cygnus_ssh_mcp.client import SshClient
+from cygnus_ssh_mcp.host_manager import SshHostManager
 
 
 # SSH test container management

@@ -5,7 +5,7 @@ import logging
 import time
 from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text
 # Import necessary modules
-from mcp_ssh_server import mcp
+from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 
 # Configure logging

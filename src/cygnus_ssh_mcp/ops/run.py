@@ -7,7 +7,7 @@ import socket
 from datetime import datetime
 from typing import Optional, Self
 from datetime import UTC
-from ssh_models import (
+from cygnus_ssh_mcp.models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
     CommandFailed, SudoRequired, SshError, BusyError
 )
