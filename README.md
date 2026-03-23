@@ -75,6 +75,7 @@ Show disk usage on the server
 See the [docs/](docs/) folder for detailed documentation:
 
 - [Overview](docs/10-overview.md)
+- [Installation](docs/15-installation.md)
 - [Platform Compatibility](docs/20-platform-compatibility.md)
 - [Host Configuration](docs/30-host-configuration.md)
 - [Tools Reference](docs/40-tools-reference.md)

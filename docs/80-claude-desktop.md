@@ -27,54 +27,35 @@ Claude Desktop stores MCP server configurations in:
 
 ## Basic Configuration
 
-Add the SSH MCP server to your `claude_desktop_config.json`:
+First, install the package:
+
+```bash
+pip install cygnus-ssh-mcp
+```
+
+Then add the SSH MCP server to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "ssh": {
-      "command": "python",
-      "args": [
-        "/path/to/mcp_ssh_server.py",
-        "--config",
-        "/path/to/ssh_hosts.toml"
-      ]
+      "command": "cygnus-ssh-mcp",
+      "args": ["--config", "/path/to/ssh_hosts.toml"]
     }
   }
 }
 ```
 
-### Using a Virtual Environment
+### Using uvx (No Permanent Install)
 
-Recommended for isolated dependencies:
+Run directly without installing:
 
-**Windows:**
 ```json
 {
   "mcpServers": {
     "ssh": {
-      "command": "C:/path/to/project/.venv/Scripts/python.exe",
-      "args": [
-        "C:/path/to/project/mcp_ssh_server.py",
-        "--config",
-        "C:/Users/username/.ssh_hosts.toml"
-      ]
-    }
-  }
-}
-```
-
-**macOS/Linux:**
-```json
-{
-  "mcpServers": {
-    "ssh": {
-      "command": "/path/to/project/.venv/bin/python",
-      "args": [
-        "/path/to/project/mcp_ssh_server.py",
-        "--config",
-        "/home/username/.ssh_hosts.toml"
-      ]
+      "command": "uvx",
+      "args": ["cygnus-ssh-mcp", "--config", "/path/to/ssh_hosts.toml"]
     }
   }
 }
@@ -88,14 +69,9 @@ Recommended for isolated dependencies:
 {
   "mcpServers": {
     "ssh": {
-      "command": "C:/Projects/mcp_ssh/.venv/Scripts/python.exe",
-      "args": [
-        "C:/Projects/mcp_ssh/mcp_ssh_server.py",
-        "--config",
-        "C:/Users/admin/.mcp_ssh_hosts.toml"
-      ],
+      "command": "cygnus-ssh-mcp",
+      "args": ["--config", "~/.mcp_ssh_hosts.toml"],
       "env": {
-        "PYTHONUNBUFFERED": "1",
         "LOG_LEVEL": "INFO"
       }
     }

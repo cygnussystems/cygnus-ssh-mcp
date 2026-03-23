@@ -113,6 +113,7 @@ See the individual documentation files for detailed information on each topic.
 
 ## Documentation Index
 
+- [Installation](15-installation.md) - Install from PyPI
 - [Platform Compatibility](20-platform-compatibility.md) - Supported platforms and requirements
 - [Host Configuration](30-host-configuration.md) - Host file format and options
 - [Tools Reference](40-tools-reference.md) - Complete tool documentation
