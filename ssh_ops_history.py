@@ -85,3 +85,10 @@ class CommandHistoryManager:
             return handle.get_full_output()
         return handle.tail(lines)
 
+    def clear(self) -> int:
+        """Clear all command history. Returns number of entries cleared."""
+        count = len(self._history)
+        self._history.clear()
+        self._history_order.clear()
+        return count
+

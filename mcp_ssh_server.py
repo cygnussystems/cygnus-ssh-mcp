@@ -960,14 +960,12 @@ async def ssh_cmd_clear_history() -> dict:
         raise SshError("No active SSH connection")
         
     try:
-        # Access the history manager and clear its history
-        history_count = len(mcp.ssh_client.history())
-        mcp.ssh_client._history_manager._history = []
-        
+        cleared_count = mcp.ssh_client.history_manager.clear()
+
         return {
             'status': 'success',
-            'message': f"Command history cleared ({history_count} entries removed)",
-            'cleared_entries': history_count
+            'message': f"Command history cleared ({cleared_count} entries removed)",
+            'cleared_entries': cleared_count
         }
     except Exception as e:
         logger.error(f"Failed to clear command history: {e}")

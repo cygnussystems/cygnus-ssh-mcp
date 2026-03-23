@@ -59,3 +59,10 @@ class CommandHistoryManager:
         if handle.id not in self._history:
             raise KeyError(f"Handle ID {handle.id} not found in history")
         self._history[handle.id] = handle
+
+    def clear(self) -> int:
+        """Clear all command history. Returns number of entries cleared."""
+        count = len(self._history)
+        self._history.clear()
+        self._history_order.clear()
+        return count

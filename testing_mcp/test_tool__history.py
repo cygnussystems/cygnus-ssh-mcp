@@ -405,5 +405,279 @@ async def test_ssh_command_history_reverse_order(
         finally:
             logger.info(f"[{test_id}] Ensuring SSH connection is closed.")
             await disconnect_ssh(client)
-    
+
+    print_test_footer()
+
+
+# =============================================================================
+# ssh_cmd_clear_history Tests
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_clear_history_basic(mcp_test_environment):
+    """Test basic clear history functionality - run commands, clear, verify count."""
+    print_test_header("Testing 'ssh_cmd_clear_history' basic functionality")
+    logger.info("Starting SSH clear history basic test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established for clear history test")
+
+            # Clear any existing history from connection setup
+            await client.call_tool("ssh_cmd_clear_history", {})
+
+            # Run some commands to build history
+            num_commands = 5
+            for i in range(num_commands):
+                run_params = {"command": f"echo 'Clear history test {i}'", "io_timeout": 5.0}
+                run_result = await client.call_tool("ssh_cmd_run", run_params)
+                run_result_json = json.loads(extract_result_text(run_result))
+                assert run_result_json.get('exit_code') == 0
+
+            logger.info(f"Ran {num_commands} commands, now clearing history")
+
+            # Clear the history
+            clear_result = await client.call_tool("ssh_cmd_clear_history", {})
+            clear_result_json = json.loads(extract_result_text(clear_result))
+
+            logger.info(f"Clear history result: {clear_result_json}")
+
+            # Verify the response
+            assert clear_result_json.get('status') == 'success', "Clear history should return success status"
+            assert clear_result_json.get('cleared_entries') == num_commands, \
+                f"Expected {num_commands} cleared entries, got {clear_result_json.get('cleared_entries')}"
+            assert 'message' in clear_result_json, "Response should include a message"
+
+            logger.info("SSH clear history basic test completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in SSH clear history basic test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_clear_history_empty(mcp_test_environment):
+    """Test clearing an already empty history - should succeed with 0 entries."""
+    print_test_header("Testing 'ssh_cmd_clear_history' on empty history")
+    logger.info("Starting SSH clear empty history test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            logger.info("SSH connection established")
+
+            # First clear - clears connection setup commands
+            await client.call_tool("ssh_cmd_clear_history", {})
+            logger.info("Cleared connection setup history")
+
+            # Second clear - should return 0 entries since history is now empty
+            clear_result = await client.call_tool("ssh_cmd_clear_history", {})
+            clear_result_json = json.loads(extract_result_text(clear_result))
+
+            logger.info(f"Clear empty history result: {clear_result_json}")
+
+            assert clear_result_json.get('status') == 'success', "Clear should succeed even on empty history"
+            assert clear_result_json.get('cleared_entries') == 0, \
+                f"Expected 0 cleared entries on already-cleared history, got {clear_result_json.get('cleared_entries')}"
+
+            logger.info("SSH clear empty history test completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in SSH clear empty history test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_clear_history_verify_empty(mcp_test_environment):
+    """Test that history is actually empty after clearing."""
+    print_test_header("Testing 'ssh_cmd_clear_history' verifies history is empty")
+    logger.info("Starting SSH clear history verification test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # Clear any existing history from connection setup
+            await client.call_tool("ssh_cmd_clear_history", {})
+
+            # Run commands
+            for i in range(3):
+                run_params = {"command": f"echo 'Verify clear test {i}'", "io_timeout": 5.0}
+                await client.call_tool("ssh_cmd_run", run_params)
+
+            # Verify history has entries
+            history_before = await client.call_tool("ssh_cmd_history", {"pattern": "Verify clear test"})
+            history_before_json = json.loads(extract_result_text(history_before))
+            assert len(history_before_json) == 3, "Should have 3 history entries before clear"
+            logger.info(f"History before clear: {len(history_before_json)} entries")
+
+            # Clear history
+            await client.call_tool("ssh_cmd_clear_history", {})
+            logger.info("History cleared")
+
+            # Verify history is now empty
+            history_after = await client.call_tool("ssh_cmd_history", {})
+            result_text = extract_result_text(history_after)
+
+            # Handle empty/None response (history is empty)
+            if result_text is None or result_text == "" or result_text == "[]":
+                logger.info("History is empty as expected (no entries)")
+            else:
+                history_after_json = json.loads(result_text)
+                if isinstance(history_after_json, list):
+                    assert len(history_after_json) == 0, \
+                        f"History should be empty after clear, got {len(history_after_json)} entries"
+                else:
+                    logger.info(f"History after clear (non-list): {history_after_json}")
+
+            logger.info("SSH clear history verification test completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in SSH clear history verification test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_clear_history_multiple_clears(mcp_test_environment):
+    """Test clearing history multiple times in succession."""
+    print_test_header("Testing 'ssh_cmd_clear_history' multiple clears")
+    logger.info("Starting SSH multiple clear history test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # Clear any existing history from connection setup
+            await client.call_tool("ssh_cmd_clear_history", {})
+
+            # Run some commands
+            for i in range(3):
+                run_params = {"command": f"echo 'Multi clear test {i}'", "io_timeout": 5.0}
+                await client.call_tool("ssh_cmd_run", run_params)
+
+            # First clear - should clear 3 entries
+            clear1_result = await client.call_tool("ssh_cmd_clear_history", {})
+            clear1_json = json.loads(extract_result_text(clear1_result))
+            assert clear1_json.get('cleared_entries') == 3, "First clear should remove 3 entries"
+            logger.info(f"First clear: {clear1_json.get('cleared_entries')} entries")
+
+            # Second clear - should clear 0 entries
+            clear2_result = await client.call_tool("ssh_cmd_clear_history", {})
+            clear2_json = json.loads(extract_result_text(clear2_result))
+            assert clear2_json.get('cleared_entries') == 0, "Second clear should remove 0 entries"
+            logger.info(f"Second clear: {clear2_json.get('cleared_entries')} entries")
+
+            # Third clear - still 0
+            clear3_result = await client.call_tool("ssh_cmd_clear_history", {})
+            clear3_json = json.loads(extract_result_text(clear3_result))
+            assert clear3_json.get('cleared_entries') == 0, "Third clear should remove 0 entries"
+            logger.info(f"Third clear: {clear3_json.get('cleared_entries')} entries")
+
+            logger.info("SSH multiple clear history test completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in SSH multiple clear history test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_clear_history_then_new_commands(mcp_test_environment):
+    """Test that new commands work correctly after clearing history."""
+    print_test_header("Testing 'ssh_cmd_clear_history' then new commands")
+    logger.info("Starting SSH clear then new commands test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # Clear any existing history from connection setup
+            await client.call_tool("ssh_cmd_clear_history", {})
+
+            # Run initial commands
+            for i in range(2):
+                run_params = {"command": f"echo 'Before clear {i}'", "io_timeout": 5.0}
+                await client.call_tool("ssh_cmd_run", run_params)
+
+            # Clear history
+            await client.call_tool("ssh_cmd_clear_history", {})
+            logger.info("History cleared")
+
+            # Run new commands after clear
+            for i in range(3):
+                run_params = {"command": f"echo 'After clear {i}'", "io_timeout": 5.0}
+                result = await client.call_tool("ssh_cmd_run", run_params)
+                result_json = json.loads(extract_result_text(result))
+                assert result_json.get('exit_code') == 0, f"Command after clear should succeed"
+
+            # Verify only new commands are in history
+            history_result = await client.call_tool("ssh_cmd_history", {})
+            history_json = json.loads(extract_result_text(history_result))
+
+            assert len(history_json) == 3, f"Should have 3 entries (only post-clear commands), got {len(history_json)}"
+
+            # Verify the commands are the "After clear" ones
+            for entry in history_json:
+                assert "After clear" in entry['command'], \
+                    f"History should only contain post-clear commands, found: {entry['command']}"
+
+            logger.info("SSH clear then new commands test completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in SSH clear then new commands test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_clear_history_no_connection():
+    """Test that clear history fails gracefully without a connection."""
+    print_test_header("Testing 'ssh_cmd_clear_history' without connection")
+    logger.info("Starting SSH clear history no connection test")
+
+    async with Client(mcp) as client:
+        try:
+            # Attempt to clear history without connecting first
+            # This should raise an error
+            try:
+                clear_result = await client.call_tool("ssh_cmd_clear_history", {})
+                result_text = extract_result_text(clear_result)
+
+                # If we got here, check if it returned an error in the response
+                if "error" in result_text.lower() or "no active" in result_text.lower():
+                    logger.info("Clear history correctly returned error without connection")
+                else:
+                    pytest.fail("Clear history should fail without an active connection")
+
+            except Exception as e:
+                # Expected - should raise an error
+                logger.info(f"Clear history correctly raised exception without connection: {e}")
+                assert "connection" in str(e).lower() or "ssh" in str(e).lower(), \
+                    f"Error should mention connection issue, got: {e}"
+
+            logger.info("SSH clear history no connection test completed successfully")
+
+        except Exception as e:
+            logger.error(f"Error in SSH clear history no connection test: {e}", exc_info=True)
+            raise
+
     print_test_footer()
