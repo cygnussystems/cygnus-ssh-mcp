@@ -8,5 +8,5 @@ background task management, and archive handling.
 
 from cygnus_ssh_mcp.server import main, mcp
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __all__ = ["main", "mcp"]
