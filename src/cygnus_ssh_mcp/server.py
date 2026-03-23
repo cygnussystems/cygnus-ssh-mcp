@@ -7,6 +7,12 @@ import tempfile
 import shlex
 import time
 from pathlib import Path
+
+# Allow running directly from source without pip install
+_src_dir = Path(__file__).resolve().parent.parent
+if str(_src_dir) not in sys.path:
+    sys.path.insert(0, str(_src_dir))
+
 from fastmcp import FastMCP
 from pydantic import Field, BaseModel
 from typing import Annotated, Optional, Literal, Dict, Any, List, Union
