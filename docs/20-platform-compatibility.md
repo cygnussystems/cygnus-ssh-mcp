@@ -8,21 +8,21 @@ This SSH MCP server enables remote server management via SSH. This document desc
 
 | Client (Local) | Target (Remote) | Status |
 |----------------|-----------------|--------|
-| Windows | Linux | ✅ Tested |
-| macOS | Linux | ✅ Supported |
-| Linux | Linux | ✅ Supported |
-| Windows | macOS | ❌ Not supported |
-| macOS | macOS | ❌ Not supported |
-| Linux | macOS | ❌ Not supported |
-| Any | BSD variants | ❌ Not supported |
-| Any | Other Unix | ❌ Not supported |
+| Windows | Linux | Tested |
+| macOS | Linux | Supported |
+| Linux | Linux | Supported |
+| Windows | macOS | Not supported |
+| macOS | macOS | Not supported |
+| Linux | macOS | Not supported |
+| Any | BSD variants | Not supported |
+| Any | Other Unix | Not supported |
 
 ## Client-Side Requirements
 
 The MCP server can run on **Windows, macOS, or Linux**. Requirements:
 
-- Python 3.x
-- Paramiko (SSH library)
+- Python 3.10+
+- Paramiko >= 3.5.0
 - Standard SSH connectivity to target
 
 The client platform does not affect functionality since all operations use the Paramiko SSH library, which is cross-platform.
@@ -46,11 +46,11 @@ The implementation relies heavily on GNU/Linux-specific utilities and system pat
 
 | Utility | Linux (GNU) | BSD/macOS | Notes |
 |---------|-------------|-----------|-------|
-| `find -printf` | ✅ | ❌ | GNU extension, not in BSD find |
-| `find -maxdepth` | ✅ | ❌ | BSD uses different syntax |
-| `free -m` | ✅ | ❌ | Linux-only, macOS uses `vm_stat` |
-| `ip addr` | ✅ | ❌ | Linux-only, macOS uses `ifconfig` |
-| `df -T` | ✅ | ❌ | GNU coreutils only |
+| `find -printf` | Yes | No | GNU extension, not in BSD find |
+| `find -maxdepth` | Yes | No | BSD uses different syntax |
+| `free -m` | Yes | No | Linux-only, macOS uses `vm_stat` |
+| `ip addr` | Yes | No | Linux-only, macOS uses `ifconfig` |
+| `df -T` | Yes | No | GNU coreutils only |
 
 #### Linux-Specific Paths
 
@@ -95,11 +95,11 @@ For most use cases involving SSH access to remote servers, Linux target support 
 The codebase uses platform-specific operation classes:
 
 ```
-ssh_ops_file.py      → SshFileOperations_Linux
-ssh_ops_directory.py → SshDirectoryOperations_Linux
-ssh_ops_run.py       → SshRunOperations_Linux
-ssh_ops_task.py      → SshTaskOperations_Linux
-ssh_ops_os.py        → SshOsOperations_Linux
+ssh_ops_file.py      -> SshFileOperations_Linux
+ssh_ops_directory.py -> SshDirectoryOperations_Linux
+ssh_ops_run.py       -> SshRunOperations_Linux
+ssh_ops_task.py      -> SshTaskOperations_Linux
+ssh_ops_os.py        -> SshOsOperations_Linux
 ```
 
 This design allows adding support for additional platforms by creating new classes (e.g., `SshDirectoryOperations_Mac`) without modifying the existing Linux implementations.

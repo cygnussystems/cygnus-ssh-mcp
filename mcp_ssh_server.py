@@ -1,7 +1,6 @@
 import logging
 import sys
 import os
-import toml  # Changed from yaml to toml
 import argparse
 import asyncio
 import tempfile
@@ -32,18 +31,9 @@ def parse_args():
 
 
 
-# Only parse command line arguments when run directly
-if __name__ == "__main__":
-    # Parse command line arguments
-    args = parse_args()
-    
-    # Initialize host manager with config path if provided
-    host_manager = SshHostManager(
-        config_path=Path(args.config) if args.config else None
-    )
-else:
-    # When imported as a module (e.g. during testing), use default config
-    host_manager = SshHostManager()
+# Initialize host manager with default config
+# This will be re-initialized with CLI args if main() is called
+host_manager = SshHostManager()
 
 
 # ===================
@@ -168,30 +158,36 @@ async def ssh_conn_is_connected() -> bool:
 
 @mcp.tool()
 async def ssh_conn_connect(
-    host_name: Annotated[str, Field(description="The 'user@hostname' identifier of the pre-configured host to use")]
+    host_name: Annotated[str, Field(description="The 'user@hostname' identifier or alias of a pre-configured host")]
 ) -> dict:
     """
     Establish an SSH connection using a pre-configured host.
-    The host must be defined in the TOML configuration file using the 'user@hostname' format.
-    
+    The host can be specified by its 'user@hostname' key or by its alias.
+
     Returns:
         Dictionary with connection status and detailed system information
     """
     try:
-        host_config = host_manager.get_host(host_name)
-        if not host_config:
-            raise SshError(f"Host configuration for '{host_name}' not found. Ensure it is defined in the TOML config file as '[{host_name}]'.")
+        # Try to resolve the host by key or alias
+        resolved_key, host_config = host_manager.resolve_host(host_name)
             
         if mcp.ssh_client:
             logger.warning("Closing existing SSH connection")
             mcp.ssh_client.close()
             
+        # Expand ~ in keyfile path if present
+        keyfile = host_config.get('keyfile')
+        if keyfile:
+            keyfile = os.path.expanduser(keyfile)
+
         mcp.ssh_client = SshClient(
             host=host_config['parsed_host'],
             user=host_config['parsed_user'],
-            password=host_config['password'],
+            password=host_config.get('password'),
+            keyfile=keyfile,
+            key_passphrase=host_config.get('key_passphrase'),
             port=host_config['port'],
-            sudo_password=host_config['password']  # Use regular password for sudo
+            sudo_password=host_config.get('sudo_password') or host_config.get('password')
         )
         
         # Get current working directory
@@ -207,9 +203,9 @@ async def ssh_conn_connect(
         status['cwd'] = cwd
         system_info = mcp.ssh_client.full_status()
         
-        return {
+        result = {
             'status': 'success',
-            'connected_to': host_name, # Reflects the user@host key used
+            'connected_to': resolved_key,  # The actual user@host key
             'host': host_config['parsed_host'],
             'user': host_config['parsed_user'],
             'port': host_config['port'],
@@ -218,6 +214,12 @@ async def ssh_conn_connect(
             'connection': status,
             'system': system_info
         }
+        # Include alias info if the connection was made via alias
+        if host_config.get('alias'):
+            result['alias'] = host_config['alias']
+        if host_name != resolved_key:
+            result['resolved_from'] = host_name  # Show what alias was used
+        return result
     except Exception as e:
         logger.error(f"Failed to connect to {host_name}: {e}")
         raise
@@ -227,30 +229,49 @@ async def ssh_conn_connect(
 async def ssh_conn_add_host(
     user: Annotated[str, Field(description="Username for authentication")],
     host: Annotated[str, Field(description="Hostname or IP address")],
-    password: Annotated[str, Field(description="Password for authentication", secret=True)],
+    password: Annotated[Optional[str], Field(description="Password for authentication", secret=True)] = None,
     port: Annotated[int, Field(description="SSH port", ge=1, le=65535)] = 22,
-    sudo_password: Annotated[Optional[str], Field(description="Password for sudo operations (defaults to regular password if not provided)", secret=True)] = None
+    sudo_password: Annotated[Optional[str], Field(description="Password for sudo operations (defaults to regular password if not provided)", secret=True)] = None,
+    alias: Annotated[Optional[str], Field(description="Short name for easy connection (e.g., 'prod', 'staging')")] = None,
+    description: Annotated[Optional[str], Field(description="Description of what this host is for")] = None,
+    keyfile: Annotated[Optional[str], Field(description="Path to SSH private key file (e.g., ~/.ssh/id_rsa)")] = None,
+    key_passphrase: Annotated[Optional[str], Field(description="Passphrase for encrypted SSH key", secret=True)] = None
 ) -> dict:
     """
     Add or update a host configuration in the host configuration TOML file.
     This tool will fail if the host already exists in the host config file.
 
+    You can call the 'ssh_conn_connect' tool without having to add a new host! The host may already
+    be listed in the host config TOML file!
 
-    You can call the  'ssh_conn_connect' tool without having to add a new host! The host may already
-    be listed in the host config Toml file!
+    Authentication requires either a password OR a keyfile (or both):
+    - Password authentication: Provide `password`
+    - Key-based authentication: Provide `keyfile` (and optionally `key_passphrase` if the key is encrypted)
 
-    I the hosts does not yet exist, and you need to add it,
-    you MUST ask the user for a password! Do not call this tool without a user provided password.
-    Also warn the user that the password will be visible to the LLM and that it would be better
+    If using key-only authentication and sudo operations are needed, you must explicitly provide
+    `sudo_password` unless the server has passwordless sudo configured.
+
+    Warn the user that credentials will be visible to the LLM and that it would be better
     for the user to add the host directly in the host configuration file.
 
     The host config file is a TOML file likely in the user's home directory.
     The configuration will be stored under a ["user@host"] key.
-    
+
+    Optional fields:
+    - alias: A short name for connecting (e.g., 'prod' instead of 'deploy@production.example.com')
+    - description: A text description of what the host is for
+
     Returns:
         Dictionary with operation status
     """
     try:
+        # Validate that at least one authentication method is provided
+        if not password and not keyfile:
+            return {
+                'status': 'error',
+                'error': 'Either password or keyfile must be provided for authentication'
+            }
+
         key = f"{user}@{host}"
         existing = host_manager.get_host(key)
         if existing:
@@ -260,22 +281,59 @@ async def ssh_conn_add_host(
                 'existing_config': {
                     'host': existing['parsed_host'],
                     'user': existing['parsed_user'],
-                    'port': existing['port']
+                    'port': existing['port'],
+                    'alias': existing.get('alias'),
+                    'description': existing.get('description')
                 }
             }
-            
-        # Use the regular password for sudo if sudo_password is not provided
+
+        # Check for duplicate alias if one is being added
+        if alias:
+            try:
+                existing_key, _ = host_manager.get_host_by_alias(alias)
+                if existing_key:
+                    return {
+                        'status': 'error',
+                        'error': f"Alias '{alias}' is already in use by host '{existing_key}'"
+                    }
+            except SshError as e:
+                # Duplicate alias error from get_host_by_alias
+                return {
+                    'status': 'error',
+                    'error': str(e)
+                }
+
+        # Use the regular password for sudo if sudo_password is not provided (and password exists)
         sudo_pass = sudo_password if sudo_password is not None else password
-        host_manager.add_host(user, host, port, password, sudo_pass)
-        host_manager._load_hosts()  # Reload after modification
-        return {
+        host_manager.add_host(
+            user=user,
+            host=host,
+            port=port,
+            password=password,
+            sudo_password=sudo_pass,
+            alias=alias,
+            description=description,
+            keyfile=keyfile,
+            key_passphrase=key_passphrase
+        )
+        host_manager.hosts = host_manager._load_hosts()  # Reload after modification
+
+        result = {
             'status': 'success',
-            'message': f"Host configuration for '{key}' added/updated.",
+            'message': f"Host configuration for '{key}' added.",
             'key': key,
             'host': host,
             'user': user,
-            'port': port
+            'port': port,
+            'auth_method': 'key' if keyfile else 'password'
         }
+        if alias:
+            result['alias'] = alias
+        if description:
+            result['description'] = description
+        if keyfile:
+            result['keyfile'] = keyfile
+        return result
     except Exception as e:
         logger.error(f"Failed to add host configuration for {user}@{host}: {e}")
         raise
@@ -338,16 +396,25 @@ async def ssh_conn_host_info() -> dict:
 @mcp.tool()
 async def ssh_host_list() -> dict:
     """
-    List all configured SSH hosts and config file location.
-    
+    List all configured SSH hosts with their aliases and descriptions.
+
     Returns:
         Dictionary with:
-        - hosts: List of host keys in 'user@host' format
-        - config_path: Path to the active config file
+        - hosts: List of host information dictionaries, each containing:
+          - key: The 'user@host' key
+          - alias: Optional short name for the host
+          - description: Optional description of the host
     """
+    hosts_info = []
+    for key, details in host_manager.hosts.items():
+        host_entry = {"key": key}
+        if details.get('alias'):
+            host_entry['alias'] = details['alias']
+        if details.get('description'):
+            host_entry['description'] = details['description']
+        hosts_info.append(host_entry)
     return {
-        "hosts": list(host_manager.hosts.keys()),
-        "config_path": str(host_manager.config_path)
+        "hosts": hosts_info
     }
 
 @mcp.tool()
@@ -2002,19 +2069,22 @@ def _format_size(size_bytes):
 # Main Execution
 # ===================
 
-if __name__ == '__main__':
+def main():
+    """Entry point for CLI execution."""
+    global host_manager
+
+    # Parse command line arguments
+    args = parse_args()
+
+    # Re-initialize host manager with config path if provided
+    host_manager = SshHostManager(
+        config_path=Path(args.config) if args.config else None
+    )
+
     try:
         logger.info(f"Starting SSH MCP server '{mcp.name}' ")
-        logger.info(f"Using TOML config file: {host_manager.config_path}") # Updated log message
+        logger.info(f"Using TOML config file: {host_manager.config_path}")
         logger.info("Available tools (can be retrieved programmatically via 'list_tools' tool):")
-        # The following loop is commented out because mcp.get_tools() is a coroutine
-        # and cannot be awaited in this synchronous context before mcp.run() starts the event loop.
-        # The 'list_tools' tool provides this functionality once the server is running.
-        # ---
-        # tools_dict_main = await mcp.get_tools() # This would require __main__ to be async or run within asyncio.run
-        # for tool_info in tools_dict_main.values(): 
-        #     logger.info(f"  - {tool_info.name}: {tool_info.description}")
-        # ---
         mcp.run()
     except KeyboardInterrupt:
         logger.info("Server stopped by user (KeyboardInterrupt)")
@@ -2022,3 +2092,7 @@ if __name__ == '__main__':
     except Exception as e:
         logger.critical(f"Server crashed with error: {e}", exc_info=True)
         sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

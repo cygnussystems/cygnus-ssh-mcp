@@ -29,7 +29,8 @@ class SshClient:
     Includes support for launching background tasks and monitoring them.
     Uses logging for output. Implements wall-clock timeouts for run().
     """
-    def __init__(self, host, user, port=22, keyfile=None, password=None, sudo_password=None,
+    def __init__(self, host, user, port=22, keyfile=None, key_passphrase=None,
+                 password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
         # Only import Linux-specific operations
         from ssh_ops_file import SshFileOperations_Linux
@@ -56,6 +57,7 @@ class SshClient:
         self.user = user
         self.port = port
         self.keyfile = keyfile
+        self.key_passphrase = key_passphrase
         self.password = password
         self.sudo_password = sudo_password
         self.connect_timeout = connect_timeout
@@ -174,6 +176,9 @@ class SshClient:
         if self.keyfile:
             kwargs['key_filename'] = self.keyfile
             self._logger.info(f"Using keyfile: {self.keyfile}")
+            if self.key_passphrase:
+                kwargs['passphrase'] = self.key_passphrase
+                self._logger.info("Using passphrase for encrypted key")
         if self.password:
             kwargs['password'] = self.password
             # Avoid logging password itself

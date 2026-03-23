@@ -20,3 +20,26 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Sensitive files (credentials)
+ssh_hosts.toml
+.mcp_ssh_hosts.toml
+*_ssh_hosts.toml
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Dev files (not for distribution)
+CLAUDE.md
+planning/
+_old_/
+testing/
+testing_mcp/
+context
