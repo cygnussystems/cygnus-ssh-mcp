@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cygnus-ssh-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "MCP server for SSH remote server management"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Peter Ritter" }]
 keywords = ["mcp", "ssh", "claude", "anthropic", "remote", "server", "automation"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
