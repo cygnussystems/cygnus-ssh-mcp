@@ -1,73 +1,83 @@
-# Contributing to cygnus-ssh-mcp
+# Releasing cygnus-ssh-mcp
 
-## Releasing a New Version
+## Automated Publishing (via GitHub Actions)
 
-### 1. Update Version
+Publishing to PyPI is automated. When you push a version tag, GitHub Actions builds and publishes the package.
 
-Edit `pyproject.toml` and update the version number:
+### Release Process
 
-```toml
-[project]
-version = "X.Y.Z"
-```
+1. **Update version** in `pyproject.toml`:
 
-Follow [Semantic Versioning](https://semver.org/):
-- **MAJOR** (X): Breaking changes
-- **MINOR** (Y): New features, backwards compatible
-- **PATCH** (Z): Bug fixes, backwards compatible
+   ```toml
+   [project]
+   version = "X.Y.Z"
+   ```
 
-### 2. Commit and Tag
+   Follow [Semantic Versioning](https://semver.org/):
+   - **MAJOR** (X): Breaking changes
+   - **MINOR** (Y): New features, backwards compatible
+   - **PATCH** (Z): Bug fixes, backwards compatible
+
+2. **Commit, tag, and push**:
+
+   ```bash
+   git add pyproject.toml
+   git commit -m "release: vX.Y.Z"
+   git tag vX.Y.Z
+   git push && git push --tags
+   ```
+
+3. **Done!** GitHub Actions will automatically:
+   - Build the package
+   - Publish to PyPI
+
+   Monitor progress at: https://github.com/cygnussystems/cygnus-ssh-mcp/actions
+
+## First-Time Setup: PyPI Trusted Publisher
+
+Before automated publishing works, you must configure PyPI to trust this repository:
+
+1. Go to https://pypi.org/manage/project/cygnus-ssh-mcp/settings/publishing/
+2. Click "Add a new publisher"
+3. Fill in:
+   - **Owner**: `cygnussystems`
+   - **Repository name**: `cygnus-ssh-mcp`
+   - **Workflow name**: `publish.yml`
+   - **Environment name**: (leave blank)
+4. Click "Add"
+
+This uses OpenID Connect (OIDC) for secure authentication - no API tokens needed.
+
+## Manual Publishing (Fallback)
+
+If GitHub Actions fails or you need to publish manually:
 
 ```bash
-git add pyproject.toml
-git commit -m "release: vX.Y.Z"
-git tag vX.Y.Z
-git push && git push --tags
-```
+# Install tools
+pip install build twine
 
-### 3. Build
-
-```bash
-pip install build
+# Build
 python -m build
-```
 
-This creates:
-- `dist/cygnus_ssh_mcp-X.Y.Z-py3-none-any.whl`
-- `dist/cygnus_ssh_mcp-X.Y.Z.tar.gz`
-
-### 4. Publish to PyPI
-
-```bash
-pip install twine
+# Publish (requires ~/.pypirc with API token)
 twine upload dist/*
-```
 
-You'll be prompted for credentials (see PyPI Token Setup below).
-
-### 5. Clean Up
-
-```bash
+# Clean up
 rm -rf dist/ build/ *.egg-info/
 ```
 
-## PyPI Token Setup (First Time)
+### PyPI Token Setup (for manual publishing)
 
-1. Create an account at [pypi.org](https://pypi.org/account/register/)
-2. Generate an API token at [pypi.org/manage/account/token/](https://pypi.org/manage/account/token/)
-3. Create `~/.pypirc`:
+1. Generate token at https://pypi.org/manage/account/token/
+2. Create `~/.pypirc`:
 
-```ini
-[pypi]
-username = __token__
-password = pypi-YOUR_TOKEN_HERE
-```
+   ```ini
+   [pypi]
+   username = __token__
+   password = pypi-YOUR_TOKEN_HERE
+   ```
 
-4. Secure the file:
-
-```bash
-chmod 600 ~/.pypirc
-```
+3. Secure the file: `chmod 600 ~/.pypirc`
 
 ## Development Setup
 
