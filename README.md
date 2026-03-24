@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.png" alt="cygnus-ssh-mcp" width="400">
+<img src="https://raw.githubusercontent.com/cygnussystems/cygnus-ssh-mcp/master/assets/banner.png" alt="cygnus-ssh-mcp" width="400">
 
 # cygnus-ssh-mcp
 
