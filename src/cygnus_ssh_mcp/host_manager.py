@@ -24,7 +24,11 @@ class SshHostManager:
             self.config_path = home_config if home_config.exists() else project_config
 
         self._ensure_config_file()
-        self.hosts: Dict[str, Dict[str, Any]] = self._load_hosts()
+
+    @property
+    def hosts(self) -> Dict[str, Dict[str, Any]]:
+        """Load hosts fresh from TOML file on every access."""
+        return self._load_hosts()
 
     def _ensure_config_file(self):
         """Create config file if it doesn't exist with secure permissions."""
@@ -158,9 +162,10 @@ class SshHostManager:
         Returns:
             True if host was removed, False if not found
         """
-        if user_at_host_key in self.hosts:
-            del self.hosts[user_at_host_key]
-            self._save_hosts()
+        current_hosts = self._load_hosts()
+        if user_at_host_key in current_hosts:
+            del current_hosts[user_at_host_key]
+            self._save_hosts(current_hosts)
             return True
         return False
 
@@ -178,7 +183,8 @@ class SshHostManager:
             logger.warning(f"Invalid port number {port} - clamping to {clamped_port}")
 
         key = f"{user}@{host}"
-        self.hosts[key] = {
+        current_hosts = self._load_hosts()
+        current_hosts[key] = {
             'password': password,
             'port': clamped_port,
             'parsed_user': user,
@@ -189,10 +195,14 @@ class SshHostManager:
             'keyfile': keyfile,
             'key_passphrase': key_passphrase
         }
-        self._save_hosts()
+        self._save_hosts(current_hosts)
 
-    def _save_hosts(self):
-        """Save hosts to TOML config file, preserving comments and formatting."""
+    def _save_hosts(self, hosts: Dict[str, Dict[str, Any]]):
+        """Save hosts to TOML config file, preserving comments and formatting.
+
+        Args:
+            hosts: The hosts dictionary to save
+        """
         try:
             # Load existing document to preserve comments
             if self.config_path.exists():
@@ -205,14 +215,14 @@ class SshHostManager:
 
             # Get current keys in document
             existing_keys = set(doc.keys())
-            current_keys = set(self.hosts.keys())
+            current_keys = set(hosts.keys())
 
-            # Remove hosts that are no longer in self.hosts
+            # Remove hosts that are no longer in hosts
             for key in existing_keys - current_keys:
                 del doc[key]
 
             # Add/update hosts
-            for key, details in self.hosts.items():
+            for key, details in hosts.items():
                 host_table = tomlkit.table()
                 if details.get('password'):
                     host_table.add('password', details['password'])

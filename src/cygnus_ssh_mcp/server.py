@@ -322,7 +322,6 @@ async def ssh_conn_add_host(
             keyfile=keyfile,
             key_passphrase=key_passphrase
         )
-        host_manager.hosts = host_manager._load_hosts()  # Reload after modification
 
         result = {
             'status': 'success',
@@ -429,63 +428,26 @@ async def ssh_host_remove(
 ) -> dict:
     """
     Remove a host configuration from the host configuration TOML file.
-    
+
     Returns:
         Dictionary with operation status
     """
     try:
-        if host_name not in host_manager.hosts:
+        if host_manager.remove_host(host_name):
+            return {
+                'status': 'success',
+                'message': f"Host configuration for '{host_name}' removed",
+                'remaining_hosts': list(host_manager.hosts.keys())
+            }
+        else:
             return {
                 'status': 'error',
                 'error': f"Host '{host_name}' not found in configuration",
                 'hosts': list(host_manager.hosts.keys())
             }
-            
-        # Remove the host from the manager's hosts dictionary
-        del host_manager.hosts[host_name]
-        
-        # Save the updated configuration
-        host_manager._save_hosts()
-        
-        return {
-            'status': 'success',
-            'message': f"Host configuration for '{host_name}' removed",
-            'remaining_hosts': list(host_manager.hosts.keys())
-        }
     except Exception as e:
         logger.error(f"Failed to remove host configuration for {host_name}: {e}")
         raise
-
-@mcp.tool()
-async def ssh_host_reload_config() -> dict:
-    """
-    Force reload of the hosts configuration file (TOML).
-    
-    Use this when you've manually edited the hosts configuration file
-    and want to reload it without restarting the server.
-    
-    Returns:
-        Dictionary with reload status and current hosts
-    """
-    try:
-        logger.info(f"Reloading hosts configuration from {host_manager.config_path}")
-        
-        # Reload the hosts configuration and update the hosts attribute
-        host_manager.hosts = host_manager._load_hosts()
-        
-        return {
-            'status': 'success',
-            'message': f"Successfully reloaded hosts configuration from {host_manager.config_path}",
-            'config_path': str(host_manager.config_path),
-            'hosts': list(host_manager.hosts.keys())
-        }
-    except Exception as e:
-        logger.error(f"Failed to reload hosts configuration: {e}")
-        return {
-            'status': 'error',
-            'error': str(e),
-            'config_path': str(host_manager.config_path)
-        }
 
 @mcp.tool()
 async def ssh_host_disconnect() -> dict:
