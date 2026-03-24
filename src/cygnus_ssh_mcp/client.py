@@ -32,13 +32,6 @@ class SshClient:
     def __init__(self, host, user, port=22, keyfile=None, key_passphrase=None,
                  password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
-        # Only import Linux-specific operations
-        from cygnus_ssh_mcp.ops.file import SshFileOperations_Linux
-        from cygnus_ssh_mcp.ops.task import SshTaskOperations_Linux
-        from cygnus_ssh_mcp.ops.run import SshRunOperations_Linux
-        from cygnus_ssh_mcp.ops.directory import SshDirectoryOperations_Linux
-        from cygnus_ssh_mcp.ops.os_ops import SshOsOperations_Linux
-        
         # Initialize platform detection
         self.os_type = None  # 'windows', 'linux', 'macos'
         self.os_subtype = None  # 'windows10', 'debian', 'centos', etc.
@@ -82,11 +75,15 @@ class SshClient:
         # Connect and detect OS
         self._connect()
         self._detect_os()
-        
-        # Only create Linux operations
-        if self.os_type != 'linux':
-            raise SshError(f"Unsupported OS detected: {self.os_type}. Only Linux is supported.")
-            
+
+        # Validate supported OS
+        if self.os_type not in ('linux', 'macos', 'windows'):
+            raise SshError(f"Unsupported OS detected: {self.os_type}. Only Linux, macOS, and Windows are supported.")
+
+        # For Windows, detect elevation status
+        if self.os_type == 'windows':
+            self._detect_windows_elevation()
+
         self._create_operations()
 
     def _detect_os(self):
@@ -94,26 +91,46 @@ class SshClient:
         # First verify we have an active connection
         if not self._client or not self._client.get_transport() or not self._client.get_transport().is_active():
             raise SshError("Cannot detect OS - no active SSH connection")
-            
+
         try:
             # Use direct Paramiko command execution for OS detection
             stdin, stdout, stderr = self._client.exec_command('uname -s', timeout=5)
             result = stdout.read().decode('utf-8', errors='replace').strip()
-            
-            if 'Linux' in result:
+            exit_status = stdout.channel.recv_exit_status()
+
+            if exit_status == 0 and 'Linux' in result:
                 self.os_type = 'linux'
                 self._detect_linux_distro()
-            elif 'Darwin' in result:
+            elif exit_status == 0 and 'Darwin' in result:
                 self.os_type = 'macos'
             else:
-                # If uname fails, try systeminfo for Windows
+                # uname failed or returned unknown - try Windows detection
+                # Use 'echo %OS%' which is fast and returns 'Windows_NT' on Windows
                 try:
-                    stdin, stdout, stderr = self._client.exec_command('systeminfo', timeout=5)
-                    stdout.read()  # Just check if command succeeds
-                    self.os_type = 'windows'
-                except Exception:
-                    # Instead of defaulting to Linux, raise an error
-                    raise SshError("Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded")
+                    stdin, stdout, stderr = self._client.exec_command('echo %OS%', timeout=5)
+                    win_result = stdout.read().decode('utf-8', errors='replace').strip()
+                    win_exit = stdout.channel.recv_exit_status()
+
+                    if win_exit == 0 and 'Windows' in win_result:
+                        self.os_type = 'windows'
+                        self._detect_windows_version()
+                    else:
+                        # Try PowerShell as a fallback
+                        stdin, stdout, stderr = self._client.exec_command(
+                            'powershell -Command "$PSVersionTable.PSVersion.Major"', timeout=5)
+                        ps_result = stdout.read().decode('utf-8', errors='replace').strip()
+                        ps_exit = stdout.channel.recv_exit_status()
+
+                        if ps_exit == 0 and ps_result.isdigit():
+                            self.os_type = 'windows'
+                            self._detect_windows_version()
+                        else:
+                            raise SshError("Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded")
+                except Exception as win_err:
+                    raise SshError(f"Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded: {win_err}")
+        except SshError:
+            self.close()
+            raise
         except Exception as e:
             # Close the connection and raise an error instead of defaulting to Linux
             self.close()
@@ -141,20 +158,76 @@ class SshClient:
         except Exception:
             self.os_subtype = 'unknown_linux'
 
+    def _detect_windows_version(self):
+        """Detect Windows version subtype."""
+        try:
+            # Use 'ver' command which is fast and returns Windows version
+            stdin, stdout, stderr = self._client.exec_command('ver', timeout=5)
+            result = stdout.read().decode('utf-8', errors='replace').strip()
+
+            if 'Windows Server 2019' in result or '10.0.17' in result:
+                self.os_subtype = 'windows_server_2019'
+            elif 'Windows Server 2022' in result or '10.0.20' in result:
+                self.os_subtype = 'windows_server_2022'
+            elif 'Windows Server 2016' in result or '10.0.14' in result:
+                self.os_subtype = 'windows_server_2016'
+            elif 'Windows 10' in result:
+                self.os_subtype = 'windows_10'
+            elif 'Windows 11' in result:
+                self.os_subtype = 'windows_11'
+            else:
+                self.os_subtype = 'unknown_windows'
+
+            self._logger.debug(f"Windows version detected: {result}")
+        except Exception as e:
+            self._logger.warning(f"Failed to detect Windows version: {e}")
+            self.os_subtype = 'unknown_windows'
+
+    def _detect_windows_elevation(self):
+        """Detect if the Windows session is running with Administrator privileges."""
+        self._is_elevated = False
+        try:
+            # Check if current session has Administrator role
+            check_cmd = 'powershell -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"'
+            stdin, stdout, stderr = self._client.exec_command(check_cmd, timeout=10)
+            result = stdout.read().decode('utf-8', errors='replace').strip().lower()
+            self._is_elevated = result == 'true'
+            self._logger.info(f"Windows elevation status: {'elevated (Administrator)' if self._is_elevated else 'not elevated'}")
+        except Exception as e:
+            self._logger.warning(f"Failed to detect Windows elevation status: {e}. Assuming not elevated.")
+            self._is_elevated = False
+
     def _create_operations(self):
-        """Create platform-specific operation classes."""
-        from cygnus_ssh_mcp.ops.file import SshFileOperations_Linux, SshFileOperations_Win
+        """Create platform-specific operation classes based on detected OS."""
+        from cygnus_ssh_mcp.ops.file import SshFileOperations_Linux, SshFileOperations_Mac, SshFileOperations_Win
         from cygnus_ssh_mcp.ops.task import SshTaskOperations_Linux, SshTaskOperations_Win
         from cygnus_ssh_mcp.ops.run import SshRunOperations_Linux, SshRunOperations_Win
-        from cygnus_ssh_mcp.ops.directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Win
-        from cygnus_ssh_mcp.ops.os_ops import SshOsOperations_Linux, SshOsOperations_Win
+        from cygnus_ssh_mcp.ops.directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Mac, SshDirectoryOperations_Win
+        from cygnus_ssh_mcp.ops.os_ops import SshOsOperations_Linux, SshOsOperations_Mac, SshOsOperations_Win
 
-        # Always use Linux operations since we're testing against Linux containers
-        self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
-        self.task_ops = SshTaskOperations_Linux(self)
-        self.file_ops = SshFileOperations_Linux(self)
-        self.dir_ops = SshDirectoryOperations_Linux(self)
-        self.os_ops = SshOsOperations_Linux(self)
+        # Select platform-specific operations based on detected OS
+        if self.os_type == 'linux':
+            self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
+            self.task_ops = SshTaskOperations_Linux(self)
+            self.file_ops = SshFileOperations_Linux(self)
+            self.dir_ops = SshDirectoryOperations_Linux(self)
+            self.os_ops = SshOsOperations_Linux(self)
+        elif self.os_type == 'macos':
+            # macOS uses bash like Linux for run/task operations
+            self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
+            self.task_ops = SshTaskOperations_Linux(self)
+            self.file_ops = SshFileOperations_Mac(self)
+            self.dir_ops = SshDirectoryOperations_Mac(self)
+            self.os_ops = SshOsOperations_Mac(self)
+        elif self.os_type == 'windows':
+            self.run_ops = SshRunOperations_Win(self, self.tail_keep)
+            self.task_ops = SshTaskOperations_Win(self)
+            self.file_ops = SshFileOperations_Win(self)
+            self.dir_ops = SshDirectoryOperations_Win(self)
+            self.os_ops = SshOsOperations_Win(self)
+        else:
+            # This shouldn't happen due to the check in __init__, but defensive programming
+            raise SshError(f"No operations available for OS type: {self.os_type}")
 
     def _connect(self):
         """Establish SSH connection and update connection status."""
@@ -234,29 +307,39 @@ class SshClient:
         with self._status_lock:
             now = time.time()
             last_update = self._connection_status.get('last_updated', 0)
-            
+
             if not force and (now - last_update) < 300:  # 5 minute cache
                 return
-                
+
             try:
-                # Get basic info with single command
-                cmd = """
-                echo "USER:$(whoami)"
-                echo "CWD:$(pwd)"
-                """
-                handle = self.run(cmd, io_timeout=5)
-                output = "".join(handle.tail(handle.total_lines))
-                
-                # Parse output
-                for line in output.splitlines():
-                    if 'USER:' in line:
-                        self._connection_status['user'] = line.split(':', 1)[1].strip()
-                    elif 'CWD:' in line:
-                        self._connection_status['cwd'] = line.split(':', 1)[1].strip()
-                
+                # Get basic info using OS-appropriate commands
+                if self.os_type == 'windows':
+                    # Windows: use separate commands
+                    user_handle = self.run('whoami', io_timeout=5)
+                    user = user_handle.get_full_output().strip() if user_handle.exit_code == 0 else 'Unknown'
+                    cwd_handle = self.run('cd', io_timeout=5)
+                    cwd = cwd_handle.get_full_output().strip() if cwd_handle.exit_code == 0 else 'Unknown'
+                    self._connection_status['user'] = user
+                    self._connection_status['cwd'] = cwd
+                else:
+                    # Linux/macOS: use bash command
+                    cmd = """
+                    echo "USER:$(whoami)"
+                    echo "CWD:$(pwd)"
+                    """
+                    handle = self.run(cmd, io_timeout=5)
+                    output = "".join(handle.tail(handle.total_lines))
+
+                    # Parse output
+                    for line in output.splitlines():
+                        if 'USER:' in line:
+                            self._connection_status['user'] = line.split(':', 1)[1].strip()
+                        elif 'CWD:' in line:
+                            self._connection_status['cwd'] = line.split(':', 1)[1].strip()
+
                 # Update timestamp
                 self._connection_status['last_updated'] = now
-                
+
             except Exception as e:
                 self._logger.warning(f"Failed to update connection status: {e}")
 
@@ -271,10 +354,15 @@ class SshClient:
             }
 
     def verify_sudo_access(self) -> bool:
-        """Optionally verify sudo access when needed."""
+        """Verify sudo/admin access. For Windows, returns elevation status."""
         try:
-            handle = self.run('sudo -n true 2>/dev/null && echo true || echo false', io_timeout=5)
-            return 'true' in handle.tail(1)[0]
+            if self.os_type == 'windows':
+                # For Windows, return the cached elevation status
+                return getattr(self, '_is_elevated', False)
+            else:
+                # For Linux/macOS, check passwordless sudo
+                handle = self.run('sudo -n true 2>/dev/null && echo true || echo false', io_timeout=5)
+                return 'true' in handle.tail(1)[0]
         except Exception as e:
             self._logger.warning(f"Failed to verify sudo access: {e}")
             return False

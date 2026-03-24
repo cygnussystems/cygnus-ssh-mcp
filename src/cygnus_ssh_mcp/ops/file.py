@@ -3,23 +3,14 @@ import tempfile
 import shlex
 import logging
 import time
+from abc import ABC, abstractmethod
 from typing import Optional, Callable
 from cygnus_ssh_mcp.models import SshError, CommandFailed
 
-class SshFileOperations_Win:
-    """Handles file operations on Windows systems."""
-    
-    def __init__(self, ssh_client):
-        """
-        Args:
-            ssh_client: Reference to parent SSH client
-        """
-        self.ssh_client = ssh_client
-        self.logger = logging.getLogger(f"{__name__}.SshFileOperations_Win")
 
-class SshFileOperations_Linux:
-    """Handles file transfers, directory operations, and file editing."""
-    
+class SshFileOperations(ABC):
+    """Base class for file operations. Platform-specific commands are abstract methods."""
+
     def __init__(self, ssh_client):
         """
         Args:
@@ -27,6 +18,15 @@ class SshFileOperations_Linux:
         """
         self.ssh_client = ssh_client
         self.logger = logging.getLogger(f"{__name__}.SshFileOperations")
+
+    # ==========================================================================
+    # Abstract command methods - implemented by platform-specific subclasses
+    # ==========================================================================
+
+    @abstractmethod
+    def _cmd_stat_permissions(self, path: str) -> str:
+        """Return command to get file permissions, uid, and gid (space-separated: perms uid gid)."""
+        pass
         
     def get(self, remote_path: str, local_path: str) -> None:
         """Download a file from remote to local."""
@@ -723,8 +723,8 @@ class SshFileOperations_Linux:
             self.put(local_temp_path, remote_temp_path) 
 
             perms = owner = group = None
-            if not (force and original_text == "" and original_content_for_check is None): 
-                stat_cmd = f"stat -c '%a %u %g' {shlex.quote(remote_file)}"
+            if not (force and original_text == "" and original_content_for_check is None):
+                stat_cmd = self._cmd_stat_permissions(remote_file)
                 try:
                     stat_handle = self.ssh_client.run(stat_cmd, io_timeout=10, sudo=False) 
                     stat_output = stat_handle.get_full_output().strip() 
@@ -789,3 +789,174 @@ class SshFileOperations_Linux:
                         self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=True)
                     except Exception as sudo_cleanup_err:
                          self.logger.error(f"Failed to cleanup remote temp file {remote_temp_path} even with sudo: {sudo_cleanup_err}")
+
+
+class SshFileOperations_Linux(SshFileOperations):
+    """Linux implementation of file operations using GNU coreutils."""
+
+    def _cmd_stat_permissions(self, path: str) -> str:
+        """Return stat command for permissions, uid, gid."""
+        return f"stat -c '%a %u %g' {shlex.quote(path)}"
+
+
+class SshFileOperations_Mac(SshFileOperations):
+    """macOS implementation of file operations using BSD coreutils."""
+
+    def _cmd_stat_permissions(self, path: str) -> str:
+        """Return stat command for permissions, uid, gid (BSD stat)."""
+        # BSD stat: %Lp=perms(octal without leading zero), %u=uid, %g=gid
+        return f"stat -f '%Lp %u %g' {shlex.quote(path)}"
+
+
+class SshFileOperations_Win(SshFileOperations):
+    """Windows implementation of file operations using PowerShell."""
+
+    def _cmd_stat_permissions(self, path: str) -> str:
+        """Return PowerShell command for permissions info.
+
+        Windows doesn't have Unix-style permissions, so we return:
+        - Placeholder '0' for permissions (ACLs are different)
+        - Owner SID/name as uid
+        - 'unknown' as gid (Windows doesn't have groups the same way)
+        """
+        ps_path = path.replace("'", "''")
+        # Output format: perms uid gid (we use 0 for perms, owner for uid, unknown for gid)
+        return f'''powershell -Command "$acl = Get-Acl -Path '{ps_path}' -ErrorAction SilentlyContinue; if ($acl) {{ Write-Output \\"0 $($acl.Owner) unknown\\" }} else {{ Write-Output \\"0 unknown unknown\\" }}"'''
+
+    def find_lines_with_pattern(self, remote_file: str, pattern: str,
+                               regex: bool = False, sudo: bool = False) -> dict:
+        """
+        Search for a pattern in a remote file using PowerShell Select-String.
+        """
+        self.logger.info(f"Searching for pattern '{pattern}' in {remote_file} (regex={regex}, sudo={sudo})")
+
+        # Escape pattern for PowerShell
+        ps_pattern = pattern.replace("'", "''").replace('"', '`"')
+        ps_file = remote_file.replace("'", "''")
+
+        # -SimpleMatch for literal string, otherwise regex
+        match_option = "" if regex else "-SimpleMatch"
+
+        # PowerShell Select-String command - output format: LineNumber:Line
+        cmd = f'''powershell -Command "Select-String -Path '{ps_file}' -Pattern '{ps_pattern}' {match_option} -ErrorAction SilentlyContinue | ForEach-Object {{ Write-Output \\"$($_.LineNumber):$($_.Line)\\" }}"'''
+
+        try:
+            handle = self.ssh_client.run(cmd, sudo=False)  # Windows doesn't use sudo
+            output_str = handle.get_full_output()
+
+            matches = []
+            for line in (output_str or "").splitlines():
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    if len(parts) == 2:
+                        line_num_str, content = parts
+                        try:
+                            line_num = int(line_num_str)
+                            matches.append({"line_number": line_num, "content": content})
+                        except ValueError:
+                            self.logger.warning(f"Could not parse line number from output: '{line}'")
+
+            return {
+                "total_matches": len(matches),
+                "matches": matches
+            }
+        except CommandFailed as e:
+            if e.exit_code == 1:  # No matches
+                return {"total_matches": 0, "matches": []}
+            stderr_info = f" Stderr: {e.stderr.strip()}" if hasattr(e, 'stderr') and e.stderr else ""
+            error_message = f"Select-String failed with exit code {e.exit_code}.{stderr_info}"
+            self.logger.error(f"{error_message}")
+            return {"total_matches": 0, "matches": [], "error": error_message}
+        except Exception as e:
+            self.logger.error(f"Error in find_lines_with_pattern: {e}", exc_info=True)
+            return {"total_matches": 0, "matches": [], "error": str(e)}
+
+    def get_context_around_line(self, remote_file: str, match_line: str,
+                               context: int = 3, sudo: bool = False) -> dict:
+        """
+        Get lines before and after a line that matches exactly using PowerShell.
+        """
+        self.logger.info(f"Getting context around line in {remote_file} (context={context}, sudo={sudo})")
+
+        # First find the exact line number
+        find_result = self.find_lines_with_pattern(remote_file, match_line, regex=False, sudo=sudo)
+
+        if 'error' in find_result:
+            return {"match_found": False, "error": find_result['error']}
+
+        if find_result["total_matches"] == 0:
+            return {"match_found": False, "error": "Match line not found in file"}
+
+        if find_result["total_matches"] > 1:
+            return {"match_found": False, "error": "Multiple matches found for the line", "matches": find_result["matches"]}
+
+        match_line_number = find_result["matches"][0]["line_number"]
+
+        start_line = max(1, match_line_number - context)
+        end_line = match_line_number + context
+
+        ps_file = remote_file.replace("'", "''")
+        # PowerShell: Get content with line range
+        cmd = f'''powershell -Command "$lines = Get-Content -Path '{ps_file}' -TotalCount {end_line} | Select-Object -Skip {start_line - 1}; $lineNum = {start_line}; $lines | ForEach-Object {{ Write-Output \\"$($lineNum):$_\\"; $lineNum++ }}"'''
+
+        try:
+            handle = self.ssh_client.run(cmd, sudo=False)
+            output = handle.get_full_output()
+
+            context_block = []
+            for line in output.splitlines():
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    if len(parts) == 2:
+                        try:
+                            line_num = int(parts[0])
+                            context_block.append({"line_number": line_num, "content": parts[1]})
+                        except ValueError:
+                            pass
+
+            return {
+                "match_found": True,
+                "match_line_number": match_line_number,
+                "context_block": context_block
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting context: {e}", exc_info=True)
+            return {"match_found": False, "error": str(e)}
+
+    def mkdir(self, path: str, sudo: bool = False, mode: int = 0o755) -> None:
+        """Create a remote directory on Windows using PowerShell."""
+        self.logger.info(f"Creating directory {path} (sudo={sudo}, mode={mode:o})")
+        ps_path = path.replace("'", "''")
+        cmd = f'''powershell -Command "New-Item -Path '{ps_path}' -ItemType Directory -Force -ErrorAction Stop"'''
+        self.ssh_client.run(cmd)
+
+    def rmdir(self, path: str, sudo: bool = False, recursive: bool = False) -> None:
+        """Remove a remote directory on Windows using PowerShell."""
+        self.logger.info(f"Removing directory {path} (sudo={sudo}, recursive={recursive})")
+        ps_path = path.replace("'", "''")
+        recurse_flag = "-Recurse" if recursive else ""
+        cmd = f'''powershell -Command "Remove-Item -Path '{ps_path}' {recurse_flag} -Force -ErrorAction Stop"'''
+        self.ssh_client.run(cmd)
+
+    def copy_file(self, source_path: str, destination_path: str,
+                 append_timestamp: bool = False, sudo: bool = False) -> dict:
+        """Copy a file on Windows using PowerShell."""
+        actual_destination = destination_path
+        if append_timestamp:
+            import time as time_module
+            timestamp = time_module.strftime("%Y%m%dT%H%M%S")
+            base, ext = os.path.splitext(destination_path)
+            actual_destination = f"{base}.{timestamp}{ext}"
+
+        self.logger.info(f"Copying file from {source_path} to {actual_destination} (sudo={sudo})")
+
+        ps_source = source_path.replace("'", "''")
+        ps_dest = actual_destination.replace("'", "''")
+        cmd = f'''powershell -Command "Copy-Item -Path '{ps_source}' -Destination '{ps_dest}' -Force -ErrorAction Stop"'''
+
+        try:
+            self.ssh_client.run(cmd)
+            return {"success": True, "copied_to": actual_destination}
+        except Exception as e:
+            self.logger.error(f"Failed to copy file: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}

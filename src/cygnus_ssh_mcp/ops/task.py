@@ -1,49 +1,93 @@
 import time
 import logging
 import shlex
+from abc import ABC, abstractmethod
 from typing import Optional
 from datetime import datetime, UTC
 from cygnus_ssh_mcp.models import (
     CommandHandle, SshError, TaskNotFound, SudoRequired
 )
 
-class SshTaskOperations_Win:
-    """Handles background task management on Windows systems."""
-    
+
+class SshTaskOperations(ABC):
+    """Base class for background task management. Platform-specific commands are abstract."""
+
     def __init__(self, ssh_client):
         """
         Args:
             ssh_client: Reference to parent SSH client
         """
         self.ssh_client = ssh_client
-        self.logger = logging.getLogger(f"{__name__}.SshTaskOperations_Win")
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
+    # ==========================================================================
+    # Abstract methods - implemented by platform-specific subclasses
+    # ==========================================================================
 
-class SshTaskOperations_Linux:
-    """Handles background task management including launch, status, and kill operations."""
-    
-    def __init__(self, ssh_client):
+    @abstractmethod
+    def _get_default_log_dir(self) -> str:
+        """Return the default directory for task log files."""
+        pass
+
+    @abstractmethod
+    def _build_launch_script(self, cmd: str, stdout_log: str, stderr_log: str, sudo: bool) -> tuple:
         """
+        Build the script content and path to launch a background task.
+
         Args:
-            ssh_client: Reference to parent SSH client
+            cmd: Command to execute
+            stdout_log: Path to redirect stdout
+            stderr_log: Path to redirect stderr
+            sudo: Whether to run with elevated privileges
+
+        Returns:
+            Tuple of (script_path, script_content, create_script_command)
         """
-        self.ssh_client = ssh_client
-        self.logger = logging.getLogger(f"{__name__}.SshTaskOperations")
-        
+        pass
+
+    @abstractmethod
+    def _cmd_check_process_running(self, pid: int) -> str:
+        """
+        Return command to check if a process is running.
+        Command should exit 0 if running, non-zero if not.
+        """
+        pass
+
+    @abstractmethod
+    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
+        """
+        Return command to kill a process with the given signal.
+
+        Args:
+            pid: Process ID
+            signal: Signal number (15=TERM, 9=KILL on Linux)
+            sudo: Whether to use elevated privileges
+        """
+        pass
+
+    @abstractmethod
+    def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
+        """Return command to rename a log file."""
+        pass
+
+    # ==========================================================================
+    # Shared implementation methods
+    # ==========================================================================
+
     def launch_task(self, cmd, stdout_log=None, stderr_log=None, log_output=True, sudo=False, add_to_history=False):
         """
         Launch a command in the background and return a CommandHandle with the PID.
-        
+
         Args:
             cmd: Command to execute
             stdout_log: Path to redirect stdout
             stderr_log: Path to redirect stderr
             log_output: Whether to enable default logging
             sudo: Whether to run with sudo
-            
+
         Returns:
             CommandHandle with task PID
-            
+
         Raises:
             SshError: If task launch fails
             SudoRequired: If sudo password is required but not provided
@@ -53,90 +97,34 @@ class SshTaskOperations_Linux:
             effective_stdout_log = stdout_log
             effective_stderr_log = stderr_log
             pid_placeholder = f"pid_{int(time.time())}"
-            default_log_path = f"/tmp/task-{pid_placeholder}.log"
+            log_dir = self._get_default_log_dir()
+            default_log_path = f"{log_dir}/task-{pid_placeholder}.log"
 
             if log_output and stdout_log is None and stderr_log is None:
                 effective_stdout_log = default_log_path
                 effective_stderr_log = default_log_path
                 self.logger.info(f"Defaulting log output to {default_log_path} (placeholder)")
             elif log_output and stdout_log is None:
-                effective_stdout_log = "/dev/null"
+                effective_stdout_log = f"{log_dir}/null" if log_dir.startswith("C:") else "/dev/null"
             elif log_output and stderr_log is None:
-                effective_stderr_log = "/dev/null"
+                effective_stderr_log = f"{log_dir}/null" if log_dir.startswith("C:") else "/dev/null"
 
-            # Build the command with backgrounding and PID echo
-            # Use a more robust approach to ensure command output doesn't interfere with PID
-            bg_cmd_part = f"{cmd}"
-            
-            # Create a separate subshell for the command with its redirections
-            if effective_stdout_log:
-                if effective_stderr_log and effective_stderr_log != effective_stdout_log:
-                    # Different stdout and stderr destinations
-                    redirect_part = f"1>{shlex.quote(effective_stdout_log)} 2>{shlex.quote(effective_stderr_log)}"
-                else:
-                    # Same destination for both or stderr not specified
-                    redirect_part = f"1>{shlex.quote(effective_stdout_log)} 2>&1"
-            else:
-                # No stdout specified
-                if effective_stderr_log:
-                    redirect_part = f"1>/dev/null 2>{shlex.quote(effective_stderr_log)}"
-                else:
-                    redirect_part = "1>/dev/null 2>/dev/null"
-            
-            # Use a completely different approach to avoid any interference:
-            # Create a temporary script that:
-            # 1. Launches the command in background with proper redirection
-            # 2. Captures PID
-            # 3. Outputs ONLY the PID
-            # 4. Removes itself
-            script_name = f"/tmp/launch_script_{int(time.time())}.sh"
-            
-            # For sudo commands, we need to make sure the sudo is part of the command being backgrounded
-            # not just applied to the script itself
-            if sudo:
-                bg_cmd_with_sudo = f"sudo -n {bg_cmd_part}"
-                script_content = f"""#!/bin/bash
-# Launch command in background with proper redirection
-# Use explicit redirection to ensure output goes to the right files
-# Execute command directly without subshell to ensure redirection works properly
-{bg_cmd_with_sudo} {redirect_part} &
-# Store PID
-pid=$!
-# Output only the PID with marker
-echo "PID:$pid"
-# Clean up this script
-rm -f {script_name}
-exit 0
-"""
-            else:
-                script_content = f"""#!/bin/bash
-# Launch command in background with proper redirection
-# Use explicit redirection to ensure output goes to the right files
-# Execute command directly without subshell to ensure redirection works properly
-bash -c {shlex.quote(bg_cmd_part)} {redirect_part} &
-# Store PID
-pid=$!
-# Output only the PID with marker
-echo "PID:$pid"
-# Clean up this script
-rm -f {script_name}
-exit 0
-"""
-            # First create the script
-            create_script_cmd = f"cat > {script_name} << 'EOFSCRIPT'\n{script_content}\nEOFSCRIPT\nchmod +x {script_name}"
+            # Build platform-specific launch script
+            script_path, script_content, create_script_cmd = self._build_launch_script(
+                cmd, effective_stdout_log, effective_stderr_log, sudo
+            )
+
+            # Create the script
             stdin, stdout, stderr = self.ssh_client._client.exec_command(create_script_cmd, timeout=5)
             exit_status = stdout.channel.recv_exit_status()
             if exit_status != 0:
                 err_msg = f"Failed to create launch script: {stderr.read().decode('utf-8', errors='replace')}"
                 self.logger.error(err_msg)
                 raise SshError(err_msg)
-            
-            # Then execute the script
-            # We don't need to add sudo here if we've already included it in the script content
-            full_cmd = script_name
 
-            self.logger.info(f"Launching background task using script: {full_cmd}")
-            stdin, stdout, stderr = self.ssh_client._client.exec_command(full_cmd, timeout=10)
+            # Execute the script
+            self.logger.info(f"Launching background task using script: {script_path}")
+            stdin, stdout, stderr = self.ssh_client._client.exec_command(script_path, timeout=10)
 
             # Read all output
             stdout_data = stdout.read().decode('utf-8', errors='replace').strip()
@@ -158,9 +146,9 @@ exit 0
             pid_match = None
             for line in stdout_data.splitlines():
                 if line.startswith("PID:"):
-                    pid_match = line[4:].strip()  # Remove "PID:" prefix
+                    pid_match = line[4:].strip()
                     break
-            
+
             if not pid_match or not pid_match.isdigit():
                 err_msg = f"Failed to parse PID from task launch. stdout: '{stdout_data}', stderr: '{stderr_output}'"
                 self.logger.error(err_msg)
@@ -171,10 +159,9 @@ exit 0
 
             # Rename default log file if used
             if effective_stdout_log == default_log_path:
-                final_log_path = f"/tmp/task-{pid}.log"
+                final_log_path = f"{log_dir}/task-{pid}.log"
                 try:
-                    # Use direct channel execution to avoid adding to history
-                    rename_cmd = f"mv {shlex.quote(default_log_path)} {shlex.quote(final_log_path)}"
+                    rename_cmd = self._cmd_rename_log(default_log_path, final_log_path)
                     stdin, stdout, stderr = self.ssh_client._client.exec_command(rename_cmd, timeout=10)
                     exit_status = stdout.channel.recv_exit_status()
                     if exit_status == 0:
@@ -185,11 +172,10 @@ exit 0
                 except Exception as rename_err:
                     self.logger.warning(f"Failed to rename default log file: {rename_err}")
 
-            # Create a handle for the task, but don't add to history by default
+            # Create a handle for the task
             if add_to_history:
                 handle = self.ssh_client.history_manager.add_command(cmd, pid)
             else:
-                # Create a handle without adding to history
                 handle = CommandHandle(self.ssh_client.history_manager._next_id, cmd)
                 handle.pid = pid
                 handle.start_ts = datetime.now(UTC)
@@ -204,10 +190,10 @@ exit 0
     def get_task_status(self, pid):
         """
         Check the status of a background task.
-        
+
         Args:
             pid: Process ID to check
-            
+
         Returns:
             'running', 'exited', 'invalid', or 'error'
         """
@@ -215,7 +201,7 @@ exit 0
             self.logger.warning(f"Invalid PID provided: {pid}")
             return "invalid"
 
-        cmd = f"kill -0 {pid}"
+        cmd = self._cmd_check_process_running(pid)
         self.logger.debug(f"Checking status for PID {pid} using command: {cmd}")
         chan = None
         try:
@@ -240,29 +226,27 @@ exit 0
             return "error"
 
     def _kill_remote_process(self, pid, sudo=False):
-        """Internal helper to attempt killing a remote PID. Avoids self.run()."""
+        """Internal helper to attempt killing a remote PID."""
         if not pid:
             return False
-            
+
         self.logger.warning(f"Attempting to kill remote process PID {pid} (sudo={sudo}).")
         killed = False
-        
-        for signal in [15, 9]: # Try TERM then KILL
-            cmd = f"kill -{signal} {pid}"
-            full_cmd = f"sudo -n bash -c {shlex.quote(cmd)}" if sudo else cmd
-            
+
+        for signal in [15, 9]:  # Try TERM then KILL
+            cmd = self._cmd_kill_process(pid, signal, sudo)
+
             with self.ssh_client._client.get_transport().open_session() as chan:
                 chan.settimeout(5.0)
                 try:
-                    chan.exec_command(full_cmd)
-                    # Read stderr before checking exit status
+                    chan.exec_command(cmd)
                     stderr_file = chan.makefile_stderr('r')
                     stderr = stderr_file.read()
                     if isinstance(stderr, bytes):
                         stderr = stderr.decode('utf-8', errors='replace')
                     stderr_file.close()
                     exit_status = chan.recv_exit_status()
-                    
+
                     if exit_status == 0:
                         self.logger.info(f"Kill command (signal {signal}) for PID {pid} succeeded.")
                         killed = True
@@ -278,14 +262,14 @@ exit 0
     def kill_task(self, pid, signal=15, sudo=False, force_kill_signal=9, wait_seconds=1.0):
         """
         Kill a background task.
-        
+
         Args:
             pid: Process ID to kill
             signal: Initial signal to send (default: 15/SIGTERM)
             sudo: Whether to use sudo
             force_kill_signal: Fallback signal if initial fails (default: 9/SIGKILL)
             wait_seconds: Time to wait after initial signal before checking status
-            
+
         Returns:
             'killed', 'already_exited', 'failed_to_kill', 'invalid_pid', or 'error'
         """
@@ -308,15 +292,15 @@ exit 0
             self.logger.warning(f"Could not determine initial status for PID {pid}. Proceeding with kill attempt.")
 
         # Try initial signal
-        cmd = f"kill -{signal} {pid}"
+        cmd = self._cmd_kill_process(pid, signal, sudo)
         kill_cmd_succeeded = False
         try:
-            handle = self.ssh_client.run(cmd, io_timeout=10, runtime_timeout=15, sudo=sudo)
+            handle = self.ssh_client.run(cmd, io_timeout=10, runtime_timeout=15, sudo=False)  # sudo handled in cmd
             if handle.exit_code == 0:
                 self.logger.info(f"Successfully sent signal {signal} to PID {pid}.")
                 kill_cmd_succeeded = True
             else:
-                self.logger.warning(f"Command 'kill -{signal} {pid}' failed with exit code {handle.exit_code}.")
+                self.logger.warning(f"Command 'kill' for PID {pid} failed with exit code {handle.exit_code}.")
         except Exception as e:
             self.logger.warning(f"Error sending signal {signal} to PID {pid}: {e}")
 
@@ -335,9 +319,9 @@ exit 0
         # Try force kill if needed
         if force_kill_signal is not None and current_status == "running":
             self.logger.warning(f"PID {pid} still running after signal {signal}. Attempting force kill with signal {force_kill_signal}.")
-            cmd_force = f"kill -{force_kill_signal} {pid}"
+            cmd_force = self._cmd_kill_process(pid, force_kill_signal, sudo)
             try:
-                handle_force = self.ssh_client.run(cmd_force, io_timeout=10, runtime_timeout=15, sudo=sudo)
+                handle_force = self.ssh_client.run(cmd_force, io_timeout=10, runtime_timeout=15, sudo=False)
                 if handle_force.exit_code == 0:
                     self.logger.info(f"Successfully sent force signal {force_kill_signal} to PID {pid}.")
                     time.sleep(0.5)
@@ -349,7 +333,7 @@ exit 0
                         self.logger.error(f"PID {pid} still not exited after force signal {force_kill_signal}.")
                         return "failed_to_kill"
                 else:
-                    self.logger.error(f"Force kill command 'kill -{force_kill_signal} {pid}' failed with exit code {handle_force.exit_code}.")
+                    self.logger.error(f"Force kill command for PID {pid} failed with exit code {handle_force.exit_code}.")
                     return "failed_to_kill"
             except Exception as e_force:
                 self.logger.error(f"Error sending force signal {force_kill_signal} to PID {pid}: {e_force}")
@@ -359,3 +343,144 @@ exit 0
             return "failed_to_kill"
 
         return "failed_to_kill"
+
+
+class SshTaskOperations_Linux(SshTaskOperations):
+    """Linux implementation using bash scripts and kill signals."""
+
+    def _get_default_log_dir(self) -> str:
+        return "/tmp"
+
+    def _build_launch_script(self, cmd: str, stdout_log: str, stderr_log: str, sudo: bool) -> tuple:
+        """Build bash script to launch background task."""
+        timestamp = int(time.time())
+        script_path = f"/tmp/launch_script_{timestamp}.sh"
+
+        # Build redirection part
+        if stdout_log:
+            if stderr_log and stderr_log != stdout_log:
+                redirect_part = f"1>{shlex.quote(stdout_log)} 2>{shlex.quote(stderr_log)}"
+            else:
+                redirect_part = f"1>{shlex.quote(stdout_log)} 2>&1"
+        else:
+            if stderr_log:
+                redirect_part = f"1>/dev/null 2>{shlex.quote(stderr_log)}"
+            else:
+                redirect_part = "1>/dev/null 2>/dev/null"
+
+        if sudo:
+            bg_cmd_with_sudo = f"sudo -n {cmd}"
+            script_content = f"""#!/bin/bash
+# Launch command in background with proper redirection
+{bg_cmd_with_sudo} {redirect_part} &
+# Store PID
+pid=$!
+# Output only the PID with marker
+echo "PID:$pid"
+# Clean up this script
+rm -f {script_path}
+exit 0
+"""
+        else:
+            script_content = f"""#!/bin/bash
+# Launch command in background with proper redirection
+bash -c {shlex.quote(cmd)} {redirect_part} &
+# Store PID
+pid=$!
+# Output only the PID with marker
+echo "PID:$pid"
+# Clean up this script
+rm -f {script_path}
+exit 0
+"""
+
+        create_script_cmd = f"cat > {script_path} << 'EOFSCRIPT'\n{script_content}\nEOFSCRIPT\nchmod +x {script_path}"
+        return script_path, script_content, create_script_cmd
+
+    def _cmd_check_process_running(self, pid: int) -> str:
+        return f"kill -0 {pid}"
+
+    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
+        cmd = f"kill -{signal} {pid}"
+        if sudo:
+            return f"sudo -n bash -c {shlex.quote(cmd)}"
+        return cmd
+
+    def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
+        return f"mv {shlex.quote(old_path)} {shlex.quote(new_path)}"
+
+
+class SshTaskOperations_Win(SshTaskOperations):
+    """Windows implementation using PowerShell."""
+
+    def _get_default_log_dir(self) -> str:
+        return "C:\\Windows\\Temp"
+
+    def _build_launch_script(self, cmd: str, stdout_log: str, stderr_log: str, sudo: bool) -> tuple:
+        """Build PowerShell script to launch background task."""
+        timestamp = int(time.time())
+        script_path = f"C:\\Windows\\Temp\\launch_script_{timestamp}.ps1"
+
+        # Windows doesn't have sudo in the same way - we check _is_elevated flag
+        # If sudo=True and not elevated, caller should have already raised an error
+
+        # Build PowerShell script
+        # Use Start-Process to launch in background
+        # Note: We need to handle output redirection differently in PowerShell
+
+        # Escape the command for PowerShell
+        ps_escaped_cmd = cmd.replace('"', '`"').replace("'", "''")
+
+        # Build the script content
+        if stdout_log and stderr_log and stdout_log != stderr_log:
+            script_content = f"""# Launch command in background with output redirection
+$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -NoNewWindow -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_log}"
+Write-Output "PID:$($proc.Id)"
+Remove-Item -Path "{script_path}" -Force -ErrorAction SilentlyContinue
+exit 0
+"""
+        elif stdout_log:
+            script_content = f"""# Launch command in background with output redirection
+$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -NoNewWindow -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stdout_log}"
+Write-Output "PID:$($proc.Id)"
+Remove-Item -Path "{script_path}" -Force -ErrorAction SilentlyContinue
+exit 0
+"""
+        else:
+            # No logging - redirect to NUL
+            script_content = f"""# Launch command in background without output
+$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -NoNewWindow -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
+Write-Output "PID:$($proc.Id)"
+Remove-Item -Path "{script_path}" -Force -ErrorAction SilentlyContinue
+exit 0
+"""
+
+        # Create script command using PowerShell
+        # Escape for the outer command
+        escaped_content = script_content.replace('"', '`"')
+        create_script_cmd = f'powershell -Command "Set-Content -Path \'{script_path}\' -Value @\'\n{script_content}\'@"'
+
+        # Simpler approach - use Out-File
+        create_script_cmd = f"powershell -Command \"@'{script_content}'@ | Out-File -FilePath '{script_path}' -Encoding UTF8\""
+
+        # Even simpler - write directly with heredoc-like syntax
+        create_script_cmd = f'powershell -Command "$content = @\'\n{script_content}\'@; Set-Content -Path \'{script_path}\' -Value $content -Encoding UTF8"'
+
+        return script_path, script_content, create_script_cmd
+
+    def _cmd_check_process_running(self, pid: int) -> str:
+        # PowerShell command to check if process exists
+        # Exit 0 if running, exit 1 if not
+        return f'powershell -Command "if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"'
+
+    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
+        # Windows doesn't have signals, but we can simulate:
+        # signal 15 (TERM) = normal Stop-Process
+        # signal 9 (KILL) = Stop-Process -Force
+        if signal == 9:
+            return f'powershell -Command "Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue"'
+        else:
+            return f'powershell -Command "Stop-Process -Id {pid} -ErrorAction SilentlyContinue"'
+
+    def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
+        return f'powershell -Command "Move-Item -Path \'{old_path}\' -Destination \'{new_path}\' -Force"'

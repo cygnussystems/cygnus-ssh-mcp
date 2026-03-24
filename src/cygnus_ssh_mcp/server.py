@@ -196,10 +196,13 @@ async def ssh_conn_connect(
             sudo_password=host_config.get('sudo_password') or host_config.get('password')
         )
         
-        # Get current working directory
-        cwd_result = mcp.ssh_client.run("pwd")
+        # Get current working directory (use OS-appropriate command)
+        if mcp.ssh_client.os_type == 'windows':
+            cwd_result = mcp.ssh_client.run("cd")
+        else:
+            cwd_result = mcp.ssh_client.run("pwd")
         cwd = cwd_result.get_full_output().strip() if cwd_result.exit_code == 0 else "Unknown"
-        
+
         # Update the connection status with the current working directory
         mcp.ssh_client.update_connection_status(force=True)
         
@@ -357,11 +360,14 @@ async def ssh_conn_status() -> dict:
         
     try:
         status = mcp.ssh_client.get_connection_status()
-        
-        # Get current working directory
-        cwd_result = mcp.ssh_client.run("pwd")
+
+        # Get current working directory (use OS-appropriate command)
+        if mcp.ssh_client.os_type == 'windows':
+            cwd_result = mcp.ssh_client.run("cd")
+        else:
+            cwd_result = mcp.ssh_client.run("pwd")
         cwd = cwd_result.get_full_output().strip() if cwd_result.exit_code == 0 else "Unknown"
-        
+
         return {
             'user': status.get('user', 'Unknown'),
             'host': status.get('host', 'Unknown'),
@@ -494,17 +500,27 @@ async def ssh_host_disconnect() -> dict:
 async def ssh_conn_verify_sudo() -> dict:
     """
     Verify if sudo access is available on the remote system.
-    
+
     Returns:
         Dictionary with sudo access information:
         - available: True if any sudo access is available
-        - passwordless: True if passwordless sudo is available
+        - passwordless: True if passwordless sudo is available (or elevated on Windows)
         - requires_password: True if sudo requires a password
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
-        
+
     try:
+        # Windows: Check elevation status
+        if mcp.ssh_client.os_type == 'windows':
+            is_elevated = getattr(mcp.ssh_client, '_is_elevated', False)
+            return {
+                "available": is_elevated,
+                "passwordless": is_elevated,  # Elevated sessions don't need password
+                "requires_password": False
+            }
+
+        # Linux/macOS: Check sudo access
         # First check for passwordless sudo
         passwordless = False
         try:
@@ -515,7 +531,7 @@ async def ssh_conn_verify_sudo() -> dict:
         except Exception as e:
             logger.debug(f"Passwordless sudo check failed: {e}")
             passwordless = False
-            
+
         # Check if sudo with password works
         requires_password = False
         if not passwordless:
@@ -539,7 +555,7 @@ async def ssh_conn_verify_sudo() -> dict:
                     requires_password = result.exit_code == 0
                 except Exception as e:
                     logger.debug(f"Sudo access check failed: {e}")
-                    
+
                     # Try another approach - check if user is in sudo group
                     try:
                         result = mcp.ssh_client.run("groups | grep -q '\\bsudo\\b'", io_timeout=5.0)
