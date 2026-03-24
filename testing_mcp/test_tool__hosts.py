@@ -3,8 +3,12 @@ import json
 import logging
 import time
 import asyncio
+import tempfile
+from pathlib import Path
 from conftest import print_test_header, print_test_footer, extract_result_text
 from cygnus_ssh_mcp.server import mcp
+from cygnus_ssh_mcp.host_manager import SshHostManager
+from cygnus_ssh_mcp.models import SshError
 from fastmcp import Client
 
 # Configure logging
@@ -343,5 +347,144 @@ async def test_ssh_host_duplicate_alias_prevention(mcp_test_environment):
         except Exception as e:
             logger.error(f"Error in duplicate alias prevention test: {e}", exc_info=True)
             raise
+
+    print_test_footer()
+
+
+def test_ssh_host_toml_parse_error():
+    """Test that TOML parse errors raise SshError with line number info."""
+    print_test_header("Testing TOML parse error handling")
+    logger.info("Starting TOML parse error test")
+
+    # Create a temporary file with invalid TOML syntax
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
+        f.write('''# Valid host
+["user@host1"]
+password = "test"
+port = 22
+
+# Invalid host - missing closing quote
+["user@host2"]
+password = "missing quote
+port = 22
+''')
+        temp_path = Path(f.name)
+
+    try:
+        # Create host manager with the broken config
+        manager = SshHostManager(config_path=temp_path)
+
+        # Accessing hosts should raise SshError
+        with pytest.raises(SshError) as exc_info:
+            _ = manager.hosts
+
+        error_message = str(exc_info.value)
+        logger.info(f"Got expected error: {error_message}")
+
+        # Verify error message contains useful info
+        assert "Failed to parse" in error_message, "Error should mention parse failure"
+        assert str(temp_path) in error_message, "Error should include file path"
+        assert "line" in error_message.lower(), "Error should include line number"
+
+        logger.info("TOML parse error handling works correctly with line numbers")
+
+    finally:
+        # Clean up temp file
+        temp_path.unlink()
+
+    print_test_footer()
+
+
+def test_ssh_host_toml_parse_error_various_syntax_errors():
+    """Test various TOML syntax errors all produce helpful error messages."""
+    print_test_header("Testing various TOML syntax errors")
+    logger.info("Starting various TOML syntax error tests")
+
+    test_cases = [
+        (
+            "unclosed_string",
+            '["user@host"]\npassword = "unclosed\nport = 22',
+        ),
+        (
+            "unclosed_bracket",
+            '["user@host"\npassword = "test"\nport = 22',
+        ),
+        (
+            "invalid_table_header",
+            '[invalid table name]\npassword = "test"\nport = 22',
+        ),
+    ]
+
+    for name, broken_toml in test_cases:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
+            f.write(broken_toml)
+            temp_path = Path(f.name)
+
+        try:
+            manager = SshHostManager(config_path=temp_path)
+
+            with pytest.raises(SshError) as exc_info:
+                _ = manager.hosts
+
+            error_message = str(exc_info.value)
+            logger.info(f"[{name}] Got error: {error_message}")
+
+            # All errors should have basic info
+            assert "Failed to parse" in error_message, f"[{name}] Should mention parse failure"
+            assert "line" in error_message.lower() or "col" in error_message.lower(), \
+                f"[{name}] Should include position info"
+
+        finally:
+            temp_path.unlink()
+
+        logger.info(f"[{name}] Passed")
+
+    print_test_footer()
+
+
+def test_ssh_host_duplicate_alias_in_file():
+    """Test that duplicate aliases in TOML file raise error at resolution time."""
+    print_test_header("Testing duplicate alias detection in TOML file")
+    logger.info("Starting duplicate alias in file test")
+
+    # Create a TOML file with two hosts having the same alias
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:
+        f.write('''
+["user1@host1"]
+password = "pass1"
+port = 22
+alias = "myserver"
+
+["user2@host2"]
+password = "pass2"
+port = 22
+alias = "myserver"
+''')
+        temp_path = Path(f.name)
+
+    try:
+        manager = SshHostManager(config_path=temp_path)
+
+        # Reading hosts should work fine (duplicates are tolerated during load)
+        hosts = manager.hosts
+        assert len(hosts) == 2, "Should have loaded both hosts"
+        logger.info(f"Loaded {len(hosts)} hosts successfully")
+
+        # But resolving by the duplicate alias should raise an error
+        with pytest.raises(SshError) as exc_info:
+            manager.resolve_host("myserver")
+
+        error_message = str(exc_info.value)
+        logger.info(f"Got expected error: {error_message}")
+
+        assert "Duplicate alias" in error_message, "Error should mention duplicate alias"
+        assert "myserver" in error_message, "Error should include the alias name"
+        assert "user1@host1" in error_message, "Error should list conflicting hosts"
+        assert "user2@host2" in error_message, "Error should list conflicting hosts"
+
+        logger.info("Duplicate alias detection at resolution time works correctly")
+
+    finally:
+        temp_path.unlink()
 
     print_test_footer()
