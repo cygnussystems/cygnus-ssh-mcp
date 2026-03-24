@@ -223,6 +223,15 @@ async def ssh_conn_connect(
             'connection': status,
             'system': system_info
         }
+
+        # Add elevation note for Windows
+        if status.get('os_type') == 'windows':
+            is_elevated = getattr(mcp.ssh_client, '_is_elevated', False)
+            result['elevation_note'] = (
+                "Windows elevation: use_sudo=True requires an Administrator session. "
+                "Unlike Linux/macOS, Windows cannot elevate on-demand. "
+                f"Current session is {'elevated (Administrator)' if is_elevated else 'NOT elevated (standard user)'}."
+            )
         # Include alias info if the connection was made via alias
         if host_config.get('alias'):
             result['alias'] = host_config['alias']
@@ -500,6 +509,13 @@ async def ssh_host_disconnect() -> dict:
 async def ssh_conn_verify_sudo() -> dict:
     """
     Verify if sudo access is available on the remote system.
+
+    On Linux/macOS: Checks if sudo is available and whether it requires a password.
+    The use_sudo parameter will run commands with sudo, prompting for password if needed.
+
+    On Windows: Checks if the session is running as Administrator. Windows cannot
+    elevate privileges on-demand like sudo. If you need elevated access on Windows,
+    you must connect with an Administrator account from the start.
 
     Returns:
         Dictionary with sudo access information:
