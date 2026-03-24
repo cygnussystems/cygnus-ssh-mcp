@@ -91,11 +91,16 @@ class SshHostManager:
             logger.error(f"Configuration file not found: {self.config_path}")
             return {}  # Should be created by _ensure_config_file, but good to handle
         except tomlkit.exceptions.TOMLKitError as e:
-            logger.error(f"Failed to parse TOML configuration file {self.config_path}: {e}")
-            return {}
+            # Extract line/column info from tomlkit error if available
+            error_msg = str(e)
+            logger.error(f"Failed to parse TOML configuration file {self.config_path}: {error_msg}")
+            raise SshError(
+                f"Failed to parse host configuration file '{self.config_path}': {error_msg}\n"
+                f"Please fix the TOML syntax error and try again."
+            )
         except Exception as e:
             logger.error(f"Failed to load SSH hosts from {self.config_path}: {e}")
-            return {}
+            raise SshError(f"Failed to load host configuration from '{self.config_path}': {e}")
 
     def get_host(self, user_at_host_key: str) -> Optional[Dict[str, Any]]:
         """Get host config by 'user@hostname' key."""
