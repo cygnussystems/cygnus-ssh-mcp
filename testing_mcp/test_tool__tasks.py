@@ -3,7 +3,10 @@ import json
 import logging
 import time
 import asyncio
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text, skip_on_windows
+
+# Skip all tests in this module on Windows (uses Linux-specific background task commands)
+pytestmark = skip_on_windows
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 

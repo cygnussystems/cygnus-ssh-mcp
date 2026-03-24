@@ -3,7 +3,10 @@ import json
 import asyncio # Retained as pytest.mark.asyncio might use it or for general async context
 import logging
 import time
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text, skip_on_windows
+
+# Skip all tests in this module on Windows (uses bash-specific commands)
+pytestmark = skip_on_windows
 # Import necessary modules
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client

@@ -1,16 +1,19 @@
 import pytest
 import json
 import logging
-from conftest import print_test_header, print_test_footer
+from conftest import print_test_header, print_test_footer, skip_on_windows
+
+# Skip tests with exact username assertions on Windows (Windows returns domain\user format)
+pytestmark = skip_on_windows
 
 # Import necessary modules and constants from conftest
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 from conftest import (
-    SSH_TEST_USER, 
-    SSH_TEST_HOST, 
-    is_ssh_connected, 
-    make_connection, 
+    SSH_TEST_USER,
+    SSH_TEST_HOST,
+    is_ssh_connected,
+    make_connection,
     disconnect_ssh
 , extract_result_text)
 

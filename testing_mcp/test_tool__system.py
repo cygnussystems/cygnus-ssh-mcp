@@ -1,7 +1,7 @@
 import pytest
 import json
 import logging
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text, linux_only
 # Import necessary modules
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
@@ -54,8 +54,9 @@ async def test_ssh_verify_sudo(mcp_test_environment):
     print_test_footer()
 
 @pytest.mark.asyncio
+@linux_only
 async def test_ssh_system_operations(mcp_test_environment):
-    """Test various system operations."""
+    """Test various system operations (Linux-specific: uses 'id' command and checks for os_type='linux')."""
     print_test_header("Testing system operations")
     logger.info("Starting SSH system operations test")
 

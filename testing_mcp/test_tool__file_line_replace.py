@@ -2,7 +2,10 @@ import pytest
 import json
 import os
 import tempfile
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text, skip_on_windows
+
+# Skip all tests in this module on Windows (hardcoded Linux paths)
+pytestmark = skip_on_windows
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 

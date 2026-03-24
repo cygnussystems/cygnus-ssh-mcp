@@ -1,10 +1,13 @@
 import pytest
 import json
 import os
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text
+from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text, skip_on_windows
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 import time # For unique file/dir names
+
+# Skip all tests in this module on Windows (uses hardcoded /tmp paths and Linux stat command)
+pytestmark = skip_on_windows
 
 # Helper to create a unique temporary path on the remote server
 def remote_temp_path(base_name):

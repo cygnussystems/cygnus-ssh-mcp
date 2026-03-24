@@ -1,0 +1,9 @@
+{
+  "test_basic_container.py::test_basic_container_access": true,
+  "test_basic_container.py::test_basic_mcp_connection": true,
+  "test_mcp_run_commands.py::test_ssh_run_basic": true,
+  "test_mcp_run_commands.py::test_ssh_run_multiline": true,
+  "test_mcp_run_commands.py::test_ssh_run_failure": true,
+  "test_tool__history.py::test_ssh_command_history_output_control[command_with_stderr_only-ls /nonexistent_path_for_history_test_stderr > /dev/null-True-2-<lambda>]": true,
+  "test_tool__file_ops.py::test_ssh_file_operations_with_nonexistent_file": true
+}
