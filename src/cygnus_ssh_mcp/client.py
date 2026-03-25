@@ -80,9 +80,10 @@ class SshClient:
         if self.os_type not in ('linux', 'macos', 'windows'):
             raise SshError(f"Unsupported OS detected: {self.os_type}. Only Linux, macOS, and Windows are supported.")
 
-        # For Windows, detect elevation status
+        # For Windows, detect elevation status and verify PowerShell version
         if self.os_type == 'windows':
             self._detect_windows_elevation()
+            self._check_windows_powershell_version()
 
         self._create_operations()
 
@@ -196,6 +197,30 @@ class SshClient:
         except Exception as e:
             self._logger.warning(f"Failed to detect Windows elevation status: {e}. Assuming not elevated.")
             self._is_elevated = False
+
+    def _check_windows_powershell_version(self):
+        """Check that Windows has PowerShell 5.0+ which is required for all operations."""
+        try:
+            check_cmd = 'powershell -Command "$PSVersionTable.PSVersion.Major"'
+            stdin, stdout, stderr = self._client.exec_command(check_cmd, timeout=10)
+            result = stdout.read().decode('utf-8', errors='replace').strip()
+
+            if result.isdigit():
+                major_version = int(result)
+                if major_version < 5:
+                    self.close()
+                    raise SshError(
+                        f"PowerShell {major_version}.x detected. This tool requires PowerShell 5.0 or later. "
+                        f"Windows Server 2016+, Windows 10+ have PowerShell 5.0+ built-in. "
+                        f"For older Windows versions, install Windows Management Framework (WMF) 5.1."
+                    )
+                self._logger.info(f"PowerShell version: {major_version}.x")
+            else:
+                self._logger.warning(f"Could not parse PowerShell version from: {result}")
+        except SshError:
+            raise
+        except Exception as e:
+            self._logger.warning(f"Failed to check PowerShell version: {e}")
 
     def _create_operations(self):
         """Create platform-specific operation classes based on detected OS."""
@@ -470,7 +495,30 @@ class SshClient:
         """Get file/directory status info."""
         return self.file_ops.stat(path)
 
-    def find_lines_with_pattern(self, remote_file: str, pattern: str, 
+    def read_file(self, remote_path: str, encoding: str = 'utf-8',
+                  max_size: int = 10 * 1024 * 1024) -> str:
+        """
+        Read file contents directly via SFTP.
+
+        This method uses SFTP to read raw bytes from the remote file and decodes
+        them on the client side. This completely bypasses any shell or console
+        encoding issues (like Windows PowerShell's OEM code page problem).
+
+        Args:
+            remote_path: Path to the file to read
+            encoding: Character encoding to use when decoding (default: utf-8)
+            max_size: Maximum file size in bytes to read (default: 10MB).
+                     Set to 0 for no limit.
+
+        Returns:
+            The file contents as a string
+
+        Raises:
+            SshError: If the file cannot be read or exceeds max_size
+        """
+        return self.file_ops.read_file(remote_path, encoding, max_size)
+
+    def find_lines_with_pattern(self, remote_file: str, pattern: str,
                                regex: bool = False, sudo: bool = False) -> dict:
         """
         Search for a pattern in a remote file and return matching lines.

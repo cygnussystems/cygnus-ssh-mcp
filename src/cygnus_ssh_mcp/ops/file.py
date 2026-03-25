@@ -28,6 +28,70 @@ class SshFileOperations(ABC):
         """Return command to get file permissions, uid, and gid (space-separated: perms uid gid)."""
         pass
         
+    def read_file(self, remote_path: str, encoding: str = 'utf-8',
+                   max_size: int = 10 * 1024 * 1024) -> str:
+        """
+        Read file contents directly via SFTP.
+
+        This method uses SFTP to read raw bytes from the remote file and decodes
+        them on the client side. This completely bypasses any shell or console
+        encoding issues (like Windows PowerShell's OEM code page problem).
+
+        Args:
+            remote_path: Path to the file to read
+            encoding: Character encoding to use when decoding (default: utf-8)
+            max_size: Maximum file size in bytes to read (default: 10MB).
+                     Set to 0 for no limit.
+
+        Returns:
+            The file contents as a string
+
+        Raises:
+            SshError: If the file cannot be read or exceeds max_size
+        """
+        sftp = None
+        try:
+            self.logger.info(f"Reading file via SFTP: {remote_path}")
+            sftp = self.ssh_client._client.open_sftp()
+
+            # Check file size first if max_size is set
+            if max_size > 0:
+                stat = sftp.stat(remote_path)
+                if stat.st_size > max_size:
+                    raise SshError(
+                        f"File size ({stat.st_size} bytes) exceeds maximum allowed "
+                        f"({max_size} bytes). Use max_size=0 for no limit or increase the limit."
+                    )
+
+            # Read the file contents
+            with sftp.open(remote_path, 'rb') as f:
+                raw_bytes = f.read()
+
+            # Decode the bytes to string
+            try:
+                content = raw_bytes.decode(encoding)
+            except UnicodeDecodeError as e:
+                self.logger.warning(f"Failed to decode with {encoding}, trying with errors='replace': {e}")
+                content = raw_bytes.decode(encoding, errors='replace')
+
+            self.logger.info(f"Read {len(raw_bytes)} bytes from {remote_path}")
+            return content
+
+        except FileNotFoundError:
+            self.logger.error(f"File not found: {remote_path}")
+            raise SshError(f"File not found: {remote_path}")
+        except PermissionError as e:
+            self.logger.error(f"Permission denied reading {remote_path}: {e}")
+            raise SshError(f"Permission denied: {remote_path}")
+        except SshError:
+            raise
+        except Exception as e:
+            self.logger.error(f"SFTP read failed for {remote_path}: {e}", exc_info=True)
+            raise SshError(f"SFTP read failed: {e}") from e
+        finally:
+            if sftp:
+                sftp.close()
+
     def get(self, remote_path: str, local_path: str) -> None:
         """Download a file from remote to local."""
         sftp = None
@@ -40,7 +104,7 @@ class SshFileOperations(ABC):
             self.logger.error(f"SFTP get failed for {remote_path}: {e}", exc_info=True)
             raise SshError(f"SFTP get failed: {e}") from e
         finally:
-            if sftp: 
+            if sftp:
                 sftp.close()
 
     def put(self, local_path: str, remote_path: str) -> None:
@@ -934,6 +998,17 @@ class SshFileOperations_Win(SshFileOperations):
         """Remove a remote directory on Windows using PowerShell."""
         self.logger.info(f"Removing directory {path} (sudo={sudo}, recursive={recursive})")
         ps_path = path.replace("'", "''")
+
+        # On Windows, Remove-Item without -Recurse hangs on non-empty directories.
+        # Check first and fail fast if directory is not empty.
+        if not recursive:
+            check_cmd = f'''powershell -Command "(Get-ChildItem -Path '{ps_path}' -Force -ErrorAction Stop | Measure-Object).Count"'''
+            handle = self.ssh_client.run(check_cmd)
+            output = handle.get_full_output().strip()
+            count = int(output)
+            if count > 0:
+                raise SshError(f"Directory '{path}' is not empty. Use recursive=True to remove non-empty directories.")
+
         recurse_flag = "-Recurse" if recursive else ""
         cmd = f'''powershell -Command "Remove-Item -Path '{ps_path}' {recurse_flag} -Force -ErrorAction Stop"'''
         self.ssh_client.run(cmd)

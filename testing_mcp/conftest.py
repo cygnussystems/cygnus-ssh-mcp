@@ -6,6 +6,17 @@ import logging
 import json
 import time
 
+# Load test credentials from .env file
+from dotenv import load_dotenv
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    # Fall back to .env.example for CI or first-time setup
+    example_path = os.path.join(os.path.dirname(__file__), '.env.example')
+    if os.path.exists(example_path):
+        load_dotenv(example_path)
+
 # Add project src to path (must be before importing cygnus_ssh_mcp)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
@@ -21,34 +32,47 @@ logging.getLogger('PIL').setLevel(logging.WARNING)
 # =============================================================================
 # Platform Detection
 # =============================================================================
-# Set TEST_PLATFORM=windows to run against Windows, defaults to linux
+# Set TEST_PLATFORM=windows|macos to run against those platforms, defaults to linux
 TEST_PLATFORM = os.environ.get('TEST_PLATFORM', 'linux').lower()
 
-if TEST_PLATFORM not in ('linux', 'windows'):
-    raise ValueError(f"TEST_PLATFORM must be 'linux' or 'windows', got '{TEST_PLATFORM}'")
+if TEST_PLATFORM not in ('linux', 'windows', 'macos'):
+    raise ValueError(f"TEST_PLATFORM must be 'linux', 'windows', or 'macos', got '{TEST_PLATFORM}'")
 
 IS_WINDOWS = TEST_PLATFORM == 'windows'
 IS_LINUX = TEST_PLATFORM == 'linux'
+IS_MACOS = TEST_PLATFORM == 'macos'
 
 # =============================================================================
-# Platform-specific Configuration
+# Platform-specific Configuration (loaded from .env)
 # =============================================================================
 if IS_WINDOWS:
-    # Windows Server VM
-    SSH_TEST_HOST = os.environ.get('SSH_TEST_HOST', '192.168.1.218')
-    SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 22))
-    SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'claude')
-    SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'claudepwd')
+    SSH_TEST_HOST = os.environ.get('WINDOWS_SSH_HOST')
+    SSH_TEST_PORT = int(os.environ.get('WINDOWS_SSH_PORT', 22))
+    SSH_TEST_USER = os.environ.get('WINDOWS_SSH_USER')
+    SSH_TEST_PASSWORD = os.environ.get('WINDOWS_SSH_PASSWORD')
     TEST_WORKSPACE = f"C:\\Users\\{SSH_TEST_USER}\\mcp_test_workspace"
     PATH_SEP = '\\'
-else:
-    # Linux VM (Debian 12)
-    SSH_TEST_HOST = os.environ.get('SSH_TEST_HOST', '192.168.1.27')
-    SSH_TEST_PORT = int(os.environ.get('SSH_TEST_PORT', 22))
-    SSH_TEST_USER = os.environ.get('SSH_TEST_USER', 'test')
-    SSH_TEST_PASSWORD = os.environ.get('SSH_TEST_PASSWORD', 'testpwd')
+elif IS_MACOS:
+    SSH_TEST_HOST = os.environ.get('MACOS_SSH_HOST')
+    SSH_TEST_PORT = int(os.environ.get('MACOS_SSH_PORT', 22))
+    SSH_TEST_USER = os.environ.get('MACOS_SSH_USER')
+    SSH_TEST_PASSWORD = os.environ.get('MACOS_SSH_PASSWORD')
+    TEST_WORKSPACE = f"/Users/{SSH_TEST_USER}/mcp_test_workspace"
+    PATH_SEP = '/'
+else:  # Linux (default)
+    SSH_TEST_HOST = os.environ.get('LINUX_SSH_HOST')
+    SSH_TEST_PORT = int(os.environ.get('LINUX_SSH_PORT', 22))
+    SSH_TEST_USER = os.environ.get('LINUX_SSH_USER')
+    SSH_TEST_PASSWORD = os.environ.get('LINUX_SSH_PASSWORD')
     TEST_WORKSPACE = f"/home/{SSH_TEST_USER}/mcp_test_workspace"
     PATH_SEP = '/'
+
+# Validate required credentials are set
+if not SSH_TEST_HOST or not SSH_TEST_USER or not SSH_TEST_PASSWORD:
+    raise ValueError(
+        f"Missing test credentials for platform '{TEST_PLATFORM}'. "
+        f"Copy testing_mcp/.env.example to testing_mcp/.env and fill in your test server details."
+    )
 
 # =============================================================================
 # Workspace Setup Functions
@@ -188,6 +212,37 @@ def remote_temp_path(base_name):
     """Generate a temporary path on the remote system."""
     timestamp = int(time.time())
     return f"{TEST_WORKSPACE}{PATH_SEP}{base_name}_{timestamp}"
+
+
+def cleanup_command(path):
+    """Return platform-appropriate command to delete a file or directory."""
+    if IS_WINDOWS:
+        # PowerShell command that works for both files and directories
+        return f'powershell -Command "Remove-Item -Path \'{path}\' -Recurse -Force -ErrorAction SilentlyContinue"'
+    else:
+        return f"rm -rf {path}"
+
+
+def cleanup_file_command(path):
+    """Return platform-appropriate command to delete a file."""
+    if IS_WINDOWS:
+        return f'powershell -Command "Remove-Item -Path \'{path}\' -Force -ErrorAction SilentlyContinue"'
+    else:
+        return f"rm -f {path}"
+
+
+def read_file_command(path):
+    """Return platform-appropriate command to read a file."""
+    if IS_WINDOWS:
+        return f'powershell -Command "Get-Content -Path \'{path}\' -Raw -Encoding UTF8"'
+    else:
+        return f"cat {path}"
+
+
+async def cleanup_remote_path(client, path):
+    """Clean up a remote file or directory using the appropriate platform command."""
+    cmd = cleanup_command(path)
+    await client.call_tool("ssh_cmd_run", {"command": cmd, "io_timeout": 10.0})
 
 
 def print_test_header(test_name):

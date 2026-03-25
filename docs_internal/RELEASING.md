@@ -96,4 +96,4 @@ pip install pytest
 python -m pytest testing_mcp/ -v
 ```
 
-Note: Tests require a configured SSH test server (see `CLAUDE.md` for test environment setup).
+Note: Tests require configured test VMs. See [TEST-INFRASTRUCTURE.md](TEST-INFRASTRUCTURE.md) for setup.

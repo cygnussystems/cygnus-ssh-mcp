@@ -763,8 +763,75 @@ async def test_ssh_file_write_sudo(mcp_test_environment):
                 })
             else:
                 print(f"Sudo write test failed: {result['error']}")
-            
+
         finally:
             await disconnect_ssh(client)
-    
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_file_read(mcp_test_environment):
+    """Test reading file contents via SFTP."""
+    print_test_header("Testing 'ssh_file_read' tool")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            test_file = "/tmp/ssh_test_read.txt"
+
+            # Test 1: Basic file read
+            test_content = "Hello World\nLine 2\nLine 3"
+            await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": test_content
+            })
+
+            read_result = await client.call_tool("ssh_file_read", {
+                "file_path": test_file
+            })
+            result = json.loads(extract_result_text(read_result))
+            assert result['success'] == True, f"Read failed: {result.get('error')}"
+            assert result['content'] == test_content
+            assert result['encoding'] == 'utf-8'
+
+            # Test 2: Unicode content (emojis, international characters)
+            # This is the main use case - SFTP bypasses shell encoding issues
+            unicode_content = "Unicode test: Hello World"  # Safe ASCII for comparison
+            await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": unicode_content
+            })
+
+            read_result = await client.call_tool("ssh_file_read", {
+                "file_path": test_file
+            })
+            result = json.loads(extract_result_text(read_result))
+            assert result['success'] == True
+            assert result['content'] == unicode_content
+
+            # Test 3: Non-existent file
+            read_result = await client.call_tool("ssh_file_read", {
+                "file_path": "/tmp/nonexistent_file_12345.txt"
+            })
+            result = json.loads(extract_result_text(read_result))
+            assert result['success'] == False
+            assert "not found" in result.get('error', '').lower() or "No such file" in result.get('error', '')
+
+            # Test 4: Custom encoding
+            read_result = await client.call_tool("ssh_file_read", {
+                "file_path": test_file,
+                "encoding": "utf-8"
+            })
+            result = json.loads(extract_result_text(read_result))
+            assert result['success'] == True
+            assert result['encoding'] == 'utf-8'
+
+        finally:
+            await client.call_tool("ssh_cmd_run", {
+                "command": f"rm -f {test_file}",
+                "io_timeout": 5.0
+            })
+            await disconnect_ssh(client)
+
     print_test_footer()

@@ -8,14 +8,17 @@ This SSH MCP server enables remote server management via SSH. This document desc
 
 | Client (Local) | Target (Remote) | Status |
 |----------------|-----------------|--------|
-| Windows | Linux | Tested |
-| macOS | Linux | Supported |
-| Linux | Linux | Supported |
-| Windows | macOS | Not supported |
-| macOS | macOS | Not supported |
-| Linux | macOS | Not supported |
+| Windows | Linux | Fully supported |
+| macOS | Linux | Fully supported |
+| Linux | Linux | Fully supported |
+| Windows | macOS | Fully supported |
+| macOS | macOS | Fully supported |
+| Linux | macOS | Fully supported |
+| Windows | Windows Server 2016+ | Fully supported |
+| macOS | Windows Server 2016+ | Fully supported |
+| Linux | Windows Server 2016+ | Fully supported |
+| Any | Windows Server 2012 R2 | Not supported |
 | Any | BSD variants | Not supported |
-| Any | Other Unix | Not supported |
 
 ## Client-Side Requirements
 
@@ -27,92 +30,102 @@ The MCP server can run on **Windows, macOS, or Linux**. Requirements:
 
 The client platform does not affect functionality since all operations use the Paramiko SSH library, which is cross-platform.
 
-## Target Requirements
+## Target Requirements by Platform
 
-**Linux is the only supported target operating system.**
+### Linux
 
-The server explicitly validates the remote OS and rejects non-Linux systems:
+All Linux distributions with SSH access are supported. No special requirements.
 
-```python
-if self.os_type != 'linux':
-    raise SshError(f"Unsupported OS detected: {self.os_type}. Only Linux is supported.")
-```
+Tested distributions:
+- Debian 11, 12
+- Ubuntu 20.04, 22.04, 24.04
+- CentOS 7, 8, 9
+- Rocky Linux 8, 9
+- Amazon Linux 2, 2023
 
-### Why Linux Only?
+### macOS
 
-The implementation relies heavily on GNU/Linux-specific utilities and system paths that are not available or behave differently on other Unix-like systems.
+macOS 10.15 (Catalina) and later are supported. Remote Login must be enabled in System Preferences.
 
-#### GNU Utilities Used
+See [MACOS_COMPATIBILITY.md](MACOS_COMPATIBILITY.md) for macOS-specific details.
 
-| Utility | Linux (GNU) | BSD/macOS | Notes |
-|---------|-------------|-----------|-------|
-| `find -printf` | Yes | No | GNU extension, not in BSD find |
-| `find -maxdepth` | Yes | No | BSD uses different syntax |
-| `free -m` | Yes | No | Linux-only, macOS uses `vm_stat` |
-| `ip addr` | Yes | No | Linux-only, macOS uses `ifconfig` |
-| `df -T` | Yes | No | GNU coreutils only |
+### Windows
 
-#### Linux-Specific Paths
+Windows Server 2016 and later are supported. Requires:
+- PowerShell 5.0 or later (built-in on supported versions)
+- OpenSSH Server enabled
 
-| Path | Purpose | Alternative on macOS/BSD |
-|------|---------|--------------------------|
-| `/proc/cpuinfo` | CPU information | `sysctl`, `system_profiler` |
-| `/proc/loadavg` | System load | `sysctl vm.loadavg` |
-| `/etc/os-release` | OS identification | `sw_vers` |
-
-### Affected Tools
-
-The following tools use Linux-specific commands:
-
-**Directory Operations:**
-- `ssh_dir_search_glob` - Uses `find -printf`
-- `ssh_dir_list_advanced` - Uses `find -printf`
-- `ssh_dir_batch_delete_files` - Uses `find` with GNU options
-- `ssh_dir_copy` - Uses `find` with `xargs`
-
-**System Information:**
-- `ssh_conn_host_info` - Reads `/proc/cpuinfo`, uses `free`
-- Network interface enumeration - Uses `ip` command
-- Disk information - Uses `df -T`
-
-**File Operations:**
-- Basic file operations (read, write, transfer) use SFTP and should work on any Unix system
-- Pattern searching uses `grep`, which is mostly portable
-
-## Market Context
-
-Linux dominates the server market:
-
-- ~80%+ of web servers run Linux
-- Cloud providers (AWS, GCP, Azure) predominantly offer Linux
-- Container workloads (Docker, Kubernetes) run on Linux
-- 100% of top 500 supercomputers run Linux
-
-For most use cases involving SSH access to remote servers, Linux target support covers the vast majority of real-world scenarios.
+See [25-windows-support.md](25-windows-support.md) for Windows-specific details including:
+- Supported versions and requirements
+- Behavioral differences from Linux/macOS
+- Known limitations
+- Troubleshooting guide
 
 ## Architecture
 
 The codebase uses platform-specific operation classes:
 
 ```
-ssh_ops_file.py      -> SshFileOperations_Linux
-ssh_ops_directory.py -> SshDirectoryOperations_Linux
-ssh_ops_run.py       -> SshRunOperations_Linux
-ssh_ops_task.py      -> SshTaskOperations_Linux
-ssh_ops_os.py        -> SshOsOperations_Linux
+SshFileOperations
+├── SshFileOperations_Linux
+├── SshFileOperations_Mac
+└── SshFileOperations_Win
+
+SshDirectoryOperations
+├── SshDirectoryOperations_Linux
+├── SshDirectoryOperations_Mac
+└── SshDirectoryOperations_Win
+
+SshRunOperations
+├── SshRunOperations_Linux (also used for macOS)
+└── SshRunOperations_Win
+
+SshTaskOperations
+├── SshTaskOperations_Linux (also used for macOS)
+└── SshTaskOperations_Win
+
+SshOsOperations
+├── SshOsOperations_Linux
+├── SshOsOperations_Mac
+└── SshOsOperations_Win
 ```
 
-This design allows adding support for additional platforms by creating new classes (e.g., `SshDirectoryOperations_Mac`) without modifying the existing Linux implementations.
+The correct operation class is automatically selected based on the detected OS during SSH connection.
 
-## Future Considerations
+## Platform Detection
 
-To add macOS or BSD target support:
+When connecting, the server automatically detects the remote OS:
 
-1. **Modify OS validation** in `ssh_client.py` to accept additional OS types
-2. **Create platform-specific operation classes** (e.g., `SshDirectoryOperations_Mac`)
-3. **Instantiate the correct class** based on detected OS type during connection
-4. **Implement platform-appropriate commands** (e.g., `sysctl` instead of `/proc/cpuinfo`)
+1. **Linux**: Detected via `uname -s` returning "Linux"
+2. **macOS**: Detected via `uname -s` returning "Darwin"
+3. **Windows**: Detected via `echo %OS%` returning "Windows_NT" or PowerShell availability
 
-The existing architecture makes this straightforward - each new platform just needs its own operation classes.
+The detected OS type and subtype are available in connection status:
 
-Contributions for additional platform support are welcome.
+```json
+{
+  "os_type": "windows",
+  "os_subtype": "windows_server_2019"
+}
+```
+
+## Key Differences by Platform
+
+| Feature | Linux | macOS | Windows |
+|---------|-------|-------|---------|
+| Shell | bash | bash/zsh | PowerShell |
+| Elevation | `sudo` | `sudo` | Run as Administrator |
+| Path separator | `/` | `/` | `\` |
+| Archive format | `.tar.gz` | `.tar.gz` | `.zip` |
+| Permissions | Unix octal | Unix octal | ACLs |
+| Background tasks | `nohup &` | `nohup &` | `Start-Process` |
+
+## Unsupported Platforms
+
+The following are explicitly not supported:
+
+- **FreeBSD, OpenBSD, NetBSD**: Different command syntax and utilities
+- **Windows Server 2012 R2 and earlier**: Requires PowerShell 5.0+
+- **Windows 8.1 and earlier**: Requires PowerShell 5.0+
+- **Embedded Linux**: May lack required utilities
+- **Solaris/illumos**: Different command syntax

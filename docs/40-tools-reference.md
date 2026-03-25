@@ -279,6 +279,27 @@ Get file or directory metadata.
 
 ---
 
+### ssh_file_read
+Read file contents directly via SFTP.
+
+This tool reads raw bytes using SFTP and decodes them client-side, bypassing any shell or console encoding issues. **Recommended for reading files on Windows** where PowerShell's console encoding can corrupt Unicode characters.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `file_path` | str | Yes | - | Path to file to read |
+| `encoding` | str | No | "utf-8" | Character encoding to use |
+| `max_size` | int | No | 10MB | Maximum file size (0 for no limit) |
+
+**Returns:** Dictionary with `success`, `content`, `size`, `encoding`
+
+**Why use this instead of `ssh_cmd_run` with `cat`/`Get-Content`?**
+- Works correctly with Unicode on ALL platforms including Windows
+- Bypasses Windows PowerShell's OEM code page encoding problem
+- More efficient for binary-safe file transfer
+- No shell escaping issues with special characters in content
+
+---
+
 ### ssh_file_write
 Write content to a file.
 

@@ -23,11 +23,13 @@ from conftest import (
     disconnect_ssh,
     remote_temp_path,
     extract_result_text,
-    skip_on_windows
+    cleanup_remote_path,
+    cleanup_file_command,
+    read_file_command,
+    skip_on_windows,
+    linux_only
 )
 
-# Skip all tests in this module on Windows (uses Linux rm command for cleanup)
-pytestmark = skip_on_windows
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 
@@ -278,6 +280,7 @@ Contact: support@例え.jp | Téléphone: +33 1 23 45 67 89
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_read_emojis(mcp_test_environment):
     """Test writing and reading files with emojis."""
     print_test_header("Testing file write/read with emojis")
@@ -299,16 +302,16 @@ async def test_file_write_read_emojis(mcp_test_environment):
             assert write_json.get('success') == True, f"Failed to write file: {write_json}"
             logger.info("Successfully wrote emoji content to file")
 
-            # Read the file back using cat
+            # Read the file back
             read_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"cat {test_file}",
+                "command": read_file_command(test_file),
                 "io_timeout": 10.0
             })
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read file: {read_json}"
 
             # Verify content matches (normalize line endings for comparison)
-            read_content = read_json['output'].rstrip('\n')
+            read_content = read_json['output'].rstrip('\n').replace('\r\n', '\n')
             expected_content = test_case["content"].rstrip('\n')
             assert read_content == expected_content, \
                 f"Content mismatch!\nExpected:\n{expected_content}\n\nGot:\n{read_content}"
@@ -318,7 +321,7 @@ async def test_file_write_read_emojis(mcp_test_environment):
         finally:
             # Cleanup
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {test_file}",
+                "command": cleanup_file_command(test_file),
                 "io_timeout": 5.0
             })
             await disconnect_ssh(client)
@@ -327,6 +330,7 @@ async def test_file_write_read_emojis(mcp_test_environment):
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_read_bullets(mcp_test_environment):
     """Test writing and reading files with bullet points and markers."""
     print_test_header("Testing file write/read with bullets and markers")
@@ -347,27 +351,28 @@ async def test_file_write_read_bullets(mcp_test_environment):
             write_json = json.loads(extract_result_text(write_result))
             assert write_json.get('success') == True, f"Failed to write file: {write_json}"
 
-            # Read the file back using cat
+            # Read the file back
             read_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"cat {test_file}",
+                "command": read_file_command(test_file),
                 "io_timeout": 10.0
             })
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read file: {read_json}"
 
             # Verify content matches
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), "Content mismatch for bullet points"
+            assert read_json['output'].rstrip('\n').replace('\r\n', '\n') == test_case["content"].rstrip('\n'), "Content mismatch for bullet points"
 
             logger.info("Bullet points content verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_read_checkboxes(mcp_test_environment):
     """Test writing and reading files with checkbox characters."""
     print_test_header("Testing file write/read with checkboxes")
@@ -387,21 +392,22 @@ async def test_file_write_read_checkboxes(mcp_test_environment):
             write_json = json.loads(extract_result_text(write_result))
             assert write_json.get('success') == True, f"Failed to write file: {write_json}"
 
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read file: {read_json}"
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), "Content mismatch for checkboxes"
+            assert read_json['output'].rstrip('\n').replace('\r\n', '\n') == test_case["content"].rstrip('\n'), "Content mismatch for checkboxes"
 
             logger.info("Checkboxes content verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_read_math_symbols(mcp_test_environment):
     """Test writing and reading files with mathematical symbols."""
     print_test_header("Testing file write/read with math symbols")
@@ -421,21 +427,22 @@ async def test_file_write_read_math_symbols(mcp_test_environment):
             write_json = json.loads(extract_result_text(write_result))
             assert write_json.get('success') == True, f"Failed to write file: {write_json}"
 
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read file: {read_json}"
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), "Content mismatch for math symbols"
+            assert read_json['output'].rstrip('\n').replace('\r\n', '\n') == test_case["content"].rstrip('\n'), "Content mismatch for math symbols"
 
             logger.info("Math symbols content verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_read_box_drawing(mcp_test_environment):
     """Test writing and reading files with box drawing characters."""
     print_test_header("Testing file write/read with box drawing characters")
@@ -455,21 +462,22 @@ async def test_file_write_read_box_drawing(mcp_test_environment):
             write_json = json.loads(extract_result_text(write_result))
             assert write_json.get('success') == True, f"Failed to write file: {write_json}"
 
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read file: {read_json}"
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), "Content mismatch for box drawing"
+            assert read_json['output'].rstrip('\n').replace('\r\n', '\n') == test_case["content"].rstrip('\n'), "Content mismatch for box drawing"
 
             logger.info("Box drawing content verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_read_international(mcp_test_environment):
     """Test writing and reading files with international characters."""
     print_test_header("Testing file write/read with international text")
@@ -489,21 +497,22 @@ async def test_file_write_read_international(mcp_test_environment):
             write_json = json.loads(extract_result_text(write_result))
             assert write_json.get('success') == True, f"Failed to write file: {write_json}"
 
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read file: {read_json}"
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), "Content mismatch for international text"
+            assert read_json['output'].rstrip('\n').replace('\r\n', '\n') == test_case["content"].rstrip('\n'), "Content mismatch for international text"
 
             logger.info("International text content verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_read_mixed_heavy_unicode(mcp_test_environment):
     """Test writing and reading files with heavy mix of all Unicode types."""
     print_test_header("Testing file write/read with heavy mixed Unicode")
@@ -523,21 +532,22 @@ async def test_file_write_read_mixed_heavy_unicode(mcp_test_environment):
             write_json = json.loads(extract_result_text(write_result))
             assert write_json.get('success') == True, f"Failed to write file: {write_json}"
 
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read file: {read_json}"
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), "Content mismatch for mixed Unicode"
+            assert read_json['output'].rstrip('\n').replace('\r\n', '\n') == test_case["content"].rstrip('\n'), "Content mismatch for mixed Unicode"
 
             logger.info("Mixed heavy Unicode content verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_append_unicode(mcp_test_environment):
     """Test appending Unicode content to existing file."""
     print_test_header("Testing file append with Unicode")
@@ -569,24 +579,26 @@ async def test_file_append_unicode(mcp_test_environment):
             assert append_json.get('success') == True, "Failed to append content"
 
             # Read and verify
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', "Failed to read file"
 
             expected_content = (initial_content + append_content).rstrip('\n')
-            assert read_json['output'].rstrip('\n') == expected_content, \
-                f"Appended content mismatch!\nExpected:\n{expected_content}\n\nGot:\n{read_json['output'].rstrip('\n')}"
+            actual_content = read_json['output'].rstrip('\n').replace('\r\n', '\n')
+            assert actual_content == expected_content, \
+                f"Appended content mismatch!\nExpected:\n{expected_content}\n\nGot:\n{actual_content}"
 
             logger.info("Unicode append verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_line_replace_unicode(mcp_test_environment):
     """Test replacing lines containing Unicode characters."""
     print_test_header("Testing line replacement with Unicode")
@@ -622,24 +634,26 @@ async def test_file_line_replace_unicode(mcp_test_environment):
             assert replace_json.get('success') == True, f"Failed to replace line: {replace_json}"
 
             # Read and verify
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
+            output = read_json['output'].rstrip('\n').replace('\r\n', '\n')
 
-            assert "[☑] Task 2: Completed! ✅ 🎉" in read_json['output'].rstrip('\n'), \
-                f"Replacement not found in content:\n{read_json['output'].rstrip('\n')}"
-            assert "[☐] Task 1: Initial task" in read_json['output'].rstrip('\n'), "Original line 1 should still exist"
-            assert "[☐] Task 3: Final task" in read_json['output'].rstrip('\n'), "Original line 3 should still exist"
+            assert "[☑] Task 2: Completed! ✅ 🎉" in output, \
+                f"Replacement not found in content:\n{output}"
+            assert "[☐] Task 1: Initial task" in output, "Original line 1 should still exist"
+            assert "[☐] Task 3: Final task" in output, "Original line 3 should still exist"
 
             logger.info("Unicode line replacement verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_copy_unicode_content(mcp_test_environment):
     """Test copying files with Unicode content."""
     print_test_header("Testing file copy with Unicode content")
@@ -670,24 +684,23 @@ async def test_file_copy_unicode_content(mcp_test_environment):
             assert copy_json.get('success') == True, f"Failed to copy file: {copy_json}"
 
             # Read destination and verify
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {dest_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(dest_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', "Failed to read destination file"
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), "Copied content doesn't match original"
+            assert read_json['output'].rstrip('\n').replace('\r\n', '\n') == test_case["content"].rstrip('\n'), "Copied content doesn't match original"
 
             logger.info("Unicode file copy verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {source_file} {dest_file}",
-                "io_timeout": 5.0
-            })
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(source_file), "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(dest_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_find_lines_unicode(mcp_test_environment):
     """Test finding lines containing Unicode patterns."""
     print_test_header("Testing find lines with Unicode patterns")
@@ -741,15 +754,16 @@ async def test_file_find_lines_unicode(mcp_test_environment):
             logger.info("Unicode find lines verified successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_file_write_with_sudo_unicode(mcp_test_environment):
-    """Test writing Unicode content with sudo privileges."""
+    """Test writing Unicode content with sudo privileges (Linux only - uses sudo)."""
     print_test_header("Testing sudo file write with Unicode")
     logger.info("Starting sudo Unicode write test")
 
@@ -791,7 +805,7 @@ async def test_file_write_with_sudo_unicode(mcp_test_environment):
 
         finally:
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {test_file}",
+                "command": cleanup_file_command(test_file),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -801,6 +815,7 @@ async def test_file_write_with_sudo_unicode(mcp_test_environment):
 
 
 @pytest.mark.asyncio
+@linux_only
 @pytest.mark.parametrize("test_name,test_case", list(UNICODE_TEST_CASES.items()))
 async def test_file_unicode_parametrized(mcp_test_environment, test_name, test_case):
     """Parametrized test for all Unicode test cases."""
@@ -822,18 +837,19 @@ async def test_file_unicode_parametrized(mcp_test_environment, test_name, test_c
             assert write_json.get('success') == True, f"Failed to write {test_name}: {write_json}"
 
             # Read
-            read_result = await client.call_tool("ssh_cmd_run", {"command": f"cat {test_file}", "io_timeout": 10.0})
+            read_result = await client.call_tool("ssh_cmd_run", {"command": read_file_command(test_file), "io_timeout": 10.0})
             read_json = json.loads(extract_result_text(read_result))
             assert read_json.get('status') == 'success', f"Failed to read {test_name}: {read_json}"
 
             # Verify
-            assert read_json['output'].rstrip('\n') == test_case["content"].rstrip('\n'), \
-                f"Content mismatch for {test_name}!\nExpected length: {len(test_case['content'])}\nGot length: {len(read_json['output'].rstrip('\n'))}"
+            actual_content = read_json['output'].rstrip('\n').replace('\r\n', '\n')
+            assert actual_content == test_case["content"].rstrip('\n'), \
+                f"Content mismatch for {test_name}!\nExpected length: {len(test_case['content'])}\nGot length: {len(actual_content)}"
 
             logger.info(f"Test {test_name} passed successfully")
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -f {test_file}", "io_timeout": 5.0})
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
             await disconnect_ssh(client)
 
     print_test_footer()

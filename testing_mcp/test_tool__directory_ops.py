@@ -1,32 +1,42 @@
 import pytest
 import json
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, remote_temp_path, extract_result_text, skip_on_windows
+from conftest import (
+    print_test_header,
+    print_test_footer,
+    make_connection,
+    disconnect_ssh,
+    remote_temp_path,
+    extract_result_text,
+    cleanup_command,
+    linux_only,
+    TEST_WORKSPACE,
+    PATH_SEP
+)
 
-# Skip all tests in this module on Windows (uses hardcoded /tmp paths and Linux commands like rm, stat)
-pytestmark = skip_on_windows
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
+
 
 @pytest.mark.asyncio
 async def test_ssh_search_files(mcp_test_environment):
     """Test searching for files in directories."""
     print_test_header("Testing 'ssh_dir_search_glob' tool")
-    
+
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Connection failed"
-            test_dir = "/tmp/ssh_test_search"
-            
-            # Setup test files
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"""
-                rm -rf {test_dir}
-                mkdir -p {test_dir}/{{dir1,dir2,dir3}}
-                touch {test_dir}/{{file1.txt,file2.log}}
-                touch {test_dir}/dir1/file3.txt {test_dir}/dir2/file4.log
-                """,
-                "io_timeout": 10.0
-            })
+            test_dir = remote_temp_path("ssh_test_search")
+
+            # Setup test files using MCP tools (cross-platform)
+            await client.call_tool("ssh_dir_mkdir", {"path": test_dir})
+            await client.call_tool("ssh_dir_mkdir", {"path": f"{test_dir}{PATH_SEP}dir1"})
+            await client.call_tool("ssh_dir_mkdir", {"path": f"{test_dir}{PATH_SEP}dir2"})
+            await client.call_tool("ssh_dir_mkdir", {"path": f"{test_dir}{PATH_SEP}dir3"})
+
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}file1.txt", "content": "test"})
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}file2.log", "content": "test"})
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}dir1{PATH_SEP}file3.txt", "content": "test"})
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}dir2{PATH_SEP}file4.log", "content": "test"})
 
             # Test .txt files search
             result = await client.call_tool("ssh_dir_search_glob", {
@@ -37,7 +47,9 @@ async def test_ssh_search_files(mcp_test_environment):
             })
             files = json.loads(extract_result_text(result))
             paths = [f['path'] for f in files]
-            assert all(f"{test_dir}/{p}" in paths for p in ["file1.txt", "dir1/file3.txt"])
+            # Check that we found both .txt files
+            txt_count = sum(1 for p in paths if p.endswith('.txt'))
+            assert txt_count >= 2, f"Expected at least 2 .txt files, got {txt_count}: {paths}"
 
             # Test .log files search
             result = await client.call_tool("ssh_dir_search_glob", {
@@ -46,24 +58,27 @@ async def test_ssh_search_files(mcp_test_environment):
                 "max_depth": None,
                 "include_dirs": False
             })
-            assert len(json.loads(extract_result_text(result))) >= 2
-            
+            log_files = json.loads(extract_result_text(result))
+            assert len(log_files) >= 2, f"Expected at least 2 .log files, got {len(log_files)}"
+
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -rf {test_dir}", "io_timeout": 5.0})
+            await client.call_tool("ssh_dir_remove", {"path": test_dir, "recursive": True})
             await disconnect_ssh(client)
-    
+
     print_test_footer()
 
+
 @pytest.mark.asyncio
+@linux_only
 async def test_ssh_directory_size(mcp_test_environment):
-    """Test calculating directory size."""
+    """Test calculating directory size (Linux only - uses dd for creating binary files)."""
     print_test_header("Testing 'ssh_dir_calc_size' tool")
-    
+
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Connection failed"
             test_dir = "/tmp/ssh_test_size"
-            
+
             await client.call_tool("ssh_cmd_run", {
                 "command": f"""
                 rm -rf {test_dir}
@@ -77,73 +92,80 @@ async def test_ssh_directory_size(mcp_test_environment):
 
             result = await client.call_tool("ssh_dir_calc_size", {"path": test_dir})
             size_data = json.loads(extract_result_text(result))
-            
+
             assert 'size_bytes' in size_data and 'size_human' in size_data
             assert size_data['size_bytes'] >= 3 * 1024 * 1024  # 3MB minimum
-            
+
         finally:
             await client.call_tool("ssh_cmd_run", {"command": f"rm -rf {test_dir}", "io_timeout": 5.0})
             await disconnect_ssh(client)
-    
+
     print_test_footer()
+
 
 @pytest.mark.asyncio
 async def test_ssh_list_directory(mcp_test_environment):
     """Test recursive directory listing."""
     print_test_header("Testing 'ssh_dir_list_advanced' tool")
-    
+
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Connection failed"
-            test_dir = "/tmp/ssh_test_list"
-            
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"""
-                rm -rf {test_dir}
-                mkdir -p {test_dir}/dir1/subdir1 {test_dir}/dir2
-                touch {test_dir}/{{file1.txt,dir1/file2.txt,dir1/subdir1/file3.txt,dir2/file4.txt}}
-                """,
-                "io_timeout": 10.0
-            })
+            test_dir = remote_temp_path("ssh_test_list")
+
+            # Setup using MCP tools (cross-platform)
+            await client.call_tool("ssh_dir_mkdir", {"path": test_dir})
+            await client.call_tool("ssh_dir_mkdir", {"path": f"{test_dir}{PATH_SEP}dir1"})
+            await client.call_tool("ssh_dir_mkdir", {"path": f"{test_dir}{PATH_SEP}dir1{PATH_SEP}subdir1"})
+            await client.call_tool("ssh_dir_mkdir", {"path": f"{test_dir}{PATH_SEP}dir2"})
+
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}file1.txt", "content": "test"})
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}dir1{PATH_SEP}file2.txt", "content": "test"})
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}dir1{PATH_SEP}subdir1{PATH_SEP}file3.txt", "content": "test"})
+            await client.call_tool("ssh_file_write", {"file_path": f"{test_dir}{PATH_SEP}dir2{PATH_SEP}file4.txt", "content": "test"})
 
             # Test full recursive list
             result = await client.call_tool("ssh_dir_list_advanced", {"path": test_dir})
             entries = json.loads(extract_result_text(result))
             paths = [e['path'] for e in entries]
-            assert all(p in paths for p in [
-                f"{test_dir}/dir1/subdir1/file3.txt",
-                f"{test_dir}/dir1",
-                f"{test_dir}/dir2"
-            ])
+
+            # Check we found the expected entries (use path-agnostic checks)
+            found_subdir1_file = any('subdir1' in p and 'file3' in p for p in paths)
+            found_dir1 = any(p.endswith('dir1') or p.endswith('dir1\\') or p.endswith('dir1/') for p in paths)
+            found_dir2 = any(p.endswith('dir2') or p.endswith('dir2\\') or p.endswith('dir2/') for p in paths)
+
+            assert found_subdir1_file, f"Expected to find file3.txt in subdir1, got: {paths}"
+            assert found_dir1, f"Expected to find dir1, got: {paths}"
+            assert found_dir2, f"Expected to find dir2, got: {paths}"
 
             # Test depth-limited list
             result = await client.call_tool("ssh_dir_list_advanced", {
                 "path": test_dir,
                 "max_depth": 1
             })
-            assert len(json.loads(extract_result_text(result))) <= 4  # dir1, dir2, file1.txt
-            
+            shallow_entries = json.loads(extract_result_text(result))
+            # At depth 1, should not include subdir1 file contents
+            # Windows and Linux have slightly different depth semantics
+            # Windows includes depth 0 + depth 1 items, Linux may vary
+            # Key check: file3.txt (in subdir1) should NOT be in the list
+            shallow_paths = [e['path'] for e in shallow_entries]
+            assert not any('file3' in p for p in shallow_paths), \
+                f"file3.txt should not appear at depth 1, but got: {shallow_paths}"
+
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -rf {test_dir}", "io_timeout": 5.0})
+            await client.call_tool("ssh_dir_remove", {"path": test_dir, "recursive": True})
             await disconnect_ssh(client)
-    
+
     print_test_footer()
 
 
-
-
 @pytest.mark.asyncio
+@linux_only
 async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
-    """Test ssh_dir_mkdir with sudo=True."""
+    """Test ssh_dir_mkdir with sudo=True (Linux only - uses sudo and stat -c)."""
     print_test_header("Testing 'ssh_dir_mkdir' with sudo")
     test_dir_base = "test_mcp_sudo_dir"
-    # Using /tmp for sudo tests to avoid issues with /root if not fully permissive
-    # The key is that the 'mkdir' command itself is run with sudo.
-    # A more robust test might try to create in a place only root can write,
-    # but that depends heavily on the test environment's strictness.
-    # For now, we verify sudo is *used* by the tool.
     test_dir = remote_temp_path(test_dir_base)
-
 
     async with Client(mcp) as client:
         try:
@@ -153,7 +175,7 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
             await client.call_tool("ssh_cmd_run", {
                 "command": f"sudo rm -rf {test_dir}",
                 "io_timeout": 10.0,
-                "use_sudo": True # The cleanup command itself might need sudo
+                "use_sudo": True
             })
 
             # Test create directory with sudo
@@ -167,20 +189,16 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
 
             # Verify directory exists and check ownership (should be root if sudo worked as expected)
             stat_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"stat -c '%U' {test_dir}", # Get username of owner
+                "command": f"stat -c '%U' {test_dir}",
                 "io_timeout": 5.0,
-                "use_sudo": False # Stat can be run as normal user
+                "use_sudo": False
             })
             stat_json = json.loads(extract_result_text(stat_result))
             assert stat_json['status'] == 'success', f"Stat command failed: {stat_json.get('error', '')}"
             owner = stat_json['output'].strip()
-            # This assertion depends on the SSH user NOT being root.
-            # If the SSH user is root, then sudo doesn't change owner from the user.
-            # A common test setup might use a non-root user with passwordless sudo.
             assert owner == "root", f"Directory owner should be root when created with sudo, but was '{owner}'"
 
         finally:
-            # Cleanup
             await client.call_tool("ssh_cmd_run", {
                 "command": f"sudo rm -rf {test_dir}",
                 "io_timeout": 10.0,
@@ -197,18 +215,15 @@ async def test_ssh_dir_remove_recursive_with_content(mcp_test_environment):
 
     parent_dir_base = "test_mcp_parent_rec_remove"
     parent_dir = remote_temp_path(parent_dir_base)
-    inner_file = f"{parent_dir}/somefile.txt"
+    inner_file = f"{parent_dir}{PATH_SEP}somefile.txt"
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
 
-            # Setup: Create directory and a file inside it
+            # Setup: Create directory and a file inside it using MCP tools
             await client.call_tool("ssh_dir_mkdir", {"path": parent_dir, "mode": 0o755})
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"echo 'hello' > {inner_file}",
-                "io_timeout": 5.0
-            })
+            await client.call_tool("ssh_file_write", {"file_path": inner_file, "content": "hello"})
 
             # Test remove directory recursively
             rmdir_result = await client.call_tool("ssh_dir_remove", {
@@ -216,25 +231,22 @@ async def test_ssh_dir_remove_recursive_with_content(mcp_test_environment):
                 "recursive": True
             })
             rmdir_json = json.loads(extract_result_text(rmdir_result))
-            assert rmdir_json[
-                       'status'] == 'success', f"ssh_dir_remove recursive failed: {rmdir_json.get('message', '')}"
+            assert rmdir_json['status'] == 'success', f"ssh_dir_remove recursive failed: {rmdir_json.get('message', '')}"
 
             # Verify directory no longer exists
             stat_result = await client.call_tool("ssh_file_stat", {"path": parent_dir})
-            stat_json = json.loads(extract_result_text(stat_result))  # ssh_file_stat returns JSON directly
+            stat_json = json.loads(extract_result_text(stat_result))
             assert stat_json.get('exists') == False, f"Directory '{parent_dir}' should have been removed."
 
         finally:
             # Ensure cleanup if test failed before removal
-            # Check if it exists before trying to remove, to avoid error if already gone
             stat_check_result = await client.call_tool("ssh_file_stat", {"path": parent_dir})
-            # Ensure extract_result_text(stat_check_result) is valid JSON before parsing
             try:
                 stat_check_json = json.loads(extract_result_text(stat_check_result))
                 if stat_check_json.get('exists') == True:
                     await client.call_tool("ssh_dir_remove", {
                         "path": parent_dir,
-                        "recursive": True  # Recursive to clean up any potential leftovers
+                        "recursive": True
                     })
             except (json.JSONDecodeError, IndexError, AttributeError) as e:
                 print(f"Warning: Could not parse stat check result during cleanup: {e}")
@@ -250,32 +262,27 @@ async def test_ssh_dir_remove_non_empty_no_recursive(mcp_test_environment):
 
     parent_dir_base = "test_mcp_parent_nonrec_remove"
     parent_dir = remote_temp_path(parent_dir_base)
-    inner_file = f"{parent_dir}/somefile.txt"
+    inner_file = f"{parent_dir}{PATH_SEP}somefile.txt"
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
 
-            # Setup: Create directory and a file inside it
+            # Setup: Create directory and a file inside it using MCP tools
             await client.call_tool("ssh_dir_mkdir", {"path": parent_dir, "mode": 0o755})
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"echo 'hello' > {inner_file}",
-                "io_timeout": 5.0
-            })
+            await client.call_tool("ssh_file_write", {"file_path": inner_file, "content": "hello"})
 
             # Test remove directory non-recursively (expect failure)
-            # The ssh_dir_remove tool re-raises exceptions from SshClient.rmdir,
-            # which in turn re-raises CommandFailed from SshClient.run.
-            # FastMCP client.call_tool will raise an exception if the tool raises one.
-            with pytest.raises(Exception) as excinfo:  # Or a more specific FastMCP/SshError if available
+            with pytest.raises(Exception) as excinfo:
                 await client.call_tool("ssh_dir_remove", {
                     "path": parent_dir,
                     "recursive": False
                 })
 
-            # Check if the exception message contains relevant info (e.g., "Directory not empty")
-            # This depends on the exact error message from 'rmdir' on the target OS.
-            assert "Directory not empty" in str(excinfo.value) or "Failed to remove directory" in str(excinfo.value)
+            # Check if the exception message contains relevant info
+            error_msg = str(excinfo.value).lower()
+            assert "not empty" in error_msg or "failed" in error_msg or "directory" in error_msg, \
+                f"Expected error about non-empty directory, got: {excinfo.value}"
 
             # Verify directory still exists
             stat_result = await client.call_tool("ssh_file_stat", {"path": parent_dir})
@@ -283,11 +290,11 @@ async def test_ssh_dir_remove_non_empty_no_recursive(mcp_test_environment):
             assert stat_json.get('exists') == True, f"Directory '{parent_dir}' should still exist."
 
         finally:
-            # Cleanup (recursively, as it should still contain the file)
+            # Cleanup (recursively)
             await client.call_tool("ssh_dir_remove", {
                 "path": parent_dir,
                 "recursive": True,
-                "use_sudo": False  # Assuming normal user created it
+                "use_sudo": False
             })
             await disconnect_ssh(client)
     print_test_footer()

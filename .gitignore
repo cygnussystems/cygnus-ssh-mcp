@@ -41,5 +41,7 @@ CLAUDE.md
 planning/
 _old_/
 testing/
-testing_mcp/
 context
+
+# Test credentials (keep .env.example, ignore .env)
+testing_mcp/.env

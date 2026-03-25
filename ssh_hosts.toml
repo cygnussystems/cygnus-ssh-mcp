@@ -1,9 +1,0 @@
-["test@192.168.1.27"]
-password = "testpwd"
-port = 22
-sudo_password = "testpwd"
-
-["testuser@localhost"]
-password = "testpass"
-port = 2222
-sudo_password = "testpass"

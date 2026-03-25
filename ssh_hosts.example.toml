@@ -1,35 +1,36 @@
-# SSH Hosts Configuration Example
-# Copy this file to ~/.mcp_ssh_hosts.toml and update with your credentials
-# Keep your actual config file secure (chmod 600)
+# SSH Hosts Configuration
+# Copy to ~/.mcp_ssh_hosts.toml and update with your credentials
+# Secure the file: chmod 600 ~/.mcp_ssh_hosts.toml
 
-# Basic password authentication
-["admin@myserver.example.com"]
-password = "your_password_here"
+# Minimal entry (password auth)
+["user@hostname"]
+password = "your_password"
 port = 22
-sudo_password = "your_sudo_password"
-alias = "myserver"
-description = "Production web server"
 
-# SSH key authentication (unencrypted key)
-["deploy@server2.example.com"]
+# With alias for quick access ("connect to prod")
+["admin@192.168.1.100"]
+password = "secret"
+port = 22
+alias = "prod"
+
+# Full example with all options
+["deploy@server.example.com"]
+password = "your_password"
+port = 22
+sudo_password = "sudo_pass"
+alias = "deploy"
+description = "Production deployment server"
+
+# SSH key authentication
+["admin@secure.example.com"]
 keyfile = "~/.ssh/id_ed25519"
 port = 22
-alias = "deploy"
-description = "Deployment server"
-
-# SSH key with passphrase (encrypted key)
-["admin@server3.example.com"]
-keyfile = "~/.ssh/id_rsa_encrypted"
-key_passphrase = "your_key_passphrase"
-port = 22
-sudo_password = "sudo_password_here"
 alias = "secure"
-description = "Secure server with encrypted key"
 
-# Local VM or Docker container
-["testuser@localhost"]
-password = "testpass"
-port = 2222
-sudo_password = "testpass"
-alias = "local"
-description = "Local test environment"
+# SSH key with passphrase
+["admin@encrypted.example.com"]
+keyfile = "~/.ssh/id_rsa"
+key_passphrase = "key_passphrase"
+port = 22
+sudo_password = "sudo_pass"
+alias = "enc"

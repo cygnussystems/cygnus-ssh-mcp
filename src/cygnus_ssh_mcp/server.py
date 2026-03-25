@@ -1165,7 +1165,7 @@ async def ssh_file_stat(
 ) -> dict:
     """
     Get status information about a file or directory.
-    
+
     Returns:
         Dictionary with file/directory metadata.
         Includes 'exists': True/False.
@@ -1174,12 +1174,12 @@ async def ssh_file_stat(
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
-        
+
     try:
         # SshClient.stat() itself returns SFTPAttributes object from Paramiko
         # or raises an error (e.g., IOError for not found / permission denied)
-        sftp_attrs = mcp.ssh_client.stat(path) 
-        
+        sftp_attrs = mcp.ssh_client.stat(path)
+
         mode_val = sftp_attrs.st_mode
         file_type = "unknown"
         if stat_module.S_ISDIR(mode_val):
@@ -1201,7 +1201,7 @@ async def ssh_file_stat(
             "atime": sftp_attrs.st_atime, # Unix timestamp
             "mtime": sftp_attrs.st_mtime, # Unix timestamp
         }
-    except IOError as e: 
+    except IOError as e:
         # errno.ENOENT is 2 (os.strerror(2) is 'No such file or directory').
         # Check if this IOError means "No such file or directory".
         if hasattr(e, 'errno') and e.errno == errno.ENOENT:
@@ -1220,7 +1220,60 @@ async def ssh_file_stat(
         return {"exists": False, "path": path, "error": f"Unexpected error: {str(e)}"}
 
 
-#
+@mcp.tool()
+async def ssh_file_read(
+    file_path: Annotated[str, Field(description="Path to the file to read")],
+    encoding: Annotated[str, Field(description="Character encoding (default: utf-8)")] = "utf-8",
+    max_size: Annotated[int, Field(description="Maximum file size in bytes (default: 10MB, 0 for no limit)", ge=0)] = 10 * 1024 * 1024
+) -> dict:
+    """
+    Read file contents directly via SFTP.
+
+    This tool reads raw bytes from the remote file using SFTP and decodes them
+    on the client side. Unlike command-based file reading (cat, Get-Content),
+    SFTP completely bypasses shell and console encoding issues.
+
+    **Why use this instead of ssh_cmd_run with cat/Get-Content?**
+    - Works correctly with Unicode on ALL platforms including Windows
+    - Bypasses Windows PowerShell's OEM code page encoding problem
+    - More efficient for binary-safe file transfer
+    - No shell escaping issues with special characters in content
+
+    Returns:
+        Dictionary with:
+        - success: True if file was read successfully
+        - content: The file contents as a string
+        - size: Number of bytes read
+        - encoding: The encoding used to decode the content
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        content = mcp.ssh_client.read_file(file_path, encoding, max_size)
+        return {
+            'success': True,
+            'file_path': file_path,
+            'content': content,
+            'size': len(content.encode(encoding)),
+            'encoding': encoding
+        }
+    except SshError as e:
+        logger.error(f"Failed to read file {file_path}: {e}")
+        return {
+            'success': False,
+            'file_path': file_path,
+            'error': str(e)
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error reading file {file_path}: {e}")
+        return {
+            'success': False,
+            'file_path': file_path,
+            'error': str(e)
+        }
+
+
 @mcp.tool()
 async def ssh_file_find_lines_with_pattern(
     file_path: Annotated[str, Field(description="Path to the file to search")],

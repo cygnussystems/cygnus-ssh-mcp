@@ -9,9 +9,9 @@
 [![PyPI version](https://img.shields.io/pypi/v/cygnus-ssh-mcp.svg)](https://pypi.org/project/cygnus-ssh-mcp/)
 [![Python](https://img.shields.io/pypi/pyversions/cygnus-ssh-mcp.svg)](https://pypi.org/project/cygnus-ssh-mcp/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Tests](https://img.shields.io/badge/tests-119%2B%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-124%2B%20passing-brightgreen.svg)]()
 
-*Give Claude full control of your Linux servers with 43+ specialized tools*
+*Give Claude full control of your Linux, macOS, and Windows servers with 43 specialized tools*
 
 [Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](docs/)
 
@@ -27,7 +27,8 @@ Most SSH MCP servers let you run commands. **cygnus-ssh-mcp** lets you *manage s
 |--------------|:-------------:|:--------------:|
 | Run commands | ✅ | ✅ |
 | Pre-configured hosts with aliases | ❌ | ✅ |
-| Sudo support (all operations) | Limited | ✅ |
+| Sudo support (Linux/macOS) | Limited | ✅ |
+| Windows Server support | ❌ | ✅ |
 | Background task management | ❌ | ✅ |
 | Line-level file editing | ❌ | ✅ |
 | Command history with output | ❌ | ✅ |
@@ -58,18 +59,37 @@ uvx cygnus-ssh-mcp
 Create `~/.mcp_ssh_hosts.toml`:
 
 ```toml
+# Minimal (password auth) - only required fields
+["user@server.example.com"]
+password = "your_password"
+port = 22
+
+# With alias and sudo (most common setup)
 ["admin@production.example.com"]
 password = "your_password"
 port = 22
-sudo_password = "sudo_pass"
-alias = "prod"
-description = "Production web server"
+sudo_password = "sudo_pass"        # optional: for use_sudo operations
+alias = "prod"                     # optional: connect by alias
+description = "Production server"  # optional: for documentation
 
-# Or use SSH keys
+# SSH key authentication
 ["deploy@staging.example.com"]
 keyfile = "~/.ssh/id_ed25519"
+port = 22
 alias = "staging"
+
+# Windows Server (requires OpenSSH)
+["administrator@winserver.example.com"]
+password = "your_password"
+port = 22
+alias = "win-prod"
 ```
+
+**Required fields:** `port` + (`password` OR `keyfile`)
+**Optional fields:** `alias`, `description`, `sudo_password`, `key_passphrase`
+
+> **Host file locations:** Default is `~/.mcp_ssh_hosts.toml`. Falls back to `./mcp_ssh_hosts.toml` if not found.
+> Use `--config /path/to/hosts.toml` for a custom location.
 
 ### 2. Add to Claude Desktop
 
@@ -80,6 +100,19 @@ Edit your `claude_desktop_config.json`:
   "mcpServers": {
     "ssh": {
       "command": "cygnus-ssh-mcp"
+    }
+  }
+}
+```
+
+Or with a custom hosts file location:
+
+```json
+{
+  "mcpServers": {
+    "ssh": {
+      "command": "cygnus-ssh-mcp",
+      "args": ["--config", "/path/to/my_hosts.toml"]
     }
   }
 }
@@ -97,6 +130,26 @@ In Claude, just say:
 
 ---
 
+## Platform Support
+
+cygnus-ssh-mcp works from **any client** (Windows, Linux, macOS) to **any target server**:
+
+<div align="center">
+<img src="https://raw.githubusercontent.com/cygnussystems/cygnus-ssh-mcp/master/assets/ssh_mcp_platforms.png" alt="Platform Support" width="600">
+</div>
+
+| From (Client) | To (Target) | Status |
+|---------------|-------------|--------|
+| Windows | Linux | ✅ Tested |
+| Windows | Windows | ✅ Tested |
+| Linux | Linux | ✅ Tested |
+| Linux | Windows | ✅ Tested |
+| macOS | Any | ✅ Supported |
+
+**Windows targets** require OpenSSH Server installed and running.
+
+---
+
 ## Features
 
 ### Host Configuration
@@ -106,8 +159,8 @@ Stop typing credentials. Connect by alias.
 ```toml
 ["admin@server.com"]
 password = "secret"
+port = 22
 alias = "web"
-description = "Web server"
 ```
 
 Then just: *"Connect to web"*
@@ -185,9 +238,26 @@ ssh_cmd_run(
 
 ### Full Unicode Support
 
-Write documentation, reports, and configs with emojis and international text.
+Write and read files with emojis, international text, and special characters—on **all platforms**.
 
-Tested with: ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Привет
+```
+✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Привет café naïve
+```
+
+**How it works:** `ssh_file_read` and `ssh_file_write` use SFTP for direct binary transfer, completely bypassing shell encoding issues. This means Unicode works perfectly even on Windows targets where PowerShell's console encoding would normally corrupt special characters.
+
+---
+
+### Windows Server Support
+
+Full support for Windows targets with OpenSSH Server:
+
+- **PowerShell & CMD** command execution
+- **Windows path handling** (backslashes, drive letters, UNC paths)
+- **Administrator detection** — shows if session has elevated privileges
+- **SFTP-based file operations** — Unicode-safe, no encoding issues
+
+Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operations, connect with an Administrator account.
 
 ---
 
@@ -201,10 +271,9 @@ Tested with: ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Прив
 
 ---
 
-## All 43+ Tools
+## All 43 Tools
 
-<details>
-<summary><strong>Connection & Host Management (11 tools)</strong></summary>
+### Connection & Host Management (10 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -216,14 +285,10 @@ Tested with: ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Прив
 | `ssh_conn_add_host` | Add new host to configuration |
 | `ssh_host_list` | List all configured hosts |
 | `ssh_host_remove` | Remove host from configuration |
-| `ssh_host_reload_config` | Reload TOML config |
 | `ssh_host_disconnect` | Disconnect current session |
 | `list_tools` | List all available tools |
 
-</details>
-
-<details>
-<summary><strong>Command Execution (6 tools)</strong></summary>
+### Command Execution (6 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -234,10 +299,7 @@ Tested with: ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Прив
 | `ssh_cmd_history` | Get command history with filtering |
 | `ssh_cmd_clear_history` | Clear command history |
 
-</details>
-
-<details>
-<summary><strong>Background Tasks (3 tools)</strong></summary>
+### Background Tasks (3 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -245,14 +307,12 @@ Tested with: ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Прив
 | `ssh_task_status` | Check if task is running |
 | `ssh_task_kill` | Send signal to task |
 
-</details>
-
-<details>
-<summary><strong>File Operations (11 tools)</strong></summary>
+### File Operations (12 tools)
 
 | Tool | Description |
 |------|-------------|
 | `ssh_file_stat` | Get file metadata |
+| `ssh_file_read` | Read file contents via SFTP (Unicode-safe) |
 | `ssh_file_write` | Create/overwrite/append file |
 | `ssh_file_copy` | Copy file |
 | `ssh_file_move` | Move or rename file |
@@ -264,10 +324,7 @@ Tested with: ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Прив
 | `ssh_file_insert_lines_after_match` | Insert lines after match |
 | `ssh_file_delete_line_by_content` | Delete line by content |
 
-</details>
-
-<details>
-<summary><strong>Directory Operations (10 tools)</strong></summary>
+### Directory Operations (10 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -282,17 +339,12 @@ Tested with: ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Прив
 | `ssh_dir_batch_delete_files` | Batch delete by pattern |
 | `ssh_dir_copy` | Copy directory recursively |
 
-</details>
-
-<details>
-<summary><strong>Archive Operations (2 tools)</strong></summary>
+### Archive Operations (2 tools)
 
 | Tool | Description |
 |------|-------------|
 | `ssh_archive_create` | Create tar.gz archive |
 | `ssh_archive_extract` | Extract archive |
-
-</details>
 
 ---
 
@@ -303,6 +355,7 @@ Detailed guides available in [docs/](docs/):
 - [Overview](docs/10-overview.md)
 - [Installation](docs/15-installation.md)
 - [Platform Compatibility](docs/20-platform-compatibility.md)
+- [Windows Support](docs/25-windows-support.md)
 - [Host Configuration](docs/30-host-configuration.md)
 - [Tools Reference](docs/40-tools-reference.md)
 - [Command Execution](docs/50-command-execution.md)

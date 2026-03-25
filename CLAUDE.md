@@ -1,76 +1,48 @@
 # PR_MCP_SSH Project
 
+## Internal Documentation
+
+Detailed internal docs are in the `docs_internal/` folder:
+- **[docs_internal/TEST-INFRASTRUCTURE.md](docs_internal/TEST-INFRASTRUCTURE.md)** - Test VMs, platform matrix, full test procedures
+- **[docs_internal/RELEASING.md](docs_internal/RELEASING.md)** - Release process and PyPI publishing
+
 ## Test Environment
 
-**IMPORTANT**: Tests run against a Debian 12 VM, NOT Docker.
+Test credentials are configured in `testing_mcp/.env`.
 
-- **Host**: 192.168.1.27
-- **Port**: 22
-- **User**: test
-- **Password**: testpwd
-- **Sudo Password**: testpwd (same as user password)
+**Setup:**
+```bash
+cp testing_mcp/.env.example testing_mcp/.env
+# Edit .env with your test server credentials
+```
 
-The `USE_VM = True` flag is hardcoded in `testing_mcp/conftest.py`.
+**Supported platforms:** Linux, Windows, macOS (set `TEST_PLATFORM` env var)
 
 ## SSH Key Authentication Testing
 
-The VM has SSH keys configured for key-based auth testing. Keys are stored locally at:
+For key-based auth testing, SSH keys should be configured:
 
 - `~/.ssh/test_vm_key` - Unencrypted key (no passphrase)
-- `~/.ssh/test_vm_key_encrypted` - Encrypted key (passphrase: `testpassphrase123`)
+- `~/.ssh/test_vm_key_encrypted` - Encrypted key
 
-### If VM is Recreated
-
-If the VM needs to be rebuilt, recreate the keys and copy them to the VM:
-
-```bash
-# Generate unencrypted key
-ssh-keygen -t ed25519 -f ~/.ssh/test_vm_key -N "" -C "test_vm_key"
-
-# Generate encrypted key with passphrase
-ssh-keygen -t ed25519 -f ~/.ssh/test_vm_key_encrypted -N "testpassphrase123" -C "test_vm_key_encrypted"
-
-# Copy public keys to VM (will prompt for password: testpwd)
-ssh-copy-id -i ~/.ssh/test_vm_key.pub test@192.168.1.27
-ssh-copy-id -i ~/.ssh/test_vm_key_encrypted.pub test@192.168.1.27
-```
-
-Or copy manually using password auth:
-```bash
-cat ~/.ssh/test_vm_key.pub | ssh test@192.168.1.27 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-cat ~/.ssh/test_vm_key_encrypted.pub | ssh test@192.168.1.27 "cat >> ~/.ssh/authorized_keys"
-```
-
-### Host Config Entries
-
-The `~/.mcp_ssh_hosts.toml` should have entries like:
-
-```toml
-# Key-based auth (unencrypted key)
-["test@192.168.1.27"]
-keyfile = "~/.ssh/test_vm_key"
-port = 22
-sudo_password = "testpwd"
-alias = "vm-key"
-
-# Or with encrypted key
-["test@192.168.1.27"]
-keyfile = "~/.ssh/test_vm_key_encrypted"
-key_passphrase = "testpassphrase123"
-port = 22
-sudo_password = "testpwd"
-alias = "vm-encrypted"
-```
+See [docs_internal/TEST-INFRASTRUCTURE.md](docs_internal/TEST-INFRASTRUCTURE.md) for full setup instructions.
 
 ## Running Tests
 
-Run all tests (except specific exclusions):
-```bash
-python -m pytest testing_mcp/ -v
-```
+See [docs_internal/TEST-INFRASTRUCTURE.md](docs_internal/TEST-INFRASTRUCTURE.md) for full platform matrix and test procedures.
 
-Run a single test:
+**Quick commands:**
 ```bash
+# Linux target (default)
+python -m pytest testing_mcp/ -v
+
+# Windows target
+TEST_PLATFORM=windows python -m pytest testing_mcp/ -v
+
+# macOS target
+TEST_PLATFORM=macos python -m pytest testing_mcp/ -v
+
+# Single test
 python -m pytest testing_mcp/test_tool__run.py::test_ssh_run_basic -v
 ```
 
@@ -86,6 +58,65 @@ python -m pytest testing_mcp/test_tool__run.py::test_ssh_run_basic -v
 - `ssh_models.py` - Data models and exceptions
 - `testing_mcp/` - Test files
 - `testing_mcp/conftest.py` - Test fixtures and configuration
+
+## Platform Support
+
+### Supported Platforms
+
+| Target OS | Shell | Status |
+|-----------|-------|--------|
+| Linux (all distros) | bash | Fully supported |
+| macOS 10.15+ | bash/zsh | Fully supported |
+| Windows Server 2016+ | PowerShell 5.0+ | Fully supported |
+| Windows Server 2012 R2 | PowerShell 4.x | **Not supported** |
+
+### Platform-Specific Caveats
+
+**Windows:**
+- **No sudo**: Windows doesn't have `sudo`. The `use_sudo` parameter is ignored. Connect as Administrator for elevated operations.
+- **Unicode in command output**: PowerShell over SSH uses OEM code page (CP437/CP1252) for stdout, corrupting UTF-8 characters. Use `ssh_file_read` (SFTP-based) instead of `ssh_cmd_run` with `Get-Content` for reading files with Unicode.
+- **PowerShell 5.0+ required**: Cmdlets like `Compress-Archive` and `Get-ChildItem -Depth` require PS 5.0+.
+- **Archive format**: Windows uses `.zip` (via `Compress-Archive`), not `.tar.gz`.
+
+**macOS:**
+- `stat` command syntax differs from Linux (`-f` flags vs `-c` flags).
+
+### Implementation Workarounds & Tricks
+
+**1. Windows Unicode Fix (SFTP bypass)**
+- Problem: PowerShell stdout uses OEM code page, corrupting Unicode
+- Solution: `ssh_file_read` uses SFTP to read raw bytes, decodes client-side
+- SFTP bypasses the console encoding layer entirely
+
+**2. Windows Directory Removal Pre-check**
+- Problem: `Remove-Item` without `-Recurse` hangs on non-empty directories (vs Linux `rmdir` which fails fast)
+- Solution: Pre-check with `Get-ChildItem | Measure-Object` and fail early if not empty
+- Location: `ops/file.py` → `SshFileOperations_Win.rmdir()`
+
+**3. PowerShell Version Check at Connection**
+- Problem: PS 4.x lacks required cmdlets
+- Solution: Check `$PSVersionTable.PSVersion.Major` on connect, raise `SshError` if < 5
+- Location: `client.py` → `_check_windows_powershell_version()`
+
+**4. Platform-Specific Operation Classes**
+- Architecture uses inheritance: `SshFileOperations` base → `_Linux`, `_Mac`, `_Win` subclasses
+- OS detected at connection time, correct class instantiated automatically
+- Each platform implements abstract methods with native commands
+
+**5. Heredoc for Sudo Password**
+- Linux/macOS: Pipe sudo password via heredoc to avoid command-line exposure
+- Pattern: `cat <<'EOF' | sudo -S command`
+
+### Platform-Specific Tests
+
+```bash
+# Run tests against specific platforms
+TEST_PLATFORM=linux python -m pytest testing_mcp/ -v    # Linux (default)
+TEST_PLATFORM=windows python -m pytest testing_mcp/ -v  # Windows
+TEST_PLATFORM=macos python -m pytest testing_mcp/ -v    # macOS
+
+# Unicode tests are Linux-only (marked with @linux_only decorator)
+```
 
 ## GitHub CLI
 
