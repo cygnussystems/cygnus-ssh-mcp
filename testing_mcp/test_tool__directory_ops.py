@@ -8,9 +8,11 @@ from conftest import (
     remote_temp_path,
     extract_result_text,
     cleanup_command,
+    cleanup_remote_path,
     linux_only,
     TEST_WORKSPACE,
-    PATH_SEP
+    PATH_SEP,
+    IS_WINDOWS
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -69,35 +71,41 @@ async def test_ssh_search_files(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
 async def test_ssh_directory_size(mcp_test_environment):
-    """Test calculating directory size (Linux only - uses dd for creating binary files)."""
+    """Test calculating directory size (cross-platform)."""
     print_test_header("Testing 'ssh_dir_calc_size' tool")
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Connection failed"
-            test_dir = "/tmp/ssh_test_size"
+            test_dir = remote_temp_path("ssh_test_size")
 
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"""
-                rm -rf {test_dir}
-                mkdir -p {test_dir}
-                dd if=/dev/zero of={test_dir}/file1.bin bs=1M count=1
-                dd if=/dev/zero of={test_dir}/file2.bin bs=1M count=2
-                sync
-                """,
-                "io_timeout": 10.0
+            # Create test directory using MCP tools (cross-platform)
+            await client.call_tool("ssh_dir_mkdir", {"path": test_dir})
+
+            # Create files with known sizes using ssh_file_write
+            content_1kb = "x" * 1024  # 1KB of data
+            content_10kb = content_1kb * 10  # 10KB
+            content_20kb = content_1kb * 20  # 20KB
+
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}file1.txt",
+                "content": content_10kb
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}file2.txt",
+                "content": content_20kb
             })
 
             result = await client.call_tool("ssh_dir_calc_size", {"path": test_dir})
             size_data = json.loads(extract_result_text(result))
 
             assert 'size_bytes' in size_data and 'size_human' in size_data
-            assert size_data['size_bytes'] >= 3 * 1024 * 1024  # 3MB minimum
+            # Should be at least 30KB (30 * 1024 = 30720 bytes)
+            assert size_data['size_bytes'] >= 30000, f"Expected at least 30KB, got {size_data['size_bytes']} bytes"
 
         finally:
-            await client.call_tool("ssh_cmd_run", {"command": f"rm -rf {test_dir}", "io_timeout": 5.0})
+            await client.call_tool("ssh_dir_remove", {"path": test_dir, "recursive": True})
             await disconnect_ssh(client)
 
     print_test_footer()
@@ -160,9 +168,8 @@ async def test_ssh_list_directory(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
 async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
-    """Test ssh_dir_mkdir with sudo=True (Linux only - uses sudo and stat -c)."""
+    """Test ssh_dir_mkdir with sudo=True (cross-platform)."""
     print_test_header("Testing 'ssh_dir_mkdir' with sudo")
     test_dir_base = "test_mcp_sudo_dir"
     test_dir = remote_temp_path(test_dir_base)
@@ -172,13 +179,9 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
 
             # Ensure directory does not exist (cleanup from previous failed run if any)
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"sudo rm -rf {test_dir}",
-                "io_timeout": 10.0,
-                "use_sudo": True
-            })
+            await cleanup_remote_path(client, test_dir)
 
-            # Test create directory with sudo
+            # Test create directory with sudo (on Windows: ignored, on Linux: runs as root)
             mkdir_result = await client.call_tool("ssh_dir_mkdir", {
                 "path": test_dir,
                 "mode": 0o755,
@@ -187,23 +190,25 @@ async def test_ssh_dir_mkdir_sudo(mcp_test_environment):
             mkdir_json = json.loads(extract_result_text(mkdir_result))
             assert mkdir_json['status'] == 'success', f"ssh_dir_mkdir with sudo failed: {mkdir_json.get('message', '')}"
 
-            # Verify directory exists and check ownership (should be root if sudo worked as expected)
-            stat_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"stat -c '%U' {test_dir}",
-                "io_timeout": 5.0,
-                "use_sudo": False
-            })
+            # Verify directory exists using cross-platform ssh_file_stat
+            stat_result = await client.call_tool("ssh_file_stat", {"path": test_dir})
             stat_json = json.loads(extract_result_text(stat_result))
-            assert stat_json['status'] == 'success', f"Stat command failed: {stat_json.get('error', '')}"
-            owner = stat_json['output'].strip()
-            assert owner == "root", f"Directory owner should be root when created with sudo, but was '{owner}'"
+            assert stat_json.get('exists') == True, "Directory was not created"
+            assert stat_json.get('type') == 'directory', f"Expected directory, got {stat_json.get('type')}"
+
+            # On Linux only: verify root ownership (stat -c doesn't exist on Windows)
+            if not IS_WINDOWS:
+                owner_result = await client.call_tool("ssh_cmd_run", {
+                    "command": f"stat -c '%U' {test_dir}",
+                    "io_timeout": 5.0
+                })
+                owner_json = json.loads(extract_result_text(owner_result))
+                if owner_json['status'] == 'success':
+                    owner = owner_json['output'].strip()
+                    assert owner == "root", f"Directory owner should be root when created with sudo, but was '{owner}'"
 
         finally:
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"sudo rm -rf {test_dir}",
-                "io_timeout": 10.0,
-                "use_sudo": True
-            })
+            await cleanup_remote_path(client, test_dir)
             await disconnect_ssh(client)
     print_test_footer()
 

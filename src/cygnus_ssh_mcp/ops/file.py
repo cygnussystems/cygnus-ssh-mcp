@@ -3,9 +3,151 @@ import tempfile
 import shlex
 import logging
 import time
+import tarfile
+import zipfile
 from abc import ABC, abstractmethod
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 from cygnus_ssh_mcp.models import SshError, CommandFailed
+
+
+# =============================================================================
+# Local Archive Utilities (for directory transfer)
+# =============================================================================
+
+def create_local_archive(source_dir: str, archive_format: str) -> str:
+    """
+    Create a local archive from a directory.
+
+    Args:
+        source_dir: Path to directory to archive (must exist)
+        archive_format: 'tar.gz' or 'zip'
+
+    Returns:
+        Path to the created temporary archive file
+
+    Raises:
+        SshError: If source directory doesn't exist or archive creation fails
+    """
+    logger = logging.getLogger(__name__)
+
+    if not os.path.isdir(source_dir):
+        raise SshError(f"Source directory does not exist: {source_dir}")
+
+    source_dir = os.path.abspath(source_dir)
+    base_name = os.path.basename(source_dir)
+
+    if archive_format == 'tar.gz':
+        suffix = '.tar.gz'
+    elif archive_format == 'zip':
+        suffix = '.zip'
+    else:
+        raise SshError(f"Unsupported archive format: {archive_format}")
+
+    # Create temp file for archive
+    fd, archive_path = tempfile.mkstemp(suffix=suffix, prefix='ssh_dir_transfer_')
+    os.close(fd)
+
+    try:
+        logger.info(f"Creating {archive_format} archive from {source_dir}")
+
+        if archive_format == 'tar.gz':
+            with tarfile.open(archive_path, 'w:gz') as tar:
+                # Add directory contents with the base directory name as root
+                tar.add(source_dir, arcname=base_name)
+        else:  # zip
+            with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for root, dirs, files in os.walk(source_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.join(base_name, os.path.relpath(file_path, source_dir))
+                        zf.write(file_path, arcname)
+                    # Also add empty directories
+                    for dir_name in dirs:
+                        dir_path = os.path.join(root, dir_name)
+                        arcname = os.path.join(base_name, os.path.relpath(dir_path, source_dir)) + '/'
+                        # zipfile doesn't have a direct way to add empty dirs, but we can add them
+                        # Empty dirs will be created when files inside them are extracted
+
+        archive_size = os.path.getsize(archive_path)
+        logger.info(f"Created archive: {archive_path} ({archive_size} bytes)")
+        return archive_path
+
+    except Exception as e:
+        # Clean up on failure
+        if os.path.exists(archive_path):
+            os.unlink(archive_path)
+        raise SshError(f"Failed to create archive: {e}") from e
+
+
+def extract_local_archive(archive_path: str, dest_dir: str, archive_format: str) -> Dict[str, Any]:
+    """
+    Extract an archive to a local directory.
+
+    Args:
+        archive_path: Path to archive file
+        dest_dir: Destination directory (will be created if it doesn't exist)
+        archive_format: 'tar.gz' or 'zip'
+
+    Returns:
+        Dictionary with extraction info (files_extracted, dest_dir)
+
+    Raises:
+        SshError: If archive doesn't exist or extraction fails
+    """
+    logger = logging.getLogger(__name__)
+
+    if not os.path.isfile(archive_path):
+        raise SshError(f"Archive file does not exist: {archive_path}")
+
+    # Create destination if it doesn't exist
+    os.makedirs(dest_dir, exist_ok=True)
+
+    try:
+        logger.info(f"Extracting {archive_format} archive to {dest_dir}")
+        files_extracted = 0
+
+        if archive_format == 'tar.gz':
+            with tarfile.open(archive_path, 'r:gz') as tar:
+                tar.extractall(path=dest_dir)
+                files_extracted = len(tar.getnames())
+        elif archive_format == 'zip':
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                # Handle Windows-style paths in zip archives (backslashes)
+                # When a zip is created on Windows, paths may use backslashes
+                # which won't extract correctly on Linux/macOS
+                for member in zf.infolist():
+                    # Convert backslashes to forward slashes for cross-platform compatibility
+                    member_path = member.filename.replace('\\', '/')
+
+                    # Skip directory entries (end with /)
+                    if member_path.endswith('/'):
+                        target_dir = os.path.join(dest_dir, member_path)
+                        os.makedirs(target_dir, exist_ok=True)
+                        continue
+
+                    # Create parent directories if needed
+                    target_path = os.path.join(dest_dir, member_path)
+                    parent_dir = os.path.dirname(target_path)
+                    if parent_dir:
+                        os.makedirs(parent_dir, exist_ok=True)
+
+                    # Extract the file
+                    with zf.open(member) as source, open(target_path, 'wb') as target:
+                        target.write(source.read())
+
+                files_extracted = len(zf.namelist())
+        else:
+            raise SshError(f"Unsupported archive format: {archive_format}")
+
+        logger.info(f"Extracted {files_extracted} items to {dest_dir}")
+        return {
+            'success': True,
+            'files_extracted': files_extracted,
+            'dest_dir': dest_dir
+        }
+
+    except Exception as e:
+        raise SshError(f"Failed to extract archive: {e}") from e
 
 
 class SshFileOperations(ABC):
@@ -377,9 +519,11 @@ class SshFileOperations(ABC):
                 else:
                     result.append(line_iter) 
             
-            return "".join(result) if modified else text_normalized 
-        
-        if sudo:
+            return "".join(result) if modified else text_normalized
+
+        # On Windows, sudo is not applicable - use the non-sudo path
+        is_windows = self.ssh_client.os_type == 'windows'
+        if sudo and not is_windows:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
                 op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
@@ -493,7 +637,9 @@ class SshFileOperations(ABC):
             
             return "".join(result) if modified else text_normalized
 
-        if sudo:
+        # On Windows, sudo is not applicable - use the non-sudo path
+        is_windows = self.ssh_client.os_type == 'windows'
+        if sudo and not is_windows:
             remote_temp_path = f"/tmp/insert_after_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
                 op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
@@ -602,8 +748,10 @@ class SshFileOperations(ABC):
                     result.append(line_iter)
             
             return "".join(result) if modified else text_normalized
-        
-        if sudo:
+
+        # On Windows, sudo is not applicable - use the non-sudo path
+        is_windows = self.ssh_client.os_type == 'windows'
+        if sudo and not is_windows:
             remote_temp_path = f"/tmp/delete_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
                 op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 

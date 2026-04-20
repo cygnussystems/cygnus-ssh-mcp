@@ -3,11 +3,13 @@ import json
 import asyncio # Retained as pytest.mark.asyncio might use it or for general async context
 import logging
 import time
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text, skip_on_windows
+from conftest import (
+    print_test_header, print_test_footer, make_connection, disconnect_ssh,
+    mcp_test_environment, extract_result_text,
+    echo_command, multiline_echo_command, failing_command, get_expected_exit_code_error,
+    sleep_then_echo, long_running_command
+)
 
-# Skip all tests in this module on Windows (uses bash-specific commands)
-pytestmark = skip_on_windows
-# Import necessary modules
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 
@@ -28,9 +30,9 @@ async def test_ssh_run_basic(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established or verified for basic test")
 
-            # Simple echo command
+            # Simple echo command (cross-platform)
             run_params = {
-                "command": "echo 'Hello from MCP SSH!'",
+                "command": echo_command("Hello from MCP SSH!"),
                 "io_timeout": 10.0
             }
             run_result = await client.call_tool("ssh_cmd_run", run_params)
@@ -73,9 +75,9 @@ async def test_ssh_run_multiline(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established or verified for multiline test")
 
-            # Test with a command that produces multiple lines
+            # Test with a command that produces multiple lines (cross-platform)
             run_params = {
-                "command": "for i in {1..5}; do echo \"Line $i\"; done",
+                "command": multiline_echo_command(5),
                 "io_timeout": 10.0
             }
             run_result = await client.call_tool("ssh_cmd_run", run_params)
@@ -118,9 +120,9 @@ async def test_ssh_run_failure(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established or verified for failure test")
             
-            # Now run the failing command
+            # Now run the failing command (cross-platform)
             run_params = {
-                "command": "exit 42",
+                "command": failing_command(),
                 "io_timeout": 10.0
             }
             
@@ -136,7 +138,7 @@ async def test_ssh_run_failure(mcp_test_environment):
             # Verify the failure status
             assert result_json['status'] == 'command_failed', f"Expected status 'command_failed', got {result_json.get('status')}"
             assert result_json['exit_code'] == 42, f"Expected exit code 42, got {result_json.get('exit_code')}"
-            assert "exit code 42" in result_json.get('error', ''), "Error message should mention exit code 42"
+            assert get_expected_exit_code_error() in result_json.get('error', ''), "Error message should mention exit code 42"
             
             logger.info("SSH run failure test completed successfully")
         except Exception as e:
@@ -163,9 +165,9 @@ async def test_ssh_cmd_check(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established for command check test")
             
-            # First run a long-running command
+            # First run a long-running command (cross-platform)
             run_params = {
-                "command": "sleep 3 && echo 'Command completed'",
+                "command": sleep_then_echo(3, "Command completed"),
                 "io_timeout": 10.0
             }
             
@@ -251,9 +253,9 @@ async def test_ssh_busy_lock(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established for busy lock test")
             
-            # Run a long-running command (10 seconds)
+            # Run a long-running command (10 seconds) - cross-platform
             long_command_params = {
-                "command": "sleep 10 && echo 'Long command completed'",
+                "command": sleep_then_echo(10, "Long command completed"),
                 "io_timeout": 15.0
             }
             
@@ -263,9 +265,9 @@ async def test_ssh_busy_lock(mcp_test_environment):
             # Give the command a moment to start
             await asyncio.sleep(1.0)
             
-            # Try to run another command while the first is still running
+            # Try to run another command while the first is still running (cross-platform)
             second_command_params = {
-                "command": "echo 'This should fail due to busy lock'",
+                "command": echo_command("This should fail due to busy lock"),
                 "io_timeout": 5.0
             }
             
@@ -315,9 +317,9 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established for runtime timeout test")
             
-            # Run a command that should take 10 seconds, but set a 3 second runtime timeout
+            # Run a command that should take 10 seconds, but set a 3 second runtime timeout (cross-platform)
             run_params = {
-                "command": "echo 'Starting long process'; sleep 10; echo 'This should never be printed'",
+                "command": long_running_command(10, "This should never be printed"),
                 "io_timeout": 15.0,
                 "runtime_timeout": 3.0  # This should cause the command to be killed after 3 seconds
             }
@@ -348,13 +350,13 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             
             logger.info(f"Command was correctly terminated after {elapsed_time:.2f}s")
             
-            # Verify we can run another command now that the previous one was killed
+            # Verify we can run another command now that the previous one was killed (cross-platform)
             logger.info("Verifying we can run another command after timeout")
             verify_params = {
-                "command": "echo 'System is responsive again'",
+                "command": echo_command("System is responsive again"),
                 "io_timeout": 5.0
             }
-            
+
             verify_result = await client.call_tool("ssh_cmd_run", verify_params)
             verify_json = json.loads(extract_result_text(verify_result))
 
@@ -370,7 +372,7 @@ async def test_ssh_runtime_timeout(mcp_test_environment):
             # Ensure we disconnect even if there was an error
             await disconnect_ssh(client)
             logger.info("SSH connection for runtime timeout test cleaned up")
-            
+
     print_test_footer()
 
 
@@ -379,17 +381,17 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
     """Test manually interrupting a running command after a runtime timeout."""
     print_test_header("Testing manual interruption of a running command with runtime timeout")
     logger.info("Starting SSH manual interrupt test")
-    
+
     async with Client(mcp) as client:
         try:
             # Ensure connection is established
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established for manual interrupt test")
-            
-            # Start a long-running command with a short runtime timeout
+
+            # Start a long-running command with a short runtime timeout (cross-platform)
             # This will timeout but the process will still be running in the background
             run_params = {
-                "command": "echo 'Starting long process'; sleep 30; echo 'This should never be printed'",
+                "command": long_running_command(30, "This should never be printed"),
                 "io_timeout": 60.0,  # Standard IO timeout
                 "runtime_timeout": 3.0  # Short runtime timeout to trigger quickly
             }
@@ -454,13 +456,13 @@ async def test_ssh_manual_interrupt(mcp_test_environment):
             assert check_json['status'] in ['completed', 'not_found'], \
                 f"Command should no longer be running, status: {check_json['status']}"
             
-            # Verify we can run another command now
+            # Verify we can run another command now (cross-platform)
             logger.info("Verifying we can run another command after manual kill")
             verify_params = {
-                "command": "echo 'System is responsive after manual kill'",
+                "command": echo_command("System is responsive after manual kill"),
                 "io_timeout": 5.0
             }
-            
+
             verify_result = await client.call_tool("ssh_cmd_run", verify_params)
             verify_json = json.loads(extract_result_text(verify_result))
 

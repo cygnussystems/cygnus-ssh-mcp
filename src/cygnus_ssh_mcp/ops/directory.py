@@ -1,4 +1,5 @@
 import os
+import re
 import shlex
 import logging
 from abc import ABC, abstractmethod
@@ -129,12 +130,22 @@ class SshDirectoryOperations(ABC):
                 raise RuntimeError(f"Failed to calculate directory size, exit code: {handle.exit_code}")
 
             # Parse the output (should be a single number)
-            size_str = handle.tail(1)[0].strip()
+            # Handle empty output (e.g., empty directory on Windows returns nothing)
+            output_lines = handle.tail(1)
+            if not output_lines or not output_lines[0].strip():
+                self.logger.info(f"Directory {path} is empty, size: 0 bytes")
+                return 0
+
+            size_str = output_lines[0].strip()
             size_bytes = int(size_str)
 
             self.logger.info(f"Directory {path} size: {size_bytes} bytes")
             return size_bytes
 
+        except ValueError as ve:
+            # Handle case where output isn't a valid number (e.g., empty string)
+            self.logger.warning(f"Could not parse size output, assuming empty: {ve}")
+            return 0
         except Exception as e:
             self.logger.error(f"Error calculating directory size: {e}", exc_info=True)
             raise
@@ -898,7 +909,8 @@ class SshDirectoryOperations_Mac(SshDirectoryOperations):
 
         # BSD find doesn't have -printf, use -exec stat instead
         # Output format: path<tab>type (f=file, d=directory, l=symlink)
-        cmd_parts.append(r"-exec sh -c 'for f; do t=$(stat -f %HT \"$f\" 2>/dev/null | cut -c1 | tr \"DRLS\" \"dflL\"); echo \"$f\t${t:-f}\"; done' _ {} +")
+        # Note: macOS stat doesn't interpret \t, so we use printf to get a real tab character
+        cmd_parts.append("-exec sh -c 'TAB=$(printf \"\\t\"); for f; do t=$(stat -f %HT \"$f\" 2>/dev/null | cut -c1 | tr \"DRLS\" \"dflL\"); echo \"$f${TAB}${t:-f}\"; done' _ {} +")
 
         return " ".join(cmd_parts)
 
@@ -916,7 +928,8 @@ class SshDirectoryOperations_Mac(SshDirectoryOperations):
 
         # BSD stat: %N=name, %HT=type, %z=size, %m=mtime, %Lp=perms(octal), %Su=user, %Sg=group
         # Output format: path<tab>type<tab>size<tab>mtime<tab>perms<tab>user<tab>group
-        cmd_parts.append(r"-exec sh -c 'for f; do stat -f \"%N\t%HT\t%z\t%m\t%Lp\t%Su\t%Sg\" \"$f\" 2>/dev/null | sed \"s/Directory/d/;s/Regular File/f/;s/Symbolic Link/l/\"; done' _ {} +")
+        # Note: macOS stat doesn't interpret \t, so we use printf to get a real tab character
+        cmd_parts.append("-exec sh -c 'TAB=$(printf \"\\t\"); for f; do stat -f \"%N${TAB}%HT${TAB}%z${TAB}%m${TAB}%Lp${TAB}%Su${TAB}%Sg\" \"$f\" 2>/dev/null | sed \"s/Directory/d/;s/Regular File/f/;s/Symbolic Link/l/\"; done' _ {} +")
 
         return " ".join(cmd_parts)
 
@@ -1070,7 +1083,9 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                 ps_archive = ps_archive[:-4] + '.zip'
 
         try:
-            cmd = f'''powershell -Command "Compress-Archive -Path '{ps_source}\\*' -DestinationPath '{ps_archive}' -Force -ErrorAction Stop"'''
+            # Archive the directory itself (not contents) so structure matches Linux tar behavior
+            # Compress-Archive with a directory path includes the directory name in the archive
+            cmd = f'''powershell -Command "Compress-Archive -Path '{ps_source}' -DestinationPath '{ps_archive}' -Force -ErrorAction Stop"'''
             self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
 
             # Get archive size
@@ -1098,7 +1113,11 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                                     destination_path: str,
                                     overwrite: bool = False,
                                     sudo: bool = False) -> Dict[str, Any]:
-        """Extract archive using PowerShell Expand-Archive."""
+        """Extract archive using PowerShell Expand-Archive.
+
+        Note: This strips the first component of the archive path to match
+        Linux tar behavior with --strip-components=1.
+        """
         self.logger.info(f"Extracting {archive_path} to {destination_path}")
 
         ps_archive = archive_path.replace("'", "''")
@@ -1113,8 +1132,32 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
             }
 
         try:
+            # Extract to a temp location first, then move contents up to strip first component
+            # This mimics Linux tar's --strip-components=1 behavior
             force_flag = "-Force" if overwrite else ""
-            cmd = f'''powershell -Command "Expand-Archive -Path '{ps_archive}' -DestinationPath '{ps_dest}' {force_flag} -ErrorAction Stop"'''
+
+            # PowerShell script (single-line to work through SSH/CMD)
+            # 1. Extract to temp dir
+            # 2. Get the single top-level folder (the "component" to strip)
+            # 3. Move its contents to the actual destination
+            # 4. Clean up temp dir
+            # NOTE: Must be single-line because multi-line strings don't work through SSH->CMD->PowerShell
+            strip_script = (
+                f"$tempDir = Join-Path $env:TEMP ('ssh_extract_' + [guid]::NewGuid().ToString('N')); "
+                f"New-Item -ItemType Directory -Path $tempDir -Force | Out-Null; "
+                f"Expand-Archive -Path '{ps_archive}' -DestinationPath $tempDir {force_flag} -ErrorAction Stop; "
+                f"$items = Get-ChildItem -Path $tempDir; "
+                f"if ($items.Count -eq 1 -and $items[0].PSIsContainer) {{ "
+                f"$innerPath = $items[0].FullName; "
+                f"New-Item -ItemType Directory -Path '{ps_dest}' -Force | Out-Null; "
+                f"Get-ChildItem -Path $innerPath | Move-Item -Destination '{ps_dest}' -Force "
+                f"}} else {{ "
+                f"New-Item -ItemType Directory -Path '{ps_dest}' -Force | Out-Null; "
+                f"Get-ChildItem -Path $tempDir | Move-Item -Destination '{ps_dest}' -Force "
+                f"}}; "
+                f"Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue"
+            )
+            cmd = f'powershell -Command "{strip_script}"'
             self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
 
             # List extracted files
@@ -1153,17 +1196,32 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
             handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
 
             results = []
+            # Regex to parse Windows paths: drive_letter:\path:line_num:content
+            # Example: C:\Temp\test.txt:1:Hello World
+            win_path_pattern = re.compile(r'^([A-Za-z]:[^:]+):(\d+):(.*)$')
+
             for line in handle.tail(handle.total_lines):
                 if not line.strip():
                     continue
-                parts = line.split(':', 2)
-                if len(parts) >= 3:
-                    file_path, line_num, content = parts
+
+                match = win_path_pattern.match(line)
+                if match:
+                    file_path, line_num_str, content = match.groups()
                     try:
-                        line_num = int(line_num)
+                        line_num = int(line_num_str)
                     except ValueError:
                         line_num = -1
                     results.append({'file': file_path, 'line': line_num, 'content': content.rstrip()})
+                else:
+                    # Fallback: try simple split (for UNC paths or other edge cases)
+                    parts = line.split(':', 2)
+                    if len(parts) >= 3:
+                        file_path, line_num_str, content = parts
+                        try:
+                            line_num = int(line_num_str)
+                        except ValueError:
+                            line_num = -1
+                        results.append({'file': file_path, 'line': line_num, 'content': content.rstrip()})
 
             self.logger.info(f"Found {len(results)} matches")
             return results

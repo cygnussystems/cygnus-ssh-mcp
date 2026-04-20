@@ -15,22 +15,22 @@ async def test_ssh_archive_operations_with_sudo(mcp_test_environment):
     print_test_header("Testing archive operations with sudo")
 
     async with Client(mcp) as client:
+        # Define paths upfront for cleanup in finally block
+        timestamp = int(time.time())
+        protected_dir = f"/opt/sudo_archive_test_{timestamp}"
+        archive_path = f"/opt/sudo_archive_test_{timestamp}.tar.gz"
+        extract_dir = f"/opt/sudo_archive_extract_{timestamp}"
+
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
-            
+
             # Check if we have sudo access
             sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
             sudo_json = json.loads(extract_result_text(sudo_check))
-            
+
             if not sudo_json['available']:
                 print("Skipping sudo tests as sudo is not available")
                 return
-            
-            # Create a protected directory in /opt (requires sudo)
-            timestamp = int(time.time())
-            protected_dir = f"/opt/sudo_archive_test_{timestamp}"
-            archive_path = f"/opt/sudo_archive_test_{timestamp}.tar.gz"
-            extract_dir = f"/opt/sudo_archive_extract_{timestamp}"
             
             # Create directory with sudo
             mkdir_result = await client.call_tool("ssh_dir_mkdir", {

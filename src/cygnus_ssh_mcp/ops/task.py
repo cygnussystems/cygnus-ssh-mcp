@@ -1,4 +1,5 @@
 import time
+import base64
 import logging
 import shlex
 from abc import ABC, abstractmethod
@@ -292,10 +293,11 @@ class SshTaskOperations(ABC):
             self.logger.warning(f"Could not determine initial status for PID {pid}. Proceeding with kill attempt.")
 
         # Try initial signal
-        cmd = self._cmd_kill_process(pid, signal, sudo)
+        # Use base kill command and let ssh_client.run() handle sudo (supports password-based sudo)
+        cmd = self._cmd_kill_process(pid, signal, sudo=False)
         kill_cmd_succeeded = False
         try:
-            handle = self.ssh_client.run(cmd, io_timeout=10, runtime_timeout=15, sudo=False)  # sudo handled in cmd
+            handle = self.ssh_client.run(cmd, io_timeout=10, runtime_timeout=15, sudo=sudo)
             if handle.exit_code == 0:
                 self.logger.info(f"Successfully sent signal {signal} to PID {pid}.")
                 kill_cmd_succeeded = True
@@ -319,9 +321,9 @@ class SshTaskOperations(ABC):
         # Try force kill if needed
         if force_kill_signal is not None and current_status == "running":
             self.logger.warning(f"PID {pid} still running after signal {signal}. Attempting force kill with signal {force_kill_signal}.")
-            cmd_force = self._cmd_kill_process(pid, force_kill_signal, sudo)
+            cmd_force = self._cmd_kill_process(pid, force_kill_signal, sudo=False)
             try:
-                handle_force = self.ssh_client.run(cmd_force, io_timeout=10, runtime_timeout=15, sudo=False)
+                handle_force = self.ssh_client.run(cmd_force, io_timeout=10, runtime_timeout=15, sudo=sudo)
                 if handle_force.exit_code == 0:
                     self.logger.info(f"Successfully sent force signal {force_kill_signal} to PID {pid}.")
                     time.sleep(0.5)
@@ -369,10 +371,32 @@ class SshTaskOperations_Linux(SshTaskOperations):
                 redirect_part = "1>/dev/null 2>/dev/null"
 
         if sudo:
-            bg_cmd_with_sudo = f"sudo -n {cmd}"
-            script_content = f"""#!/bin/bash
+            # Check if sudo password is available for non-interactive sudo with password
+            sudo_password = getattr(self.ssh_client, 'sudo_password', None)
+            if sudo_password:
+                # Use sudo -S to read password from stdin via echo
+                # Store command in environment variable to avoid nested quoting issues
+                # nohup ensures process survives script exit
+                script_content = f"""#!/bin/bash
+# Store command in variable to avoid nested quoting issues
+export __SUDO_CMD={shlex.quote(cmd)}
 # Launch command in background with proper redirection
-{bg_cmd_with_sudo} {redirect_part} &
+nohup bash -c 'echo {shlex.quote(sudo_password)} | sudo -S -p "" bash -c "$__SUDO_CMD"' {redirect_part} &
+# Store PID
+pid=$!
+# Output only the PID with marker
+echo "PID:$pid"
+# Clean up this script
+rm -f {script_path}
+exit 0
+"""
+            else:
+                # Try passwordless sudo
+                script_content = f"""#!/bin/bash
+# Store command in variable to avoid quoting issues
+export __SUDO_CMD={shlex.quote(cmd)}
+# Launch command in background with proper redirection
+nohup sudo -n bash -c "$__SUDO_CMD" {redirect_part} &
 # Store PID
 pid=$!
 # Output only the PID with marker
@@ -417,56 +441,42 @@ class SshTaskOperations_Win(SshTaskOperations):
         return "C:\\Windows\\Temp"
 
     def _build_launch_script(self, cmd: str, stdout_log: str, stderr_log: str, sudo: bool) -> tuple:
-        """Build PowerShell script to launch background task."""
+        """Build PowerShell command to launch background task.
+
+        For Windows, we use PowerShell's -EncodedCommand to avoid needing a script file,
+        which simplifies execution over SSH.
+        """
         timestamp = int(time.time())
-        script_path = f"C:\\Windows\\Temp\\launch_script_{timestamp}.ps1"
+        # We don't actually use a script file anymore, but keep path format for log naming
+        script_path = f"powershell_direct_{timestamp}"
 
-        # Windows doesn't have sudo in the same way - we check _is_elevated flag
-        # If sudo=True and not elevated, caller should have already raised an error
+        # Escape the command for cmd.exe's /c argument
+        ps_escaped_cmd = cmd.replace('"', '\\"')
 
-        # Build PowerShell script
-        # Use Start-Process to launch in background
-        # Note: We need to handle output redirection differently in PowerShell
-
-        # Escape the command for PowerShell
-        ps_escaped_cmd = cmd.replace('"', '`"').replace("'", "''")
-
-        # Build the script content
+        # Build the PowerShell script content
+        # Use -WindowStyle Hidden for completely detached execution
+        # Note: Start-Process doesn't allow stdout and stderr to be the same file
         if stdout_log and stderr_log and stdout_log != stderr_log:
-            script_content = f"""# Launch command in background with output redirection
-$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -NoNewWindow -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_log}"
-Write-Output "PID:$($proc.Id)"
-Remove-Item -Path "{script_path}" -Force -ErrorAction SilentlyContinue
-exit 0
-"""
+            script_content = f'''$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_log}"; Write-Output "PID:$($proc.Id)"'''
         elif stdout_log:
-            script_content = f"""# Launch command in background with output redirection
-$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -NoNewWindow -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stdout_log}"
-Write-Output "PID:$($proc.Id)"
-Remove-Item -Path "{script_path}" -Force -ErrorAction SilentlyContinue
-exit 0
-"""
+            # PowerShell requires different files for stdout/stderr, so redirect stderr to separate file
+            stderr_path = stdout_log.replace('.log', '_err.log') if '.log' in stdout_log else stdout_log + '_err'
+            script_content = f'''$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_path}"; Write-Output "PID:$($proc.Id)"'''
         else:
-            # No logging - redirect to NUL
-            script_content = f"""# Launch command in background without output
-$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -NoNewWindow -RedirectStandardOutput "NUL" -RedirectStandardError "NUL"
-Write-Output "PID:$($proc.Id)"
-Remove-Item -Path "{script_path}" -Force -ErrorAction SilentlyContinue
-exit 0
-"""
+            # No logging - but still need different files for NUL workaround
+            # Use cmd.exe's internal redirection: command >nul 2>&1
+            script_content = f'''$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd} >nul 2>&1" -PassThru -WindowStyle Hidden; Write-Output "PID:$($proc.Id)"'''
 
-        # Create script command using PowerShell
-        # Escape for the outer command
-        escaped_content = script_content.replace('"', '`"')
-        create_script_cmd = f'powershell -Command "Set-Content -Path \'{script_path}\' -Value @\'\n{script_content}\'@"'
+        # Encode the script for -EncodedCommand (requires UTF-16LE encoding)
+        script_bytes = script_content.encode('utf-16-le')
+        script_b64 = base64.b64encode(script_bytes).decode('ascii')
 
-        # Simpler approach - use Out-File
-        create_script_cmd = f"powershell -Command \"@'{script_content}'@ | Out-File -FilePath '{script_path}' -Encoding UTF8\""
+        # For Windows, create_script_cmd is empty (no file to create)
+        # and script_path is actually the full execution command
+        create_script_cmd = "echo OK"  # No-op, just needs to succeed
+        execution_cmd = f'powershell -ExecutionPolicy Bypass -EncodedCommand {script_b64}'
 
-        # Even simpler - write directly with heredoc-like syntax
-        create_script_cmd = f'powershell -Command "$content = @\'\n{script_content}\'@; Set-Content -Path \'{script_path}\' -Value $content -Encoding UTF8"'
-
-        return script_path, script_content, create_script_cmd
+        return execution_cmd, script_content, create_script_cmd
 
     def _cmd_check_process_running(self, pid: int) -> str:
         # PowerShell command to check if process exists

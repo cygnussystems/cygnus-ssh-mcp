@@ -7,7 +7,9 @@ from conftest import (
     make_connection,
     disconnect_ssh,
     extract_result_text,
-    skip_on_windows
+    skip_on_windows,
+    linux_only,
+    ROOT_HOME
 )
 
 # Skip all tests in this module on Windows (sudo not available)
@@ -65,7 +67,7 @@ async def test_sudo_file_operations(mcp_test_environment):
     print_test_header("Testing sudo file operations")
 
     async with Client(mcp) as client:
-        test_file = "/root/sudo_test_file.txt"
+        test_file = f"{ROOT_HOME}/sudo_test_file.txt"
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
 
@@ -113,12 +115,13 @@ async def test_sudo_file_operations(mcp_test_environment):
 
 
 @pytest.mark.asyncio
+@linux_only
 async def test_sudo_complex_command(mcp_test_environment):
-    """Test complex sudo command with pipes and redirects."""
+    """Test complex sudo command with pipes and redirects (Linux only - broken pipe on macOS)."""
     print_test_header("Testing complex sudo command")
 
     async with Client(mcp) as client:
-        output_file = "/root/sudo_test_output.txt"
+        output_file = f"{ROOT_HOME}/sudo_test_output.txt"
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
 

@@ -130,23 +130,17 @@ async def list_tools() -> list:
     """
     logger.info("Request received to list available tools.")
     available_tools = []
-    # mcp.get_tools() returns a dictionary; iterate over its values (tool_spec objects)
-    # which are expected to have .name and .description attributes.
+    # mcp.get_tools() returns a dict of {tool_name: FunctionTool}
     try:
-        tools_dict = await mcp.get_tools() # mcp.get_tools() is a coroutine
-        for tool_spec in tools_dict.values():
+        tools_dict = await mcp.get_tools()
+        for name, tool_spec in tools_dict.items():
             tool_details = {
-                "name": getattr(tool_spec, 'name', 'Unknown Tool'),
+                "name": name,
                 "description": getattr(tool_spec, 'description', 'No description available.')
             }
-            # If tool_spec contains more information, like parameters,
-            # you could consider adding that here as well.
-            # For example:
-            # if hasattr(tool_spec, 'parameters'):
-            #     tool_details["parameters"] = tool_spec.parameters
             available_tools.append(tool_details)
     except Exception as e:
-        logger.error(f"Error accessing mcp.get_tools() to list tools: {e}", exc_info=True)
+        logger.error(f"Error accessing mcp.get_tools(): {e}", exc_info=True)
 
     return available_tools
 
@@ -1538,6 +1532,57 @@ async def ssh_file_transfer(
         logger.error(f"File transfer failed: {e}")
         raise
 
+
+@mcp.tool()
+async def ssh_dir_transfer(
+        direction: Annotated[Literal['upload', 'download'], Field(description="Transfer direction")],
+        local_path: Annotated[str, Field(description="Local directory path")],
+        remote_path: Annotated[str, Field(description="Remote directory path")],
+        use_sudo: Annotated[bool, Field(description="Use sudo for remote operations")] = False
+) -> dict:
+    """
+    Transfer directories between local and remote systems.
+
+    Uses archive-based transfer for efficiency:
+    - Upload: Archives locally, transfers, extracts on remote
+    - Download: Archives on remote, transfers, extracts locally
+
+    Archive format is automatically selected based on remote OS:
+    - Linux/macOS: tar.gz
+    - Windows: zip
+
+    Args:
+        direction: 'upload' (local to remote) or 'download' (remote to local)
+        local_path: Local directory path
+        remote_path: Remote directory path
+        use_sudo: Use sudo for remote archive/extract operations (Linux/macOS only)
+
+    Returns:
+        Dictionary containing transfer status and metadata:
+        - success: Boolean indicating if transfer succeeded
+        - operation: 'upload' or 'download'
+        - local_path: Local directory path
+        - remote_path: Remote directory path
+        - archive_format: 'tar.gz' or 'zip'
+        - files_transferred: Number of files transferred
+        - bytes_transferred: Total bytes transferred (archive size)
+    """
+    if not mcp.ssh_client:
+        raise SshError("No active SSH connection")
+
+    try:
+        result = mcp.ssh_client.transfer_directory(
+            direction=direction,
+            local_path=local_path,
+            remote_path=remote_path,
+            sudo=use_sudo
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Directory transfer failed: {e}")
+        raise
+
+
 #
 @mcp.tool()
 async def ssh_file_insert_lines_after_match(
@@ -1675,15 +1720,23 @@ async def ssh_file_write(
                 if parent_dir:
                     try:
                         # Create all parent directories recursively
-                        mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
-                        if use_sudo:
+                        is_windows = mcp.ssh_client.os_type == 'windows'
+                        if is_windows:
+                            # Windows: use PowerShell New-Item with -Force (creates all parent directories)
+                            ps_path = parent_dir.replace("'", "''")
+                            mkdir_cmd = f"powershell -Command \"New-Item -ItemType Directory -Force -Path '{ps_path}' | Out-Null\""
+                        else:
+                            # Linux/macOS: use mkdir -p
+                            mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
+
+                        if use_sudo and not is_windows:
                             mcp.ssh_client.run(mkdir_cmd, sudo=True)
                         else:
                             mcp.ssh_client.run(mkdir_cmd)
                         logger.info(f"Created parent directories for {file_path}")
                     except Exception as e:
                         # Ignore if directory already exists
-                        if "File exists" not in str(e):
+                        if "File exists" not in str(e) and "already exists" not in str(e).lower():
                             logger.error(f"Failed to create parent directories for {file_path}: {e}")
                             raise
             
@@ -1705,22 +1758,37 @@ async def ssh_file_write(
                 if use_sudo:
                     # For sudo operations, we need to use a different approach
                     # First, create a temporary file in a location we can write to
-                    remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
-                    
+                    is_windows = mcp.ssh_client.os_type == 'windows'
+                    if is_windows:
+                        # Windows: use Windows temp directory
+                        base_name = os.path.basename(file_path).replace('\\', '_').replace(':', '_')
+                        remote_temp_path = f"C:\\Windows\\Temp\\ssh_file_write_{base_name}_{int(time.time())}"
+                    else:
+                        remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
+
                     # Upload to the temporary location first
                     mcp.ssh_client.put(local_temp_path, remote_temp_path)
-                    
-                    if not append:
-                        # For overwrite with sudo, use cat with sudo redirection
-                        cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
-                        mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+
+                    if is_windows:
+                        # Windows: use PowerShell Copy-Item (use_sudo is ignored on Windows - admin already has permissions)
+                        if not append:
+                            copy_cmd = f"Copy-Item -Path '{remote_temp_path}' -Destination '{file_path}' -Force"
+                        else:
+                            copy_cmd = f"Get-Content -Path '{remote_temp_path}' | Add-Content -Path '{file_path}'"
+                        mcp.ssh_client.run(f"powershell -Command \"{copy_cmd}\"")
+                        # Clean up temp file
+                        mcp.ssh_client.run(f"powershell -Command \"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue\"")
                     else:
-                        # For append with sudo, use cat with sudo append redirection
-                        cat_cmd = f"cat {shlex.quote(remote_temp_path)} >> {shlex.quote(file_path)}"
-                        mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
-                    
-                    # Clean up the temporary file
-                    mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
+                        if not append:
+                            # For overwrite with sudo, use cat with sudo redirection
+                            cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
+                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                        else:
+                            # For append with sudo, use cat with sudo append redirection
+                            cat_cmd = f"cat {shlex.quote(remote_temp_path)} >> {shlex.quote(file_path)}"
+                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                        # Clean up the temporary file
+                        mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
                 elif not append:
                     # For overwrite without sudo, simply upload the file
                     mcp.ssh_client.put(local_temp_path, file_path)
@@ -1766,11 +1834,20 @@ async def ssh_file_write(
                         logger.warning(f"Error during append operation, falling back to create: {e}")
                         if use_sudo:
                             # For sudo, we need to use the sudo approach
-                            remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
-                            mcp.ssh_client.put(local_temp_path, remote_temp_path)
-                            cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
-                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
-                            mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
+                            is_windows = mcp.ssh_client.os_type == 'windows'
+                            if is_windows:
+                                base_name = os.path.basename(file_path).replace('\\', '_').replace(':', '_')
+                                remote_temp_path = f"C:\\Windows\\Temp\\ssh_file_write_{base_name}_{int(time.time())}"
+                                mcp.ssh_client.put(local_temp_path, remote_temp_path)
+                                copy_cmd = f"Copy-Item -Path '{remote_temp_path}' -Destination '{file_path}' -Force"
+                                mcp.ssh_client.run(f"powershell -Command \"{copy_cmd}\"")
+                                mcp.ssh_client.run(f"powershell -Command \"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue\"")
+                            else:
+                                remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
+                                mcp.ssh_client.put(local_temp_path, remote_temp_path)
+                                cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
+                                mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                                mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
                         else:
                             mcp.ssh_client.put(local_temp_path, file_path)
             except FileNotFoundError as e:
@@ -1780,8 +1857,13 @@ async def ssh_file_write(
                     logger.warning(f"Directory creation may have failed, retrying with direct command")
                     parent_dir = os.path.dirname(file_path)
                     if parent_dir:
-                        mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
-                        if use_sudo:
+                        is_windows = mcp.ssh_client.os_type == 'windows'
+                        if is_windows:
+                            ps_path = parent_dir.replace("'", "''")
+                            mkdir_cmd = f"powershell -Command \"New-Item -ItemType Directory -Force -Path '{ps_path}' | Out-Null\""
+                        else:
+                            mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
+                        if use_sudo and not is_windows:
                             mcp.ssh_client.run(mkdir_cmd, sudo=True)
                         else:
                             mcp.ssh_client.run(mkdir_cmd)

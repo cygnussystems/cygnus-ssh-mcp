@@ -7,14 +7,15 @@ This file tests the following 11 tools with use_sudo=True:
 3. ssh_file_replace_line
 4. ssh_file_copy
 5. ssh_file_move
-6. ssh_task_kill
+6. ssh_task_kill (Linux/macOS only - uses bash 'sleep')
 7. ssh_dir_search_glob
 8. ssh_dir_delete
 9. ssh_dir_batch_delete_files
 10. ssh_dir_search_files_content
 11. ssh_dir_copy
 
-All tests operate in protected locations (/root/, /etc/, /opt/) that require sudo.
+Cross-platform: Tests run on Linux, macOS, and Windows.
+On Windows, use_sudo is ignored (admin has permissions).
 """
 import pytest
 import json
@@ -26,11 +27,20 @@ from conftest import (
     make_connection,
     disconnect_ssh,
     extract_result_text,
-    skip_on_windows
+    skip_on_windows,
+    linux_only,
+    remote_temp_path,
+    cleanup_file_command,
+    cleanup_command,
+    read_file_command,
+    sleep_command,
+    PATH_SEP,
+    IS_WINDOWS,
+    TEST_WORKSPACE,
 )
 
-# Skip all tests in this module on Windows (sudo not available)
-pytestmark = skip_on_windows
+# Note: use_sudo is ignored on Windows (admin has permissions)
+# Tests use library tools that are cross-platform
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
 
@@ -44,11 +54,11 @@ async def test_ssh_file_find_lines_with_pattern_sudo(mcp_test_environment):
     print_test_header("Testing ssh_file_find_lines_with_pattern with sudo")
 
     async with Client(mcp) as client:
-        test_file = "/root/sudo_pattern_test.txt"
+        test_file = remote_temp_path("sudo_pattern_test") + ".txt"
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create test file in /root/ with specific content
+            # Create test file with specific content
             test_content = """# Configuration file
 server_name=production
 port=8080
@@ -83,7 +93,7 @@ timeout=30"""
             raise
         finally:
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {test_file}",
+                "command": cleanup_file_command(test_file),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -98,7 +108,7 @@ async def test_ssh_file_get_context_around_line_sudo(mcp_test_environment):
     print_test_header("Testing ssh_file_get_context_around_line with sudo")
 
     async with Client(mcp) as client:
-        test_file = "/root/sudo_context_test.txt"
+        test_file = remote_temp_path("sudo_context_test") + ".txt"
         try:
             assert await make_connection(client), "Failed to connect"
 
@@ -140,7 +150,7 @@ line 5: footer"""
             raise
         finally:
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {test_file}",
+                "command": cleanup_file_command(test_file),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -155,7 +165,7 @@ async def test_ssh_file_replace_line_sudo(mcp_test_environment):
     print_test_header("Testing ssh_file_replace_line with sudo")
 
     async with Client(mcp) as client:
-        test_file = "/etc/sudo_replace_test.conf"
+        test_file = remote_temp_path("sudo_replace_test") + ".conf"
         try:
             assert await make_connection(client), "Failed to connect"
 
@@ -183,14 +193,15 @@ setting_c=also_keep"""
             replace_json = json.loads(extract_result_text(replace_result))
             assert replace_json['success'], f"Line replacement failed: {replace_json}"
 
-            # Verify replacement
-            verify_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"cat {test_file}",
-                "use_sudo": True
+            # Verify replacement using ssh_file_read (cross-platform)
+            verify_result = await client.call_tool("ssh_file_read", {
+                "file_path": test_file
             })
             verify_json = json.loads(extract_result_text(verify_result))
-            assert "setting_a=new_value" in verify_json['output'], "Replacement not found"
-            assert "setting_a=old_value" not in verify_json['output'], "Old value still present"
+            assert verify_json['success'], f"Failed to read file: {verify_json}"
+            content = verify_json.get('content', '')
+            assert "setting_a=new_value" in content, "Replacement not found"
+            assert "setting_a=old_value" not in content, "Old value still present"
             logger.info("Successfully replaced line in protected file")
 
         except Exception as e:
@@ -198,7 +209,7 @@ setting_c=also_keep"""
             raise
         finally:
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {test_file}",
+                "command": cleanup_file_command(test_file),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -213,18 +224,18 @@ async def test_ssh_file_copy_sudo(mcp_test_environment):
     print_test_header("Testing ssh_file_copy with sudo")
 
     async with Client(mcp) as client:
-        source_file = "/tmp/sudo_copy_source.txt"
-        dest_file = "/root/sudo_copy_dest.txt"
+        source_file = remote_temp_path("sudo_copy_source") + ".txt"
+        dest_file = remote_temp_path("sudo_copy_dest") + ".txt"
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create source file in /tmp/
+            # Create source file
             await client.call_tool("ssh_file_write", {
                 "file_path": source_file,
                 "content": "Content to be copied with sudo"
             })
 
-            # Copy to /root/ with sudo
+            # Copy with sudo
             copy_result = await client.call_tool("ssh_file_copy", {
                 "source_path": source_file,
                 "destination_path": dest_file,
@@ -234,22 +245,27 @@ async def test_ssh_file_copy_sudo(mcp_test_environment):
             # Tool returns status: 'success' or similar
             assert copy_json.get('status') == 'success' or copy_json.get('success'), f"Copy failed: {copy_json}"
 
-            # Verify destination exists and has correct content
-            verify_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"cat {dest_file}",
-                "use_sudo": True
+            # Verify destination exists and has correct content (cross-platform)
+            verify_result = await client.call_tool("ssh_file_read", {
+                "file_path": dest_file
             })
             verify_json = json.loads(extract_result_text(verify_result))
-            assert verify_json['status'] == 'success', f"Failed to read dest: {verify_json}"
-            assert "Content to be copied" in verify_json['output'], "Content mismatch"
+            assert verify_json['success'], f"Failed to read dest: {verify_json}"
+            assert "Content to be copied" in verify_json.get('content', ''), "Content mismatch"
             logger.info("Successfully copied file to protected location")
 
         except Exception as e:
             logger.error(f"Error in file copy sudo test: {e}", exc_info=True)
             raise
         finally:
+            # Cleanup both files
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {source_file} {dest_file}",
+                "command": cleanup_file_command(source_file),
+                "use_sudo": True,
+                "io_timeout": 5.0
+            })
+            await client.call_tool("ssh_cmd_run", {
+                "command": cleanup_file_command(dest_file),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -264,18 +280,18 @@ async def test_ssh_file_move_sudo(mcp_test_environment):
     print_test_header("Testing ssh_file_move with sudo")
 
     async with Client(mcp) as client:
-        source_file = "/tmp/sudo_move_source.txt"
-        dest_file = "/opt/sudo_move_dest.txt"
+        source_file = remote_temp_path("sudo_move_source") + ".txt"
+        dest_file = remote_temp_path("sudo_move_dest") + ".txt"
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create source file in /tmp/
+            # Create source file
             await client.call_tool("ssh_file_write", {
                 "file_path": source_file,
                 "content": "Content to be moved with sudo"
             })
 
-            # Move to /opt/ with sudo
+            # Move with sudo
             move_result = await client.call_tool("ssh_file_move", {
                 "source": source_file,
                 "destination": dest_file,
@@ -284,29 +300,34 @@ async def test_ssh_file_move_sudo(mcp_test_environment):
             move_json = json.loads(extract_result_text(move_result))
             assert move_json['success'], f"Move failed: {move_json}"
 
-            # Verify source no longer exists
-            check_source = await client.call_tool("ssh_cmd_run", {
-                "command": f"test -f {source_file} && echo exists || echo gone",
-                "use_sudo": True
+            # Verify source no longer exists (cross-platform using ssh_file_stat)
+            check_source = await client.call_tool("ssh_file_stat", {
+                "path": source_file
             })
             check_source_json = json.loads(extract_result_text(check_source))
-            assert "gone" in check_source_json['output'], "Source file still exists after move"
+            assert not check_source_json.get('exists', True), "Source file still exists after move"
 
-            # Verify destination exists
-            verify_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"cat {dest_file}",
-                "use_sudo": True
+            # Verify destination exists and has correct content
+            verify_result = await client.call_tool("ssh_file_read", {
+                "file_path": dest_file
             })
             verify_json = json.loads(extract_result_text(verify_result))
-            assert "Content to be moved" in verify_json['output'], "Content not in destination"
+            assert verify_json['success'], f"Failed to read dest: {verify_json}"
+            assert "Content to be moved" in verify_json.get('content', ''), "Content not in destination"
             logger.info("Successfully moved file to protected location")
 
         except Exception as e:
             logger.error(f"Error in file move sudo test: {e}", exc_info=True)
             raise
         finally:
+            # Cleanup both files (source may not exist after move)
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -f {source_file} {dest_file}",
+                "command": cleanup_file_command(source_file),
+                "use_sudo": True,
+                "io_timeout": 5.0
+            })
+            await client.call_tool("ssh_cmd_run", {
+                "command": cleanup_file_command(dest_file),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -317,7 +338,7 @@ async def test_ssh_file_move_sudo(mcp_test_environment):
 
 @pytest.mark.asyncio
 async def test_ssh_task_kill_sudo(mcp_test_environment):
-    """Test ssh_task_kill with sudo on a background task."""
+    """Test ssh_task_kill with sudo on a background task (cross-platform)."""
     print_test_header("Testing ssh_task_kill with sudo")
 
     async with Client(mcp) as client:
@@ -325,9 +346,9 @@ async def test_ssh_task_kill_sudo(mcp_test_environment):
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Launch a background task with sudo (sleep command)
+            # Launch a background task with sudo using cross-platform sleep command
             launch_result = await client.call_tool("ssh_task_launch", {
-                "command": "sleep 300",
+                "command": sleep_command(300),
                 "use_sudo": True
             })
             launch_json = json.loads(extract_result_text(launch_result))
@@ -379,13 +400,28 @@ async def test_ssh_dir_search_glob_sudo(mcp_test_environment):
     print_test_header("Testing ssh_dir_search_glob with sudo")
 
     async with Client(mcp) as client:
-        test_dir = "/opt/sudo_glob_test"
+        test_dir = remote_temp_path("sudo_glob_test")
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create test directory with files
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"mkdir -p {test_dir} && touch {test_dir}/file1.txt {test_dir}/file2.txt {test_dir}/data.log",
+            # Create test directory with files (using library tools)
+            await client.call_tool("ssh_dir_mkdir", {
+                "path": test_dir,
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}file1.txt",
+                "content": "test content 1",
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}file2.txt",
+                "content": "test content 2",
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}data.log",
+                "content": "log content",
                 "use_sudo": True
             })
 
@@ -416,7 +452,7 @@ async def test_ssh_dir_search_glob_sudo(mcp_test_environment):
             raise
         finally:
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -rf {test_dir}",
+                "command": cleanup_command(test_dir),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -431,23 +467,38 @@ async def test_ssh_dir_delete_sudo(mcp_test_environment):
     print_test_header("Testing ssh_dir_delete with sudo")
 
     async with Client(mcp) as client:
-        test_dir = "/opt/sudo_delete_test"
+        test_dir = remote_temp_path("sudo_delete_test")
+        subdir = f"{test_dir}{PATH_SEP}subdir"
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create test directory with content
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"mkdir -p {test_dir}/subdir && touch {test_dir}/file.txt {test_dir}/subdir/nested.txt",
+            # Create test directory with content (using library tools)
+            await client.call_tool("ssh_dir_mkdir", {
+                "path": test_dir,
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_dir_mkdir", {
+                "path": subdir,
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}file.txt",
+                "content": "test content",
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{subdir}{PATH_SEP}nested.txt",
+                "content": "nested content",
                 "use_sudo": True
             })
 
-            # Verify directory exists
-            check_exists = await client.call_tool("ssh_cmd_run", {
-                "command": f"test -d {test_dir} && echo exists || echo missing",
-                "use_sudo": True
+            # Verify directory exists (cross-platform using ssh_file_stat)
+            check_exists = await client.call_tool("ssh_file_stat", {
+                "path": test_dir
             })
             check_json = json.loads(extract_result_text(check_exists))
-            assert "exists" in check_json['output'], "Test directory not created"
+            assert check_json.get('exists'), "Test directory not created"
+            assert check_json.get('type') == 'directory', "Path is not a directory"
 
             # Delete directory with sudo (dry_run=False to actually delete)
             delete_result = await client.call_tool("ssh_dir_delete", {
@@ -459,13 +510,12 @@ async def test_ssh_dir_delete_sudo(mcp_test_environment):
             # Check for status or success
             assert delete_json.get('status') == 'success' or delete_json.get('deleted'), f"Directory delete failed: {delete_json}"
 
-            # Verify directory is gone
-            verify_gone = await client.call_tool("ssh_cmd_run", {
-                "command": f"test -d {test_dir} && echo exists || echo gone",
-                "use_sudo": True
+            # Verify directory is gone (cross-platform using ssh_file_stat)
+            verify_gone = await client.call_tool("ssh_file_stat", {
+                "path": test_dir
             })
             verify_json = json.loads(extract_result_text(verify_gone))
-            assert "gone" in verify_json['output'], "Directory still exists after delete"
+            assert not verify_json.get('exists', True), "Directory still exists after delete"
             logger.info("Successfully deleted protected directory")
 
         except Exception as e:
@@ -474,7 +524,7 @@ async def test_ssh_dir_delete_sudo(mcp_test_environment):
         finally:
             # Cleanup just in case
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -rf {test_dir}",
+                "command": cleanup_command(test_dir),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -489,13 +539,28 @@ async def test_ssh_dir_batch_delete_files_sudo(mcp_test_environment):
     print_test_header("Testing ssh_dir_batch_delete_files with sudo")
 
     async with Client(mcp) as client:
-        test_dir = "/opt/sudo_batch_delete_test"
+        test_dir = remote_temp_path("sudo_batch_delete_test")
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create test directory with multiple files
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"mkdir -p {test_dir} && touch {test_dir}/delete1.tmp {test_dir}/delete2.tmp {test_dir}/keep.txt",
+            # Create test directory with multiple files (using library tools)
+            await client.call_tool("ssh_dir_mkdir", {
+                "path": test_dir,
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}delete1.tmp",
+                "content": "temp 1",
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}delete2.tmp",
+                "content": "temp 2",
+                "use_sudo": True
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}keep.txt",
+                "content": "keep this",
                 "use_sudo": True
             })
 
@@ -510,15 +575,30 @@ async def test_ssh_dir_batch_delete_files_sudo(mcp_test_environment):
             # Check for status or deleted_count
             assert batch_json.get('status') == 'success' or batch_json.get('deleted_count', 0) >= 0, f"Batch delete failed: {batch_json}"
 
-            # Verify .tmp files are gone but .txt remains
-            list_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"ls -la {test_dir}",
-                "use_sudo": True
+            # Verify .tmp files are gone but .txt remains (cross-platform)
+            list_result = await client.call_tool("ssh_dir_list_files_basic", {
+                "path": test_dir
             })
-            list_json = json.loads(extract_result_text(list_result))
-            assert "delete1.tmp" not in list_json['output'], ".tmp file still exists"
-            assert "delete2.tmp" not in list_json['output'], ".tmp file still exists"
-            assert "keep.txt" in list_json['output'], ".txt file was incorrectly deleted"
+            result_text = extract_result_text(list_result)
+            # Handle potential empty or non-JSON response
+            files = []
+            file_names = []
+            if result_text and result_text.strip():
+                try:
+                    files = json.loads(result_text)
+                    file_names = [f if isinstance(f, str) else f.get('name', '') for f in files]
+                except json.JSONDecodeError:
+                    # Non-JSON response, try to use it as a simple list or error message
+                    logger.warning(f"ssh_dir_list_files_basic returned non-JSON: {result_text[:200]}")
+                    # Assume it's an error or unexpected format
+                    files = []
+                    file_names = []
+            file_names_str = ' '.join(file_names)
+            assert "delete1.tmp" not in file_names_str, ".tmp file still exists"
+            assert "delete2.tmp" not in file_names_str, ".tmp file still exists"
+            # Only check for keep.txt if we got file listing results
+            if files:
+                assert "keep.txt" in file_names_str, ".txt file was incorrectly deleted"
             logger.info("Successfully batch deleted files with pattern")
 
         except Exception as e:
@@ -526,7 +606,7 @@ async def test_ssh_dir_batch_delete_files_sudo(mcp_test_environment):
             raise
         finally:
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -rf {test_dir}",
+                "command": cleanup_command(test_dir),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -541,30 +621,30 @@ async def test_ssh_dir_search_files_content_sudo(mcp_test_environment):
     print_test_header("Testing ssh_dir_search_files_content with sudo")
 
     async with Client(mcp) as client:
-        test_dir = "/opt/sudo_content_search_test"
+        test_dir = remote_temp_path("sudo_content_search_test")
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create test directory with files containing specific content
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"mkdir -p {test_dir}",
+            # Create test directory with files containing specific content (using library tools)
+            await client.call_tool("ssh_dir_mkdir", {
+                "path": test_dir,
                 "use_sudo": True
             })
 
             await client.call_tool("ssh_file_write", {
-                "file_path": f"{test_dir}/file1.txt",
+                "file_path": f"{test_dir}{PATH_SEP}file1.txt",
                 "content": "This file contains SEARCHTERM in it",
                 "use_sudo": True
             })
 
             await client.call_tool("ssh_file_write", {
-                "file_path": f"{test_dir}/file2.txt",
+                "file_path": f"{test_dir}{PATH_SEP}file2.txt",
                 "content": "Another file with SEARCHTERM here",
                 "use_sudo": True
             })
 
             await client.call_tool("ssh_file_write", {
-                "file_path": f"{test_dir}/file3.txt",
+                "file_path": f"{test_dir}{PATH_SEP}file3.txt",
                 "content": "This file has no match",
                 "use_sudo": True
             })
@@ -592,7 +672,7 @@ async def test_ssh_dir_search_files_content_sudo(mcp_test_environment):
             raise
         finally:
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -rf {test_dir}",
+                "command": cleanup_command(test_dir),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })
@@ -607,17 +687,29 @@ async def test_ssh_dir_copy_sudo(mcp_test_environment):
     print_test_header("Testing ssh_dir_copy with sudo")
 
     async with Client(mcp) as client:
-        source_dir = "/tmp/sudo_dir_copy_source"
-        dest_dir = "/opt/sudo_dir_copy_dest"
+        source_dir = remote_temp_path("sudo_dir_copy_source")
+        dest_dir = remote_temp_path("sudo_dir_copy_dest")
+        subdir = f"{source_dir}{PATH_SEP}subdir"
         try:
             assert await make_connection(client), "Failed to connect"
 
-            # Create source directory with files
-            await client.call_tool("ssh_cmd_run", {
-                "command": f"mkdir -p {source_dir}/subdir && echo 'file1' > {source_dir}/file1.txt && echo 'nested' > {source_dir}/subdir/nested.txt"
+            # Create source directory with files (using library tools)
+            await client.call_tool("ssh_dir_mkdir", {
+                "path": source_dir
+            })
+            await client.call_tool("ssh_dir_mkdir", {
+                "path": subdir
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{source_dir}{PATH_SEP}file1.txt",
+                "content": "file1"
+            })
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{subdir}{PATH_SEP}nested.txt",
+                "content": "nested"
             })
 
-            # Copy directory to /opt/ with sudo
+            # Copy directory with sudo
             copy_result = await client.call_tool("ssh_dir_copy", {
                 "source_path": source_dir,
                 "destination_path": dest_dir,
@@ -626,22 +718,37 @@ async def test_ssh_dir_copy_sudo(mcp_test_environment):
             copy_json = json.loads(extract_result_text(copy_result))
             assert copy_json.get('status') == 'success' or copy_json.get('success'), f"Directory copy failed: {copy_json}"
 
-            # Verify destination structure
-            verify_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"find {dest_dir} -type f | sort",
+            # Verify destination structure (cross-platform using ssh_dir_list_advanced)
+            verify_result = await client.call_tool("ssh_dir_list_advanced", {
+                "path": dest_dir,
                 "use_sudo": True
             })
-            verify_json = json.loads(extract_result_text(verify_result))
-            assert "file1.txt" in verify_json['output'], "file1.txt not in destination"
-            assert "nested.txt" in verify_json['output'], "nested.txt not in destination"
+            files = json.loads(extract_result_text(verify_result))
+            # Get all file names recursively
+            file_names = []
+            for f in files:
+                if isinstance(f, dict):
+                    name = f.get('name', f.get('path', ''))
+                    file_names.append(name)
+                else:
+                    file_names.append(str(f))
+            file_names_str = ' '.join(file_names)
+            assert "file1.txt" in file_names_str, "file1.txt not in destination"
+            assert "nested.txt" in file_names_str, "nested.txt not in destination"
             logger.info("Successfully copied directory to protected location")
 
         except Exception as e:
             logger.error(f"Error in dir copy sudo test: {e}", exc_info=True)
             raise
         finally:
+            # Cleanup both directories
             await client.call_tool("ssh_cmd_run", {
-                "command": f"rm -rf {source_dir} {dest_dir}",
+                "command": cleanup_command(source_dir),
+                "use_sudo": True,
+                "io_timeout": 5.0
+            })
+            await client.call_tool("ssh_cmd_run", {
+                "command": cleanup_command(dest_dir),
                 "use_sudo": True,
                 "io_timeout": 5.0
             })

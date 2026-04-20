@@ -11,7 +11,7 @@ from fastmcp import Client
 
 @pytest.mark.asyncio
 async def test_ssh_task_operations_with_sudo(mcp_test_environment):
-    """Test task operations that require sudo privileges."""
+    """Test task operations that require sudo privileges (cross-platform with sudo support)."""
     print_test_header("Testing task operations with sudo")
 
     async with Client(mcp) as client:

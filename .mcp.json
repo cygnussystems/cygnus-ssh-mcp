@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "postgres-mcp",
+      "args": [
+        "--access-mode=unrestricted"
+      ],
+      "env": {
+        "DATABASE_URI": "postgresql://claude:claudepwd@nuc.cygnus.internal:5432/language_tutor_dbsto"
+      }
+    },
+
+  "cygnus_ssh": {
+    "command": "C:\\Users\\ritte\\_PR_DEV_\\DEV_AI_MCP_SERVERS\\PR_MCP_SSH\\.venv\\Scripts\\python.exe",
+    "args": [
+      "C:\\Users\\ritte\\_PR_DEV_\\DEV_AI_MCP_SERVERS\\PR_MCP_SSH\\mcp_ssh_server.py",
+      "--config",
+      "C:\\Users\\ritte\\.mcp_ssh_hosts.toml"
+    ],
+    "working_dir": "C:\\Users\\ritte\\_PR_DEV_\\DEV_AI_MCP_SERVERS\\PR_MCP_SSH",
+    "auto_start": true
+  }
+
+
+  }
+}

@@ -42,6 +42,17 @@ IS_WINDOWS = TEST_PLATFORM == 'windows'
 IS_LINUX = TEST_PLATFORM == 'linux'
 IS_MACOS = TEST_PLATFORM == 'macos'
 
+# Platform-specific paths and commands
+if IS_MACOS:
+    ROOT_HOME = '/var/root'  # macOS root home directory
+    ROOT_GROUP = 'wheel'     # macOS root group
+elif IS_WINDOWS:
+    ROOT_HOME = 'C:\\Windows\\System32'  # Not really used on Windows
+    ROOT_GROUP = 'Administrators'
+else:  # Linux
+    ROOT_HOME = '/root'
+    ROOT_GROUP = 'root'
+
 # =============================================================================
 # Platform-specific Configuration (loaded from .env)
 # =============================================================================
@@ -115,10 +126,31 @@ def setup_windows_workspace():
         raise
 
 
+def setup_macos_workspace():
+    """Create and clean workspace directory on macOS using paramiko directly."""
+    import paramiko
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(SSH_TEST_HOST, port=SSH_TEST_PORT, username=SSH_TEST_USER, password=SSH_TEST_PASSWORD)
+
+        workspace = f"/Users/{SSH_TEST_USER}/mcp_test_workspace"
+        cmd = f"mkdir -p {workspace} && echo {SSH_TEST_PASSWORD} | sudo -S chown {SSH_TEST_USER}:staff {workspace} 2>/dev/null; rm -rf {workspace}/* 2>/dev/null; echo 'Workspace ready'"
+        stdin, stdout, stderr = client.exec_command(cmd)
+        result = stdout.read().decode().strip()
+        logging.info(f"macOS workspace setup: {result}")
+        client.close()
+    except Exception as e:
+        logging.error(f"Failed to setup macOS workspace: {e}")
+        raise
+
+
 def setup_workspace():
     """Setup workspace for the current platform."""
     if IS_WINDOWS:
         setup_windows_workspace()
+    elif IS_MACOS:
+        setup_macos_workspace()
     else:
         setup_linux_workspace()
 
@@ -245,6 +277,101 @@ async def cleanup_remote_path(client, path):
     await client.call_tool("ssh_cmd_run", {"command": cmd, "io_timeout": 10.0})
 
 
+# =============================================================================
+# Cross-Platform Command Helpers
+# =============================================================================
+def echo_command(message: str) -> str:
+    """Return platform-appropriate echo command."""
+    if IS_WINDOWS:
+        # PowerShell Write-Output
+        return f"powershell -Command \"Write-Output '{message}'\""
+    else:
+        return f"echo '{message}'"
+
+
+def sleep_command(seconds: float) -> str:
+    """Return platform-appropriate sleep command."""
+    if IS_WINDOWS:
+        return f"powershell -Command \"Start-Sleep -Seconds {seconds}\""
+    else:
+        return f"sleep {seconds}"
+
+
+def sleep_then_echo(seconds: float, message: str) -> str:
+    """Return platform-appropriate sleep followed by echo."""
+    if IS_WINDOWS:
+        return f"powershell -Command \"Start-Sleep -Seconds {seconds}; Write-Output '{message}'\""
+    else:
+        return f"sleep {seconds} && echo '{message}'"
+
+
+def long_running_command(seconds: float, message: str = "Command completed") -> str:
+    """Return a command that runs for specified seconds then outputs a message."""
+    if IS_WINDOWS:
+        return f"powershell -Command \"Write-Output 'Starting long process'; Start-Sleep -Seconds {seconds}; Write-Output '{message}'\""
+    else:
+        return f"echo 'Starting long process'; sleep {seconds}; echo '{message}'"
+
+
+def multiline_echo_command(count: int) -> str:
+    """Return platform-appropriate command to echo multiple numbered lines."""
+    if IS_WINDOWS:
+        # PowerShell: 1..5 | ForEach-Object { Write-Output "Line $_" }
+        return f'powershell -Command "1..{count} | ForEach-Object {{ Write-Output \\"Line $_\\" }}"'
+    else:
+        return f"for i in $(seq 1 {count}); do echo \"Line $i\"; done"
+
+
+def exit_with_code_command(code: int) -> str:
+    """Return platform-appropriate command to exit with specific code."""
+    if IS_WINDOWS:
+        return f"powershell -Command \"exit {code}\""
+    else:
+        return f"exit {code}"
+
+
+def failing_command() -> str:
+    """Return a command that intentionally fails (for error handling tests)."""
+    if IS_WINDOWS:
+        return "powershell -Command \"exit 42\""
+    else:
+        return "exit 42"
+
+
+def get_expected_exit_code_error() -> str:
+    """Return the expected error message pattern for exit code 42."""
+    return "exit code 42"
+
+
+def noop_success_command() -> str:
+    """Return a command that succeeds without producing output (like bash 'true')."""
+    if IS_WINDOWS:
+        return "powershell -Command \"exit 0\""
+    else:
+        return "true"
+
+
+def multiline_printf_command(lines: list) -> str:
+    """Return platform-appropriate command to output multiple specific lines."""
+    if IS_WINDOWS:
+        # PowerShell: output each line
+        ps_lines = "; ".join([f"Write-Output '{line}'" for line in lines])
+        return f'powershell -Command "{ps_lines}"'
+    else:
+        # Use printf for precise control
+        escaped = "\\n".join(lines)
+        return f"printf '{escaped}'"
+
+
+def silent_failing_command() -> str:
+    """Return a command that fails but produces no output (for testing error cases)."""
+    if IS_WINDOWS:
+        # PowerShell command that fails silently
+        return 'powershell -Command "Get-Item C:\\nonexistent_path_xyz 2>$null; exit 0"'
+    else:
+        return "ls /nonexistent_path_for_history_test_stderr > /dev/null 2>&1 || true"
+
+
 def print_test_header(test_name):
     """Print a formatted test header."""
     print("\n" + "=" * 40)
@@ -264,8 +391,10 @@ def print_test_footer():
 # =============================================================================
 skip_on_windows = pytest.mark.skipif(IS_WINDOWS, reason="Not supported on Windows")
 skip_on_linux = pytest.mark.skipif(IS_LINUX, reason="Not supported on Linux")
-windows_only = pytest.mark.skipif(IS_LINUX, reason="Windows-only test")
-linux_only = pytest.mark.skipif(IS_WINDOWS, reason="Linux-only test")
+skip_on_macos = pytest.mark.skipif(IS_MACOS, reason="Not supported on macOS")
+windows_only = pytest.mark.skipif(not IS_WINDOWS, reason="Windows-only test")
+linux_only = pytest.mark.skipif(not IS_LINUX, reason="Linux-only test")
+macos_only = pytest.mark.skipif(not IS_MACOS, reason="macOS-only test")
 
 
 # =============================================================================

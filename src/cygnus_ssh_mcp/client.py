@@ -793,4 +793,187 @@ class SshClient:
             source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, sudo
         )
 
+    def transfer_directory(self, direction: str, local_path: str, remote_path: str,
+                          sudo: bool = False) -> Dict[str, Any]:
+        """
+        Transfer a directory between local and remote systems.
+
+        Uses archive-based transfer for efficiency:
+        - Upload: Creates archive locally, transfers via SFTP, extracts on remote
+        - Download: Creates archive on remote, transfers via SFTP, extracts locally
+
+        Args:
+            direction: 'upload' (local to remote) or 'download' (remote to local)
+            local_path: Path to local directory
+            remote_path: Path to remote directory
+            sudo: Use sudo for remote operations (extract/archive)
+
+        Returns:
+            Dict with transfer status and metadata
+        """
+        from cygnus_ssh_mcp.ops.file import create_local_archive, extract_local_archive
+
+        # Determine archive format based on remote OS
+        if self.os_type == 'windows':
+            archive_format = 'zip'
+            archive_ext = '.zip'
+        else:
+            archive_format = 'tar.gz'
+            archive_ext = '.tar.gz'
+
+        timestamp = int(time.time())
+        local_temp_archive = None
+        remote_temp_archive = None
+
+        try:
+            if direction == 'upload':
+                # Upload: archive locally -> transfer -> extract remotely
+                self._logger.info(f"Uploading directory {local_path} to {remote_path}")
+
+                # Validate local source exists
+                if not os.path.isdir(local_path):
+                    return {
+                        'success': False,
+                        'error': f"Local directory does not exist: {local_path}"
+                    }
+
+                # Create local archive
+                local_temp_archive = create_local_archive(local_path, archive_format)
+                archive_size = os.path.getsize(local_temp_archive)
+
+                # Determine remote temp path
+                if self.os_type == 'windows':
+                    # Use PowerShell to get TEMP path (CMD doesn't understand $env:TEMP)
+                    handle = self.run('powershell -Command "Write-Output $env:TEMP"', io_timeout=10)
+                    temp_dir = handle.get_full_output().strip()
+                    remote_temp_archive = f"{temp_dir}\\ssh_dir_transfer_{timestamp}{archive_ext}"
+                else:
+                    remote_temp_archive = f"/tmp/ssh_dir_transfer_{timestamp}{archive_ext}"
+
+                # Transfer archive to remote
+                self._logger.info(f"Transferring archive ({archive_size} bytes) to {remote_temp_archive}")
+                self.put(local_temp_archive, remote_temp_archive)
+
+                # Extract on remote
+                self._logger.info(f"Extracting archive to {remote_path}")
+                extract_result = self.extract_archive_to_directory(
+                    remote_temp_archive, remote_path, overwrite=True, sudo=sudo
+                )
+
+                if not extract_result.get('success'):
+                    return {
+                        'success': False,
+                        'error': extract_result.get('message', 'Failed to extract archive on remote')
+                    }
+
+                # Count files from extraction result
+                files_count = len(extract_result.get('extracted_files', []))
+
+                return {
+                    'success': True,
+                    'operation': 'upload',
+                    'local_path': local_path,
+                    'remote_path': remote_path,
+                    'archive_format': archive_format,
+                    'files_transferred': files_count,
+                    'bytes_transferred': archive_size
+                }
+
+            elif direction == 'download':
+                # Download: archive remotely -> transfer -> extract locally
+                self._logger.info(f"Downloading directory {remote_path} to {local_path}")
+
+                # Determine remote temp archive path
+                if self.os_type == 'windows':
+                    # Use PowerShell to get TEMP path (CMD doesn't understand $env:TEMP)
+                    handle = self.run('powershell -Command "Write-Output $env:TEMP"', io_timeout=10)
+                    temp_dir = handle.get_full_output().strip()
+                    remote_temp_archive = f"{temp_dir}\\ssh_dir_transfer_{timestamp}{archive_ext}"
+                else:
+                    remote_temp_archive = f"/tmp/ssh_dir_transfer_{timestamp}{archive_ext}"
+
+                # Create archive on remote
+                self._logger.info(f"Creating archive on remote: {remote_temp_archive}")
+                archive_result = self.create_archive_from_directory(
+                    remote_path, remote_temp_archive, format=archive_format, sudo=sudo
+                )
+
+                if not archive_result.get('success') and archive_result.get('status') != 'success':
+                    return {
+                        'success': False,
+                        'error': archive_result.get('message', 'Failed to create archive on remote')
+                    }
+
+                # For sudo, make archive readable before download
+                if sudo and self.os_type != 'windows':
+                    self.run(f"chmod 644 {shlex.quote(remote_temp_archive)}", sudo=True)
+
+                # Create local temp file for download
+                fd, local_temp_archive = tempfile.mkstemp(suffix=archive_ext, prefix='ssh_dir_transfer_')
+                os.close(fd)
+
+                # Transfer archive to local
+                archive_size = archive_result.get('size_bytes', 0)
+                self._logger.info(f"Transferring archive ({archive_size} bytes) to local")
+                self.get(remote_temp_archive, local_temp_archive)
+
+                # Get actual size if not reported
+                if archive_size <= 0:
+                    archive_size = os.path.getsize(local_temp_archive)
+
+                # Extract locally
+                self._logger.info(f"Extracting archive to {local_path}")
+                extract_result = extract_local_archive(local_temp_archive, local_path, archive_format)
+
+                return {
+                    'success': True,
+                    'operation': 'download',
+                    'local_path': local_path,
+                    'remote_path': remote_path,
+                    'archive_format': archive_format,
+                    'files_transferred': extract_result.get('files_extracted', 0),
+                    'bytes_transferred': archive_size
+                }
+
+            else:
+                return {
+                    'success': False,
+                    'error': f"Invalid direction: {direction}. Must be 'upload' or 'download'."
+                }
+
+        except SshError as e:
+            self._logger.error(f"Directory transfer failed: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
+            }
+        except Exception as e:
+            self._logger.error(f"Unexpected error during directory transfer: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': f"Unexpected error: {e}"
+            }
+        finally:
+            # Cleanup local temp archive
+            if local_temp_archive and os.path.exists(local_temp_archive):
+                try:
+                    os.unlink(local_temp_archive)
+                    self._logger.debug(f"Cleaned up local temp archive: {local_temp_archive}")
+                except Exception as e:
+                    self._logger.warning(f"Failed to clean up local temp archive: {e}")
+
+            # Cleanup remote temp archive
+            if remote_temp_archive:
+                try:
+                    if self.os_type == 'windows':
+                        ps_path = remote_temp_archive.replace("'", "''")
+                        self.run(f"powershell -Command \"Remove-Item -Path '{ps_path}' -Force -ErrorAction SilentlyContinue\"",
+                                io_timeout=10, runtime_timeout=30)
+                    else:
+                        self.run(f"rm -f {shlex.quote(remote_temp_archive)}",
+                                io_timeout=10, runtime_timeout=30, sudo=sudo)
+                    self._logger.debug(f"Cleaned up remote temp archive: {remote_temp_archive}")
+                except Exception as e:
+                    self._logger.warning(f"Failed to clean up remote temp archive: {e}")
+
     # _build_cmd helper removed as logic is inlined or handled directly

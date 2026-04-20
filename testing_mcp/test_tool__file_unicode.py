@@ -26,8 +26,7 @@ from conftest import (
     cleanup_remote_path,
     cleanup_file_command,
     read_file_command,
-    skip_on_windows,
-    linux_only
+    skip_on_windows
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -280,7 +279,7 @@ Contact: support@例え.jp | Téléphone: +33 1 23 45 67 89
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_read_emojis(mcp_test_environment):
     """Test writing and reading files with emojis."""
     print_test_header("Testing file write/read with emojis")
@@ -330,7 +329,7 @@ async def test_file_write_read_emojis(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_read_bullets(mcp_test_environment):
     """Test writing and reading files with bullet points and markers."""
     print_test_header("Testing file write/read with bullets and markers")
@@ -372,7 +371,7 @@ async def test_file_write_read_bullets(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_read_checkboxes(mcp_test_environment):
     """Test writing and reading files with checkbox characters."""
     print_test_header("Testing file write/read with checkboxes")
@@ -407,7 +406,7 @@ async def test_file_write_read_checkboxes(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_read_math_symbols(mcp_test_environment):
     """Test writing and reading files with mathematical symbols."""
     print_test_header("Testing file write/read with math symbols")
@@ -442,7 +441,7 @@ async def test_file_write_read_math_symbols(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_read_box_drawing(mcp_test_environment):
     """Test writing and reading files with box drawing characters."""
     print_test_header("Testing file write/read with box drawing characters")
@@ -477,7 +476,7 @@ async def test_file_write_read_box_drawing(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_read_international(mcp_test_environment):
     """Test writing and reading files with international characters."""
     print_test_header("Testing file write/read with international text")
@@ -512,7 +511,7 @@ async def test_file_write_read_international(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_read_mixed_heavy_unicode(mcp_test_environment):
     """Test writing and reading files with heavy mix of all Unicode types."""
     print_test_header("Testing file write/read with heavy mixed Unicode")
@@ -547,7 +546,7 @@ async def test_file_write_read_mixed_heavy_unicode(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_append_unicode(mcp_test_environment):
     """Test appending Unicode content to existing file."""
     print_test_header("Testing file append with Unicode")
@@ -598,7 +597,7 @@ async def test_file_append_unicode(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_line_replace_unicode(mcp_test_environment):
     """Test replacing lines containing Unicode characters."""
     print_test_header("Testing line replacement with Unicode")
@@ -653,7 +652,7 @@ async def test_file_line_replace_unicode(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_copy_unicode_content(mcp_test_environment):
     """Test copying files with Unicode content."""
     print_test_header("Testing file copy with Unicode content")
@@ -700,7 +699,7 @@ async def test_file_copy_unicode_content(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_find_lines_unicode(mcp_test_environment):
     """Test finding lines containing Unicode patterns."""
     print_test_header("Testing find lines with Unicode patterns")
@@ -761,7 +760,7 @@ async def test_file_find_lines_unicode(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 async def test_file_write_with_sudo_unicode(mcp_test_environment):
     """Test writing Unicode content with sudo privileges (Linux only - uses sudo)."""
     print_test_header("Testing sudo file write with Unicode")
@@ -815,7 +814,7 @@ async def test_file_write_with_sudo_unicode(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@linux_only
+@skip_on_windows
 @pytest.mark.parametrize("test_name,test_case", list(UNICODE_TEST_CASES.items()))
 async def test_file_unicode_parametrized(mcp_test_environment, test_name, test_case):
     """Parametrized test for all Unicode test cases."""

@@ -1,7 +1,10 @@
 import pytest
 import json
 import logging
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, mcp_test_environment, extract_result_text, linux_only
+from conftest import (
+    print_test_header, print_test_footer, make_connection, disconnect_ssh,
+    mcp_test_environment, extract_result_text, IS_WINDOWS, TEST_PLATFORM
+)
 # Import necessary modules
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
@@ -54,9 +57,8 @@ async def test_ssh_verify_sudo(mcp_test_environment):
     print_test_footer()
 
 @pytest.mark.asyncio
-@linux_only
 async def test_ssh_system_operations(mcp_test_environment):
-    """Test various system operations (Linux-specific: uses 'id' command and checks for os_type='linux')."""
+    """Test various system operations (cross-platform)."""
     print_test_header("Testing system operations")
     logger.info("Starting SSH system operations test")
 
@@ -65,30 +67,32 @@ async def test_ssh_system_operations(mcp_test_environment):
             # Ensure connection is established
             assert await make_connection(client), "Failed to establish SSH connection"
             logger.info("SSH connection established or verified for system operations test")
-            
-            # Test running a command with sudo
-            # This should work as the test container has passwordless sudo for the test user.
-            try:
-                logger.info("Running a command with sudo")
-                sudo_run_params = {
-                    "command": "id",
-                    "use_sudo": True,
-                    "io_timeout": 5.0
-                }
-                
-                sudo_run_result = await client.call_tool("ssh_cmd_run", sudo_run_params)
-                result_text = extract_result_text(sudo_run_result)
-                assert result_text, "Expected result with text content"
-                sudo_run_json = json.loads(result_text)
-                logger.info(f"Sudo command result: {sudo_run_json}")
-                
-                # If sudo works, the output should contain "uid=0(root)"
-                assert "uid=0(root)" in sudo_run_json['output'], "Sudo command did not run as root or output is unexpected"
-                logger.info("Sudo command executed successfully as root")
-            except Exception as e:
-                logger.error(f"Sudo command failed unexpectedly: {e}")
-                raise # Re-raise if sudo command fails, as it's expected to work
-            
+
+            # Test running a command with sudo (Linux/macOS only - Windows doesn't have sudo)
+            if not IS_WINDOWS:
+                try:
+                    logger.info("Running a command with sudo")
+                    sudo_run_params = {
+                        "command": "id",
+                        "use_sudo": True,
+                        "io_timeout": 5.0
+                    }
+
+                    sudo_run_result = await client.call_tool("ssh_cmd_run", sudo_run_params)
+                    result_text = extract_result_text(sudo_run_result)
+                    assert result_text, "Expected result with text content"
+                    sudo_run_json = json.loads(result_text)
+                    logger.info(f"Sudo command result: {sudo_run_json}")
+
+                    # If sudo works, the output should contain "uid=0(root)"
+                    assert "uid=0(root)" in sudo_run_json['output'], "Sudo command did not run as root or output is unexpected"
+                    logger.info("Sudo command executed successfully as root")
+                except Exception as e:
+                    logger.error(f"Sudo command failed unexpectedly: {e}")
+                    raise  # Re-raise if sudo command fails, as it's expected to work
+            else:
+                logger.info("Skipping sudo test on Windows (no sudo support)")
+
             # Test getting system status - first get basic status
             logger.info("Getting basic system status")
             status_result = await client.call_tool("ssh_conn_status", {})
@@ -98,7 +102,7 @@ async def test_ssh_system_operations(mcp_test_environment):
             
             # Verify basic system information
             assert 'os_type' in status_json, "Status should include OS type"
-            assert status_json['os_type'] == 'linux', f"Expected OS type 'linux', got '{status_json['os_type']}'"
+            assert status_json['os_type'] == TEST_PLATFORM, f"Expected OS type '{TEST_PLATFORM}', got '{status_json['os_type']}'"
             
             # Now get detailed host info
             logger.info("Getting detailed host info")
@@ -113,7 +117,7 @@ async def test_ssh_system_operations(mcp_test_environment):
             
             system_info = host_info_json['system']
             assert 'os_type' in system_info, "System info should include OS type"
-            assert system_info['os_type'] == 'linux', f"Expected OS type 'linux', got '{system_info['os_type']}'"
+            assert system_info['os_type'] == TEST_PLATFORM, f"Expected OS type '{TEST_PLATFORM}', got '{system_info['os_type']}'"
             assert 'hostname' in system_info, "System info should include hostname"
             assert 'cpu_count' in system_info, "System info should include CPU count"
             assert 'mem_total_mb' in system_info, "System info should include memory info"
