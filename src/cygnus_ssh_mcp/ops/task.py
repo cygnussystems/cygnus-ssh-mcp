@@ -8,6 +8,7 @@ from datetime import datetime, UTC
 from cygnus_ssh_mcp.models import (
     CommandHandle, SshError, TaskNotFound, SudoRequired
 )
+from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 
 
 class SshTaskOperations(ABC):
@@ -481,16 +482,18 @@ class SshTaskOperations_Win(SshTaskOperations):
     def _cmd_check_process_running(self, pid: int) -> str:
         # PowerShell command to check if process exists
         # Exit 0 if running, exit 1 if not
-        return f'powershell -Command "if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"'
+        return powershell_encoded_command(
+            f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"
+        )
 
     def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
         # Windows doesn't have signals, but we can simulate:
         # signal 15 (TERM) = normal Stop-Process
         # signal 9 (KILL) = Stop-Process -Force
         if signal == 9:
-            return f'powershell -Command "Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue"'
+            return powershell_encoded_command(f"Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue")
         else:
-            return f'powershell -Command "Stop-Process -Id {pid} -ErrorAction SilentlyContinue"'
+            return powershell_encoded_command(f"Stop-Process -Id {pid} -ErrorAction SilentlyContinue")
 
     def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
-        return f'powershell -Command "Move-Item -Path \'{old_path}\' -Destination \'{new_path}\' -Force"'
+        return powershell_encoded_command(f"Move-Item -Path '{old_path}' -Destination '{new_path}' -Force")

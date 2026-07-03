@@ -3,6 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 from cygnus_ssh_mcp.models import SshError, CommandTimeout, BusyError, CommandFailed
+from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 
 
 class SshOsOperations(ABC):
@@ -497,20 +498,58 @@ class SshOsOperations_Win(SshOsOperations):
 
     def _cmd_hardware_info(self) -> str:
         """Return PowerShell command to get hardware info using CIM."""
-        return 'powershell -Command "$cpu = Get-CimInstance Win32_Processor; $os = Get-CimInstance Win32_OperatingSystem; Write-Output \\"CPU:$($cpu.NumberOfLogicalProcessors)\\"; Write-Output \\"CPU_MODEL:$($cpu.Name)\\"; Write-Output \\"CPU_MHZ:$($cpu.MaxClockSpeed)\\"; Write-Output \\"MEM_TOTAL:$([math]::Round($os.TotalVisibleMemorySize/1024))\\"; Write-Output \\"MEM_FREE:$([math]::Round($os.FreePhysicalMemory/1024))\\"; Write-Output \\"MEM_AVAIL:$([math]::Round($os.FreePhysicalMemory/1024))\\"; Write-Output \\"LOAD:n/a\\""'
+        script = (
+            '$cpu = Get-CimInstance Win32_Processor; $os = Get-CimInstance Win32_OperatingSystem; '
+            'Write-Output "CPU:$($cpu.NumberOfLogicalProcessors)"; '
+            'Write-Output "CPU_MODEL:$($cpu.Name)"; '
+            'Write-Output "CPU_MHZ:$($cpu.MaxClockSpeed)"; '
+            'Write-Output "MEM_TOTAL:$([math]::Round($os.TotalVisibleMemorySize/1024))"; '
+            'Write-Output "MEM_FREE:$([math]::Round($os.FreePhysicalMemory/1024))"; '
+            'Write-Output "MEM_AVAIL:$([math]::Round($os.FreePhysicalMemory/1024))"; '
+            'Write-Output "LOAD:n/a"'
+        )
+        return powershell_encoded_command(script)
 
     def _cmd_os_info(self) -> str:
         """Return PowerShell command to get OS info using CIM."""
-        return 'powershell -Command "$os = Get-CimInstance Win32_OperatingSystem; Write-Output \\"OS_NAME:$($os.Caption)\\"; Write-Output \\"OS_VERSION:$($os.Version)\\"; Write-Output \\"OS_RELEASE:$($os.BuildNumber)\\"; Write-Output \\"KERNEL:$($os.Version)\\"; Write-Output \\"ARCH:$env:PROCESSOR_ARCHITECTURE\\""'
+        script = (
+            '$os = Get-CimInstance Win32_OperatingSystem; '
+            'Write-Output "OS_NAME:$($os.Caption)"; '
+            'Write-Output "OS_VERSION:$($os.Version)"; '
+            'Write-Output "OS_RELEASE:$($os.BuildNumber)"; '
+            'Write-Output "KERNEL:$($os.Version)"; '
+            'Write-Output "ARCH:$env:PROCESSOR_ARCHITECTURE"'
+        )
+        return powershell_encoded_command(script)
 
     def _cmd_network_info(self) -> str:
         """Return PowerShell command to get network info."""
-        return "powershell -Command \"Write-Output ('HOSTNAME:' + $env:COMPUTERNAME); Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -ne 'Loopback Pseudo-Interface 1' } | ForEach-Object { Write-Output ('IFACE:' + $_.InterfaceAlias + '|IPS:' + $_.IPAddress) }\""
+        script = (
+            "Write-Output ('HOSTNAME:' + $env:COMPUTERNAME); "
+            "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.InterfaceAlias -ne 'Loopback Pseudo-Interface 1' } | "
+            "ForEach-Object { Write-Output ('IFACE:' + $_.InterfaceAlias + '|IPS:' + $_.IPAddress) }"
+        )
+        return powershell_encoded_command(script)
 
     def _cmd_disk_info(self) -> str:
         """Return PowerShell command to get disk info using CIM."""
-        return 'powershell -Command "$disk = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DeviceID -eq \'C:\' }; $totalGB = [math]::Round($disk.Size / 1GB, 1); $freeGB = [math]::Round($disk.FreeSpace / 1GB, 1); Write-Output \\"DISK_TOTAL:${totalGB}G\\"; Write-Output \\"DISK_FREE:${freeGB}G\\"; Write-Output \\"FILESYSTEM:$($disk.FileSystem)\\""'
+        script = (
+            "$disk = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DeviceID -eq 'C:' }; "
+            "$totalGB = [math]::Round($disk.Size / 1GB, 1); "
+            "$freeGB = [math]::Round($disk.FreeSpace / 1GB, 1); "
+            'Write-Output "DISK_TOTAL:${totalGB}G"; '
+            'Write-Output "DISK_FREE:${freeGB}G"; '
+            'Write-Output "FILESYSTEM:$($disk.FileSystem)"'
+        )
+        return powershell_encoded_command(script)
 
     def _cmd_user_status(self) -> str:
         """Return PowerShell command to get user status."""
-        return 'powershell -Command "Write-Output \\"USER:$env:USERNAME\\"; Write-Output \\"CWD:$(Get-Location)\\"; Write-Output \\"TIME:$(Get-Date -Format \'o\')\\"; Write-Output \\"OS_TYPE:Windows\\""'
+        script = (
+            'Write-Output "USER:$env:USERNAME"; '
+            'Write-Output "CWD:$(Get-Location)"; '
+            "Write-Output \"TIME:$(Get-Date -Format 'o')\"; "
+            'Write-Output "OS_TYPE:Windows"'
+        )
+        return powershell_encoded_command(script)

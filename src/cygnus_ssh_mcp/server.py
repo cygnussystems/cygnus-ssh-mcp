@@ -19,6 +19,7 @@ from typing import Annotated, Optional, Literal, Dict, Any, List, Union
 from datetime import datetime, UTC
 from cygnus_ssh_mcp.client import SshClient
 from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
+from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 import stat as stat_module
 import errno
 
@@ -1724,7 +1725,7 @@ async def ssh_file_write(
                         if is_windows:
                             # Windows: use PowerShell New-Item with -Force (creates all parent directories)
                             ps_path = parent_dir.replace("'", "''")
-                            mkdir_cmd = f"powershell -Command \"New-Item -ItemType Directory -Force -Path '{ps_path}' | Out-Null\""
+                            mkdir_cmd = powershell_encoded_command(f"New-Item -ItemType Directory -Force -Path '{ps_path}' | Out-Null")
                         else:
                             # Linux/macOS: use mkdir -p
                             mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
@@ -1775,9 +1776,9 @@ async def ssh_file_write(
                             copy_cmd = f"Copy-Item -Path '{remote_temp_path}' -Destination '{file_path}' -Force"
                         else:
                             copy_cmd = f"Get-Content -Path '{remote_temp_path}' | Add-Content -Path '{file_path}'"
-                        mcp.ssh_client.run(f"powershell -Command \"{copy_cmd}\"")
+                        mcp.ssh_client.run(powershell_encoded_command(copy_cmd))
                         # Clean up temp file
-                        mcp.ssh_client.run(f"powershell -Command \"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue\"")
+                        mcp.ssh_client.run(powershell_encoded_command(f"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue"))
                     else:
                         if not append:
                             # For overwrite with sudo, use cat with sudo redirection
@@ -1840,8 +1841,8 @@ async def ssh_file_write(
                                 remote_temp_path = f"C:\\Windows\\Temp\\ssh_file_write_{base_name}_{int(time.time())}"
                                 mcp.ssh_client.put(local_temp_path, remote_temp_path)
                                 copy_cmd = f"Copy-Item -Path '{remote_temp_path}' -Destination '{file_path}' -Force"
-                                mcp.ssh_client.run(f"powershell -Command \"{copy_cmd}\"")
-                                mcp.ssh_client.run(f"powershell -Command \"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue\"")
+                                mcp.ssh_client.run(powershell_encoded_command(copy_cmd))
+                                mcp.ssh_client.run(powershell_encoded_command(f"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue"))
                             else:
                                 remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
                                 mcp.ssh_client.put(local_temp_path, remote_temp_path)
@@ -1860,7 +1861,7 @@ async def ssh_file_write(
                         is_windows = mcp.ssh_client.os_type == 'windows'
                         if is_windows:
                             ps_path = parent_dir.replace("'", "''")
-                            mkdir_cmd = f"powershell -Command \"New-Item -ItemType Directory -Force -Path '{ps_path}' | Out-Null\""
+                            mkdir_cmd = powershell_encoded_command(f"New-Item -ItemType Directory -Force -Path '{ps_path}' | Out-Null")
                         else:
                             mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
                         if use_sudo and not is_windows:

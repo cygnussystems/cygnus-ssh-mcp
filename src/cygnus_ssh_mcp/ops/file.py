@@ -8,6 +8,7 @@ import zipfile
 from abc import ABC, abstractmethod
 from typing import Optional, Callable, Dict, Any
 from cygnus_ssh_mcp.models import SshError, CommandFailed
+from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 
 
 # =============================================================================
@@ -1033,7 +1034,11 @@ class SshFileOperations_Win(SshFileOperations):
         """
         ps_path = path.replace("'", "''")
         # Output format: perms uid gid (we use 0 for perms, owner for uid, unknown for gid)
-        return f'''powershell -Command "$acl = Get-Acl -Path '{ps_path}' -ErrorAction SilentlyContinue; if ($acl) {{ Write-Output \\"0 $($acl.Owner) unknown\\" }} else {{ Write-Output \\"0 unknown unknown\\" }}"'''
+        script = (
+            f"$acl = Get-Acl -Path '{ps_path}' -ErrorAction SilentlyContinue; "
+            'if ($acl) { Write-Output "0 $($acl.Owner) unknown" } else { Write-Output "0 unknown unknown" }'
+        )
+        return powershell_encoded_command(script)
 
     def find_lines_with_pattern(self, remote_file: str, pattern: str,
                                regex: bool = False, sudo: bool = False) -> dict:
@@ -1050,7 +1055,11 @@ class SshFileOperations_Win(SshFileOperations):
         match_option = "" if regex else "-SimpleMatch"
 
         # PowerShell Select-String command - output format: LineNumber:Line
-        cmd = f'''powershell -Command "Select-String -Path '{ps_file}' -Pattern '{ps_pattern}' {match_option} -ErrorAction SilentlyContinue | ForEach-Object {{ Write-Output \\"$($_.LineNumber):$($_.Line)\\" }}"'''
+        script = (
+            f"Select-String -Path '{ps_file}' -Pattern '{ps_pattern}' {match_option} -ErrorAction SilentlyContinue | "
+            'ForEach-Object { Write-Output "$($_.LineNumber):$($_.Line)" }'
+        )
+        cmd = powershell_encoded_command(script)
 
         try:
             handle = self.ssh_client.run(cmd, sudo=False)  # Windows doesn't use sudo
@@ -1109,7 +1118,12 @@ class SshFileOperations_Win(SshFileOperations):
 
         ps_file = remote_file.replace("'", "''")
         # PowerShell: Get content with line range
-        cmd = f'''powershell -Command "$lines = Get-Content -Path '{ps_file}' -TotalCount {end_line} | Select-Object -Skip {start_line - 1}; $lineNum = {start_line}; $lines | ForEach-Object {{ Write-Output \\"$($lineNum):$_\\"; $lineNum++ }}"'''
+        script = (
+            f"$lines = Get-Content -Path '{ps_file}' -TotalCount {end_line} | Select-Object -Skip {start_line - 1}; "
+            f"$lineNum = {start_line}; "
+            '$lines | ForEach-Object { Write-Output "$($lineNum):$_"; $lineNum++ }'
+        )
+        cmd = powershell_encoded_command(script)
 
         try:
             handle = self.ssh_client.run(cmd, sudo=False)
@@ -1139,7 +1153,7 @@ class SshFileOperations_Win(SshFileOperations):
         """Create a remote directory on Windows using PowerShell."""
         self.logger.info(f"Creating directory {path} (sudo={sudo}, mode={mode:o})")
         ps_path = path.replace("'", "''")
-        cmd = f'''powershell -Command "New-Item -Path '{ps_path}' -ItemType Directory -Force -ErrorAction Stop"'''
+        cmd = powershell_encoded_command(f"New-Item -Path '{ps_path}' -ItemType Directory -Force -ErrorAction Stop")
         self.ssh_client.run(cmd)
 
     def rmdir(self, path: str, sudo: bool = False, recursive: bool = False) -> None:
@@ -1150,7 +1164,7 @@ class SshFileOperations_Win(SshFileOperations):
         # On Windows, Remove-Item without -Recurse hangs on non-empty directories.
         # Check first and fail fast if directory is not empty.
         if not recursive:
-            check_cmd = f'''powershell -Command "(Get-ChildItem -Path '{ps_path}' -Force -ErrorAction Stop | Measure-Object).Count"'''
+            check_cmd = powershell_encoded_command(f"(Get-ChildItem -Path '{ps_path}' -Force -ErrorAction Stop | Measure-Object).Count")
             handle = self.ssh_client.run(check_cmd)
             output = handle.get_full_output().strip()
             count = int(output)
@@ -1158,7 +1172,7 @@ class SshFileOperations_Win(SshFileOperations):
                 raise SshError(f"Directory '{path}' is not empty. Use recursive=True to remove non-empty directories.")
 
         recurse_flag = "-Recurse" if recursive else ""
-        cmd = f'''powershell -Command "Remove-Item -Path '{ps_path}' {recurse_flag} -Force -ErrorAction Stop"'''
+        cmd = powershell_encoded_command(f"Remove-Item -Path '{ps_path}' {recurse_flag} -Force -ErrorAction Stop")
         self.ssh_client.run(cmd)
 
     def copy_file(self, source_path: str, destination_path: str,
@@ -1175,7 +1189,7 @@ class SshFileOperations_Win(SshFileOperations):
 
         ps_source = source_path.replace("'", "''")
         ps_dest = actual_destination.replace("'", "''")
-        cmd = f'''powershell -Command "Copy-Item -Path '{ps_source}' -Destination '{ps_dest}' -Force -ErrorAction Stop"'''
+        cmd = powershell_encoded_command(f"Copy-Item -Path '{ps_source}' -Destination '{ps_dest}' -Force -ErrorAction Stop")
 
         try:
             self.ssh_client.run(cmd)

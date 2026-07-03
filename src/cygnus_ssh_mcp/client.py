@@ -11,6 +11,7 @@ import threading
 import select
 from typing import Optional, Callable, Dict, Deque, Any, Union, List, Literal
 from cygnus_ssh_mcp.ops.history import CommandHistoryManager
+from cygnus_ssh_mcp.ps_encode import powershell_encoded_command as _powershell_encoded_command
 from cygnus_ssh_mcp.models import (
     SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
     SudoRequired, BusyError, OutputPurged, TaskNotFound, CommandHandle
@@ -94,10 +95,20 @@ class SshClient:
             raise SshError("Cannot detect OS - no active SSH connection")
 
         try:
-            # Use direct Paramiko command execution for OS detection
-            stdin, stdout, stderr = self._client.exec_command('uname -s', timeout=5)
-            result = stdout.read().decode('utf-8', errors='replace').strip()
-            exit_status = stdout.channel.recv_exit_status()
+            # Use direct Paramiko command execution for OS detection.
+            # 'uname' can hang instead of failing fast on some Windows hosts
+            # (e.g. slow PATH resolution for an unrecognized command under a
+            # PowerShell default shell), so a timeout here must be treated the
+            # same as "uname failed" and fall through to Windows detection,
+            # not abort the whole detection routine.
+            result = ''
+            exit_status = 1
+            try:
+                stdin, stdout, stderr = self._client.exec_command('uname -s', timeout=5)
+                result = stdout.read().decode('utf-8', errors='replace').strip()
+                exit_status = stdout.channel.recv_exit_status()
+            except Exception as uname_err:
+                self._logger.debug(f"'uname -s' probe did not complete, assuming non-Unix: {uname_err!r}")
 
             if exit_status == 0 and 'Linux' in result:
                 self.os_type = 'linux'
@@ -118,7 +129,7 @@ class SshClient:
                     else:
                         # Try PowerShell as a fallback
                         stdin, stdout, stderr = self._client.exec_command(
-                            'powershell -Command "$PSVersionTable.PSVersion.Major"', timeout=5)
+                            _powershell_encoded_command('$PSVersionTable.PSVersion.Major'), timeout=5)
                         ps_result = stdout.read().decode('utf-8', errors='replace').strip()
                         ps_exit = stdout.channel.recv_exit_status()
 
@@ -128,14 +139,14 @@ class SshClient:
                         else:
                             raise SshError("Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded")
                 except Exception as win_err:
-                    raise SshError(f"Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded: {win_err}")
+                    raise SshError(f"Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded: {win_err!r}")
         except SshError:
             self.close()
             raise
         except Exception as e:
             # Close the connection and raise an error instead of defaulting to Linux
             self.close()
-            raise SshError(f"Failed to detect OS: {e}")
+            raise SshError(f"Failed to detect OS: {e!r}")
             
         self._logger.info(f"Detected remote OS: {self.os_type} ({self.os_subtype})")
         
@@ -189,7 +200,10 @@ class SshClient:
         self._is_elevated = False
         try:
             # Check if current session has Administrator role
-            check_cmd = 'powershell -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"'
+            check_cmd = _powershell_encoded_command(
+                "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())"
+                ".IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"
+            )
             stdin, stdout, stderr = self._client.exec_command(check_cmd, timeout=10)
             result = stdout.read().decode('utf-8', errors='replace').strip().lower()
             self._is_elevated = result == 'true'
@@ -201,7 +215,7 @@ class SshClient:
     def _check_windows_powershell_version(self):
         """Check that Windows has PowerShell 5.0+ which is required for all operations."""
         try:
-            check_cmd = 'powershell -Command "$PSVersionTable.PSVersion.Major"'
+            check_cmd = _powershell_encoded_command('$PSVersionTable.PSVersion.Major')
             stdin, stdout, stderr = self._client.exec_command(check_cmd, timeout=10)
             result = stdout.read().decode('utf-8', errors='replace').strip()
 
@@ -387,7 +401,7 @@ class SshClient:
             else:
                 # For Linux/macOS, check passwordless sudo
                 handle = self.run('sudo -n true 2>/dev/null && echo true || echo false', io_timeout=5)
-                return 'true' in handle.tail(1)[0]
+                return 'true' in handle.last_nonblank()
         except Exception as e:
             self._logger.warning(f"Failed to verify sudo access: {e}")
             return False
@@ -844,7 +858,7 @@ class SshClient:
                 # Determine remote temp path
                 if self.os_type == 'windows':
                     # Use PowerShell to get TEMP path (CMD doesn't understand $env:TEMP)
-                    handle = self.run('powershell -Command "Write-Output $env:TEMP"', io_timeout=10)
+                    handle = self.run(_powershell_encoded_command('Write-Output $env:TEMP'), io_timeout=10)
                     temp_dir = handle.get_full_output().strip()
                     remote_temp_archive = f"{temp_dir}\\ssh_dir_transfer_{timestamp}{archive_ext}"
                 else:
@@ -886,7 +900,7 @@ class SshClient:
                 # Determine remote temp archive path
                 if self.os_type == 'windows':
                     # Use PowerShell to get TEMP path (CMD doesn't understand $env:TEMP)
-                    handle = self.run('powershell -Command "Write-Output $env:TEMP"', io_timeout=10)
+                    handle = self.run(_powershell_encoded_command('Write-Output $env:TEMP'), io_timeout=10)
                     temp_dir = handle.get_full_output().strip()
                     remote_temp_archive = f"{temp_dir}\\ssh_dir_transfer_{timestamp}{archive_ext}"
                 else:
@@ -967,7 +981,7 @@ class SshClient:
                 try:
                     if self.os_type == 'windows':
                         ps_path = remote_temp_archive.replace("'", "''")
-                        self.run(f"powershell -Command \"Remove-Item -Path '{ps_path}' -Force -ErrorAction SilentlyContinue\"",
+                        self.run(_powershell_encoded_command(f"Remove-Item -Path '{ps_path}' -Force -ErrorAction SilentlyContinue"),
                                 io_timeout=10, runtime_timeout=30)
                     else:
                         self.run(f"rm -f {shlex.quote(remote_temp_archive)}",

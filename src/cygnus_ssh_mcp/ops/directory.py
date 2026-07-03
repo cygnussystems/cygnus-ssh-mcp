@@ -4,6 +4,7 @@ import shlex
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
+from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 
 
 class SshDirectoryOperations(ABC):
@@ -332,7 +333,7 @@ class SshDirectoryOperations(ABC):
         # Check if source exists
         source_check_cmd = f"[ -e {shlex.quote(source)} ] && echo 'exists' || echo 'not_exists'"
         source_check = self.ssh_client.run(source_check_cmd, io_timeout=30, sudo=sudo)
-        source_exists = 'exists' in source_check.tail(1)[0]
+        source_exists = 'exists' in source_check.last_nonblank()
 
         if not source_exists:
             self.logger.error(f"Source does not exist: {source}")
@@ -346,10 +347,10 @@ class SshDirectoryOperations(ABC):
 
         try:
             check_handle = self.ssh_client.run(check_cmd, io_timeout=30, sudo=sudo)
-            destination_exists = check_handle.tail(1)[0].strip() == 'exists'
+            destination_exists = check_handle.last_nonblank() == 'exists'
 
             # Debug log the actual check result
-            self.logger.debug(f"Destination check result: '{check_handle.tail(1)[0].strip()}', exists={destination_exists}")
+            self.logger.debug(f"Destination check result: '{check_handle.last_nonblank()}', exists={destination_exists}")
 
             if destination_exists and not overwrite:
                 self.logger.warning(f"Destination exists and overwrite=False: {destination}")
@@ -515,7 +516,7 @@ class SshDirectoryOperations(ABC):
             verify_cmd = f"[ -f {shlex.quote(archive_path)} ] && echo 'exists' || echo 'not_exists'"
             verify_handle = self.ssh_client.run(verify_cmd, io_timeout=30, sudo=sudo)
 
-            if 'exists' not in verify_handle.tail(1)[0]:
+            if 'exists' not in verify_handle.last_nonblank():
                 self.logger.error(f"Archive was not created at {archive_path}")
                 return {
                     'status': 'error',
@@ -527,7 +528,7 @@ class SshDirectoryOperations(ABC):
             size_handle = self.ssh_client.run(size_cmd, io_timeout=30, sudo=sudo)
 
             try:
-                archive_size = int(size_handle.tail(1)[0].strip())
+                archive_size = int(size_handle.last_nonblank())
             except (ValueError, IndexError):
                 archive_size = -1
 
@@ -746,7 +747,7 @@ class SshDirectoryOperations(ABC):
         # Check if destination exists and handle overwrite
         check_dest_cmd = f"[ -d {shlex.quote(destination_path)} ] && echo 'exists' || echo 'not_exists'"
         check_handle = self.ssh_client.run(check_dest_cmd, io_timeout=30, sudo=sudo)
-        dest_exists = 'exists' in check_handle.tail(1)[0]
+        dest_exists = 'exists' in check_handle.last_nonblank()
 
         if dest_exists and overwrite:
             # Remove existing destination if overwrite is True
@@ -814,7 +815,7 @@ class SshDirectoryOperations(ABC):
             count_cmd = f"find {shlex.quote(destination_path)} -type f | wc -l"
             count_handle = self.ssh_client.run(count_cmd, io_timeout=60, sudo=sudo)
             try:
-                files_copied = int(count_handle.tail(1)[0].strip())
+                files_copied = int(count_handle.last_nonblank())
             except (ValueError, IndexError):
                 files_copied = -1
 
@@ -823,7 +824,7 @@ class SshDirectoryOperations(ABC):
             size_handle = self.ssh_client.run(size_cmd, io_timeout=60, sudo=sudo)
 
             try:
-                bytes_copied = int(size_handle.tail(1)[0].strip())
+                bytes_copied = int(size_handle.last_nonblank())
             except (ValueError, IndexError):
                 bytes_copied = -1
 
@@ -965,7 +966,9 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
 
         try:
             # List what would be deleted
-            list_cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {{ $_.FullName }}"'''
+            list_cmd = powershell_encoded_command(
+                f"Get-ChildItem -Path '{ps_path}' -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {{ $_.FullName }}"
+            )
             list_handle = self.ssh_client.run(list_cmd, io_timeout=120, runtime_timeout=300)
             items = [line.strip() for line in list_handle.tail(list_handle.total_lines) if line.strip()]
             items.append(path)  # Include the directory itself
@@ -975,7 +978,7 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                 return {'status': 'success', 'dry_run': True, 'deleted_items': items}
 
             # Perform deletion
-            delete_cmd = f'''powershell -Command "Remove-Item -Path '{ps_path}' -Recurse -Force -ErrorAction Stop"'''
+            delete_cmd = powershell_encoded_command(f"Remove-Item -Path '{ps_path}' -Recurse -Force -ErrorAction Stop")
             self.ssh_client.run(delete_cmd, io_timeout=120, runtime_timeout=300)
 
             self.logger.info(f"Successfully deleted {len(items)} items")
@@ -998,7 +1001,9 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
 
         try:
             # Find matching files
-            find_cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse -Filter '{ps_pattern}' -File -ErrorAction SilentlyContinue | ForEach-Object {{ $_.FullName }}"'''
+            find_cmd = powershell_encoded_command(
+                f"Get-ChildItem -Path '{ps_path}' -Recurse -Filter '{ps_pattern}' -File -ErrorAction SilentlyContinue | ForEach-Object {{ $_.FullName }}"
+            )
             find_handle = self.ssh_client.run(find_cmd, io_timeout=120, runtime_timeout=300)
             files = [line.strip() for line in find_handle.tail(find_handle.total_lines) if line.strip()]
 
@@ -1011,7 +1016,9 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                 return {'status': 'success', 'deleted_files': []}
 
             # Delete matching files
-            delete_cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse -Filter '{ps_pattern}' -File -ErrorAction SilentlyContinue | Remove-Item -Force"'''
+            delete_cmd = powershell_encoded_command(
+                f"Get-ChildItem -Path '{ps_path}' -Recurse -Filter '{ps_pattern}' -File -ErrorAction SilentlyContinue | Remove-Item -Force"
+            )
             self.ssh_client.run(delete_cmd, io_timeout=120, runtime_timeout=300)
 
             self.logger.info(f"Successfully deleted {len(files)} files")
@@ -1034,22 +1041,22 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
 
         try:
             # Check if source exists
-            check_src_cmd = f'''powershell -Command "if (Test-Path '{ps_source}') {{ 'exists' }} else {{ 'not_exists' }}"'''
+            check_src_cmd = powershell_encoded_command(f"if (Test-Path '{ps_source}') {{ 'exists' }} else {{ 'not_exists' }}")
             check_src = self.ssh_client.run(check_src_cmd, io_timeout=30)
-            if 'not_exists' in check_src.tail(1)[0]:
+            if 'not_exists' in check_src.last_nonblank():
                 return {'success': False, 'message': f"Source does not exist: {source}"}
 
             # Check if destination exists
-            check_dst_cmd = f'''powershell -Command "if (Test-Path '{ps_dest}') {{ 'exists' }} else {{ 'not_exists' }}"'''
+            check_dst_cmd = powershell_encoded_command(f"if (Test-Path '{ps_dest}') {{ 'exists' }} else {{ 'not_exists' }}")
             check_dst = self.ssh_client.run(check_dst_cmd, io_timeout=30)
-            dest_exists = 'exists' in check_dst.tail(1)[0]
+            dest_exists = 'exists' in check_dst.last_nonblank()
 
             if dest_exists and not overwrite:
                 return {'success': False, 'message': f"Destination exists and overwrite not allowed: {destination}"}
 
             # Perform move
             force_flag = "-Force" if overwrite else ""
-            move_cmd = f'''powershell -Command "Move-Item -Path '{ps_source}' -Destination '{ps_dest}' {force_flag} -ErrorAction Stop"'''
+            move_cmd = powershell_encoded_command(f"Move-Item -Path '{ps_source}' -Destination '{ps_dest}' {force_flag} -ErrorAction Stop")
             self.ssh_client.run(move_cmd, io_timeout=120, runtime_timeout=300)
 
             self.logger.info(f"Successfully moved {source} to {destination}")
@@ -1085,14 +1092,14 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
         try:
             # Archive the directory itself (not contents) so structure matches Linux tar behavior
             # Compress-Archive with a directory path includes the directory name in the archive
-            cmd = f'''powershell -Command "Compress-Archive -Path '{ps_source}' -DestinationPath '{ps_archive}' -Force -ErrorAction Stop"'''
+            cmd = powershell_encoded_command(f"Compress-Archive -Path '{ps_source}' -DestinationPath '{ps_archive}' -Force -ErrorAction Stop")
             self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
 
             # Get archive size
-            size_cmd = f'''powershell -Command "(Get-Item '{ps_archive}').Length"'''
+            size_cmd = powershell_encoded_command(f"(Get-Item '{ps_archive}').Length")
             size_handle = self.ssh_client.run(size_cmd, io_timeout=30)
             try:
-                archive_size = int(size_handle.tail(1)[0].strip())
+                archive_size = int(size_handle.last_nonblank())
             except (ValueError, IndexError):
                 archive_size = -1
 
@@ -1142,6 +1149,10 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
             # 3. Move its contents to the actual destination
             # 4. Clean up temp dir
             # NOTE: Must be single-line because multi-line strings don't work through SSH->CMD->PowerShell
+            # File list is captured from the temp extraction dir (i.e. actual archive
+            # members) rather than the destination dir, which may already contain
+            # unrelated pre-existing files (e.g. the archive itself, if the source
+            # directory was archived in place).
             strip_script = (
                 f"$tempDir = Join-Path $env:TEMP ('ssh_extract_' + [guid]::NewGuid().ToString('N')); "
                 f"New-Item -ItemType Directory -Path $tempDir -Force | Out-Null; "
@@ -1149,21 +1160,20 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                 f"$items = Get-ChildItem -Path $tempDir; "
                 f"if ($items.Count -eq 1 -and $items[0].PSIsContainer) {{ "
                 f"$innerPath = $items[0].FullName; "
+                f"$extracted = Get-ChildItem -Path $innerPath -Recurse -File | ForEach-Object {{ $_.FullName.Substring($innerPath.Length + 1) }}; "
                 f"New-Item -ItemType Directory -Path '{ps_dest}' -Force | Out-Null; "
                 f"Get-ChildItem -Path $innerPath | Move-Item -Destination '{ps_dest}' -Force "
                 f"}} else {{ "
+                f"$extracted = Get-ChildItem -Path $tempDir -Recurse -File | ForEach-Object {{ $_.FullName.Substring($tempDir.Length + 1) }}; "
                 f"New-Item -ItemType Directory -Path '{ps_dest}' -Force | Out-Null; "
                 f"Get-ChildItem -Path $tempDir | Move-Item -Destination '{ps_dest}' -Force "
                 f"}}; "
-                f"Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue"
+                f"Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue; "
+                f"$extracted | ForEach-Object {{ Write-Output $_ }}"
             )
-            cmd = f'powershell -Command "{strip_script}"'
-            self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
-
-            # List extracted files
-            list_cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_dest}' -Recurse -File | ForEach-Object {{ $_.FullName }}"'''
-            list_handle = self.ssh_client.run(list_cmd, io_timeout=60)
-            files = [line.strip() for line in list_handle.tail(list_handle.total_lines) if line.strip()]
+            cmd = powershell_encoded_command(strip_script)
+            extract_handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
+            files = [line.strip() for line in extract_handle.tail(extract_handle.total_lines) if line.strip()]
 
             return {
                 'status': 'success',
@@ -1192,7 +1202,12 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
         match_flag = "" if regex else "-SimpleMatch"
 
         try:
-            cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse -File -ErrorAction SilentlyContinue | Select-String -Pattern '{ps_pattern}' {match_flag} {case_flag} -ErrorAction SilentlyContinue | ForEach-Object {{ \\"$($_.Path):$($_.LineNumber):$($_.Line)\\" }}"'''
+            script = (
+                f"Get-ChildItem -Path '{ps_path}' -Recurse -File -ErrorAction SilentlyContinue | "
+                f"Select-String -Pattern '{ps_pattern}' {match_flag} {case_flag} -ErrorAction SilentlyContinue | "
+                'ForEach-Object { "$($_.Path):$($_.LineNumber):$($_.Line)" }'
+            )
+            cmd = powershell_encoded_command(script)
             handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
 
             results = []
@@ -1246,25 +1261,25 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
         try:
             # Remove destination if overwrite
             if overwrite:
-                rm_cmd = f'''powershell -Command "if (Test-Path '{ps_dest}') {{ Remove-Item -Path '{ps_dest}' -Recurse -Force }}"'''
+                rm_cmd = powershell_encoded_command(f"if (Test-Path '{ps_dest}') {{ Remove-Item -Path '{ps_dest}' -Recurse -Force }}")
                 self.ssh_client.run(rm_cmd, io_timeout=60, runtime_timeout=300)
 
             # Copy directory
-            cmd = f'''powershell -Command "Copy-Item -Path '{ps_source}' -Destination '{ps_dest}' -Recurse -Force -ErrorAction Stop"'''
+            cmd = powershell_encoded_command(f"Copy-Item -Path '{ps_source}' -Destination '{ps_dest}' -Recurse -Force -ErrorAction Stop")
             self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
 
             # Count files and size
-            count_cmd = f'''powershell -Command "(Get-ChildItem -Path '{ps_dest}' -Recurse -File).Count"'''
+            count_cmd = powershell_encoded_command(f"(Get-ChildItem -Path '{ps_dest}' -Recurse -File).Count")
             count_handle = self.ssh_client.run(count_cmd, io_timeout=60)
             try:
-                files_copied = int(count_handle.tail(1)[0].strip())
+                files_copied = int(count_handle.last_nonblank())
             except (ValueError, IndexError):
                 files_copied = -1
 
-            size_cmd = f'''powershell -Command "(Get-ChildItem -Path '{ps_dest}' -Recurse -File | Measure-Object -Property Length -Sum).Sum"'''
+            size_cmd = powershell_encoded_command(f"(Get-ChildItem -Path '{ps_dest}' -Recurse -File | Measure-Object -Property Length -Sum).Sum")
             size_handle = self.ssh_client.run(size_cmd, io_timeout=60)
             try:
-                bytes_copied = int(size_handle.tail(1)[0].strip())
+                bytes_copied = int(size_handle.last_nonblank())
             except (ValueError, IndexError):
                 bytes_copied = -1
 
@@ -1296,17 +1311,23 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
 
         if include_dirs:
             # Include both files and directories
-            cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse {depth_param} -Filter '{ps_pattern}' -ErrorAction SilentlyContinue | ForEach-Object {{ $t = if ($_.PSIsContainer) {{ 'd' }} else {{ 'f' }}; \\"$($_.FullName)`t$t\\" }}"'''
+            script = (
+                f"Get-ChildItem -Path '{ps_path}' -Recurse {depth_param} -Filter '{ps_pattern}' -ErrorAction SilentlyContinue | "
+                "ForEach-Object { $t = if ($_.PSIsContainer) { 'd' } else { 'f' }; \"$($_.FullName)`t$t\" }"
+            )
         else:
             # Files only
-            cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse {depth_param} -Filter '{ps_pattern}' -File -ErrorAction SilentlyContinue | ForEach-Object {{ \\"$($_.FullName)`tf\\" }}"'''
+            script = (
+                f"Get-ChildItem -Path '{ps_path}' -Recurse {depth_param} -Filter '{ps_pattern}' -File -ErrorAction SilentlyContinue | "
+                'ForEach-Object { "$($_.FullName)`tf" }'
+            )
 
-        return cmd
+        return powershell_encoded_command(script)
 
     def _cmd_dir_size(self, path: str) -> str:
         """Return PowerShell command for directory size in bytes."""
         ps_path = path.replace("'", "''")
-        return f'''powershell -Command "(Get-ChildItem -Path '{ps_path}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum"'''
+        return powershell_encoded_command(f"(Get-ChildItem -Path '{ps_path}' -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum")
 
     def _cmd_list_with_metadata(self, path: str, max_depth: Optional[int]) -> str:
         """Return PowerShell command to list files with metadata."""
@@ -1315,17 +1336,30 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
 
         # Output format: path<tab>type<tab>size<tab>mtime<tab>perms<tab>user<tab>group
         # Windows doesn't have Unix perms or group, so we'll use placeholder values
-        cmd = f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse {depth_param} -ErrorAction SilentlyContinue | ForEach-Object {{ $t = if ($_.PSIsContainer) {{ 'd' }} else {{ 'f' }}; $s = if ($_.PSIsContainer) {{ 0 }} else {{ $_.Length }}; $m = [int][double]::Parse((Get-Date $_.LastWriteTimeUtc -UFormat %s)); $owner = try {{ $_.GetAccessControl().Owner }} catch {{ 'unknown' }}; \\"$($_.FullName)`t$t`t$s`t$m`t0`t$owner`tunknown\\" }}"'''
+        script = (
+            f"Get-ChildItem -Path '{ps_path}' -Recurse {depth_param} -ErrorAction SilentlyContinue | ForEach-Object {{ "
+            "$t = if ($_.PSIsContainer) { 'd' } else { 'f' }; "
+            "$s = if ($_.PSIsContainer) { 0 } else { $_.Length }; "
+            "$m = [int][double]::Parse((Get-Date $_.LastWriteTimeUtc -UFormat %s)); "
+            "$owner = try { $_.GetAccessControl().Owner } catch { 'unknown' }; "
+            '"$($_.FullName)`t$t`t$s`t$m`t0`t$owner`tunknown" }'
+        )
 
-        return cmd
+        return powershell_encoded_command(script)
 
     def _cmd_file_size(self, path: str) -> str:
         """Return PowerShell command for file size."""
         ps_path = path.replace("'", "''")
-        return f'''powershell -Command "(Get-Item -Path '{ps_path}' -ErrorAction SilentlyContinue).Length"'''
+        return powershell_encoded_command(f"(Get-Item -Path '{ps_path}' -ErrorAction SilentlyContinue).Length")
 
     def _cmd_find_symlinks(self, path: str) -> str:
         """Return PowerShell command to find symlinks (reparse points) with targets."""
         ps_path = path.replace("'", "''")
         # Windows symlinks are represented as ReparsePoints
-        return f'''powershell -Command "Get-ChildItem -Path '{ps_path}' -Recurse -ErrorAction SilentlyContinue | Where-Object {{ $_.Attributes -match 'ReparsePoint' }} | ForEach-Object {{ $target = try {{ (Get-Item $_.FullName).Target }} catch {{ 'unknown' }}; \\"$($_.FullName)`t$target\\" }}"'''
+        script = (
+            f"Get-ChildItem -Path '{ps_path}' -Recurse -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.Attributes -match 'ReparsePoint' } | ForEach-Object { "
+            "$target = try { (Get-Item $_.FullName).Target } catch { 'unknown' }; "
+            '"$($_.FullName)`t$target" }'
+        )
+        return powershell_encoded_command(script)

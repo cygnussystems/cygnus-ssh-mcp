@@ -107,6 +107,20 @@ class CommandHandle:
             return list(self._buf)
         return list(self._buf)[-n:]
 
+    def last_nonblank(self):
+        """Return the last non-blank line of output, stripped, or '' if none.
+
+        Remote shells (PowerShell in particular, e.g. via -EncodedCommand) often
+        emit a trailing blank line after the real content. A plain tail(1)[0]
+        would then return that blank line instead of the actual result, silently
+        breaking single-line result parsing (existence checks, counts, sizes).
+        """
+        for line in reversed(self._buf):
+            stripped = line.strip()
+            if stripped:
+                return stripped
+        return ''
+
     def tail_stderr(self, n=50): # Stderr
         """Return the last n lines of stderr captured by run()."""
         if n <= 0:
