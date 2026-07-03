@@ -856,6 +856,9 @@ async def ssh_cmd_kill(
         # Check if the command is still running
         status = mcp.ssh_client.task_status(pid)
         if status != 'running':
+            # Confirmed not running (e.g. runtime_timeout already killed it) - record
+            # this so ssh_cmd_check_status stops reporting 'unknown_still_running'.
+            mcp.ssh_client.mark_kill_confirmed(handle_id)
             return {
                 'handle_id': handle_id,
                 'pid': pid,
@@ -863,11 +866,13 @@ async def ssh_cmd_kill(
                 'message': f"Command is not running (status: {status})",
                 'timestamp': datetime.now(UTC).isoformat()
             }
-            
+
         # Kill the process using the existing task_kill method
         force_kill_signal = 9 if force else None
         result = mcp.ssh_client.task_kill(pid, signal, False, force_kill_signal, wait_seconds)
-        
+        if result in ('killed', 'already_exited'):
+            mcp.ssh_client.mark_kill_confirmed(handle_id)
+
         return {
             'handle_id': handle_id,
             'pid': pid,
@@ -896,9 +901,12 @@ async def ssh_cmd_check_status(
     Possible status values:
     - 'completed': confirmed finished, exit_code is populated.
     - 'running': still being actively monitored, not yet finished.
+    - 'killed': the remote process was confirmed terminated (e.g. runtime_timeout killed it,
+      or a prior ssh_cmd_kill call found it already gone) - exit_code is not known, but there
+      is nothing left to wait for. Treat this as terminal, same as 'completed'.
     - 'unknown_still_running': monitoring previously stopped (e.g. an io_timeout on the original
-      call) without a confirmed exit code. The remote command was not killed and is very likely
-      still running - this is not a failure, just call this tool again to keep checking.
+      call) without a confirmed exit code or kill. The remote command was not killed and is very
+      likely still running - this is not a failure, just call this tool again to keep checking.
     - 'not_found': the handle_id doesn't exist (may be from a previous connection - handles don't
       survive reconnects, but background task PIDs from ssh_task_launch do).
 
@@ -932,9 +940,14 @@ async def ssh_cmd_check_status(
                 exit_code = handle_info.get('exit_code')
                 is_complete = exit_code is not None
                 monitoring_ended = handle_info.get('end_ts') is not None
+                kill_confirmed = handle_info.get('kill_confirmed', False)
 
                 if is_complete:
                     status = 'completed'
+                elif kill_confirmed:
+                    # runtime_timeout's own kill succeeded, or ssh_cmd_kill found it
+                    # already gone - exit_code is unknown but nothing is left to wait for.
+                    status = 'killed'
                 elif monitoring_ended:
                     # e.g. a prior io_timeout - we stopped watching, but the remote
                     # command was never killed and is very likely still running.
@@ -952,7 +965,7 @@ async def ssh_cmd_check_status(
                     'output_available': True,
                     'output_lines': len(output) if output else 0
                 }
-                if status != 'completed':
+                if status not in ('completed', 'killed'):
                     result['next_step'] = (
                         "Not confirmed complete. Call ssh_cmd_check_status again to keep polling, "
                         "or ssh_cmd_output(handle_id) to inspect output collected so far. Do not rerun this command."

@@ -251,10 +251,14 @@ class SshRunOperations(ABC):
                     handle.end_ts = datetime.now(UTC)
                     try:
                         if hasattr(self.ssh_client, 'task_ops') and hasattr(self.ssh_client.task_ops, '_kill_remote_process'):
-                            # NOTE: handle.pid is currently a paramiko-local channel id, not a
-                            # real remote OS PID (see run.py _capture_pid), so this kill attempt
-                            # reliably fails on the remote host. Tracked as a follow-up fix.
-                            self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                            killed = self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                            if killed:
+                                # We don't know the real exit code (the channel is closed
+                                # below without waiting for it), but the kill signal was
+                                # confirmed delivered - nothing is left to wait for, so
+                                # ssh_cmd_check_status should stop reporting this as
+                                # merely "unknown_still_running" forever.
+                                handle.kill_confirmed = True
                     except Exception as e_kill:
                         self.logger.warning(f"Error trying to stop process on runtime timeout: {e_kill}")
                     finally:

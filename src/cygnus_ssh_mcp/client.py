@@ -464,7 +464,17 @@ class SshClient:
         """
         return self.task_ops.kill_task(pid, signal, sudo, force_kill_signal, wait_seconds)
 
-
+    def mark_kill_confirmed(self, handle_id: int) -> None:
+        """Record that a command handle's remote process is confirmed no longer
+        running (killed, already exited, or not running), so ssh_cmd_check_status
+        can report a terminal status instead of 'unknown_still_running' forever.
+        No-op if the handle_id isn't in history.
+        """
+        try:
+            handle = self.history_manager.get_handle(handle_id)
+        except KeyError:
+            return
+        handle.kill_confirmed = True
 
     def output(self, handle_id: int, mode: Literal['tail', 'chunk'] = 'tail',
               n: int = 50, start: Optional[int] = None, lines: Optional[int] = None) -> List[str]:

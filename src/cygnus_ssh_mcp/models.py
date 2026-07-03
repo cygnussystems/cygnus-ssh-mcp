@@ -98,6 +98,11 @@ class CommandHandle:
                          # an explicit cwd was passed to ssh_cmd_run (Linux/macOS). Per-call
                          # only - not remembered or carried forward to future commands.
         self.requested_cwd = None  # The raw cwd argument passed for this call, if any (for error messages)
+        self.kill_confirmed = False  # True once a kill signal to the remote PID is confirmed
+                                      # sent successfully (runtime_timeout's own kill, or a
+                                      # later ssh_cmd_kill/ssh_cmd_check_status discovering the
+                                      # process already gone) - exit_code is still unknown, but
+                                      # there is nothing left to wait for.
         
         self.total_lines = 0        # For stdout
         self.truncated = False      # For stdout
@@ -185,7 +190,8 @@ class CommandHandle:
             'truncated': self.truncated,   # Stdout
             'total_stderr_lines': self.total_stderr_lines,
             'stderr_truncated': self.stderr_truncated,
-            'cwd': self.cwd
+            'cwd': self.cwd,
+            'kill_confirmed': self.kill_confirmed
         }
 
     def chunk(self, start, length=50): # Stdout
