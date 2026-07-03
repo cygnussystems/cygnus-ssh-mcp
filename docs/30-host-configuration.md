@@ -130,6 +130,12 @@ ssh_conn_connect(host_name="prod")
 
 Both methods work interchangeably. The server first checks if the identifier matches a `user@host` key, then searches by alias.
 
+**Tip:** If a host is reachable both directly (its own configured alias) and indirectly
+by SSH'ing through another host, prefer connecting via its direct alias when one exists.
+Nesting SSH through an intermediate host adds an extra hop where key/password mismatches
+can surface confusingly (auth errors that look like they belong to the wrong host), even
+when the direct alias works fine.
+
 ## Listing Configured Hosts
 
 Use `ssh_host_list()` to view all configured hosts:
@@ -277,10 +283,7 @@ python mcp_ssh_server.py
 
 ## Reloading Configuration
 
-If you edit the config file while the server is running:
-
-```
-ssh_host_reload_config()
-```
-
-This reloads the configuration from disk without restarting the server.
+No reload step is needed. Host configuration is read fresh from the TOML file on
+every access (`ssh_conn_connect`, `ssh_host_list`, etc.) - there is no in-memory
+cache to invalidate. Edit the config file while the server is running and the
+next call will see the change.

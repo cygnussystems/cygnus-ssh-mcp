@@ -34,7 +34,7 @@ The SSH MCP Server is a Model Context Protocol (MCP) server that provides SSH-ba
 - Directory copy operations
 
 ### Archive Operations
-- Create compressed archives (tar.gz, tar.bz2, zip)
+- Create compressed archives (tar.gz, tar on Linux/macOS; zip on Windows)
 - Extract archives to specified locations
 
 ### System Information

@@ -189,6 +189,14 @@ Windows system info is gathered via CIM/WMI:
 
 **Behavior**: When `ssh_dir_remove` is called with `recursive=False` on a non-empty directory, Windows will return an error immediately (same as Linux).
 
+### 4. Local PowerShell Falling Back to a Local `ssh` Call
+
+**Issue**: If you (or an LLM agent) run this server's `ssh_cmd_run`-equivalent shell command from a *local* Windows PowerShell prompt rather than through the MCP tool - e.g. shelling out to `ssh user@host "some | command with | pipes"` directly from PowerShell - PowerShell parses pipe/redirect characters in the command string *before* they ever reach the remote shell. This can silently split or reinterpret a command that was meant to run as one pipeline entirely on the remote host (e.g. `apt|dpkg` patterns).
+
+**Not an issue for**: Commands sent through the MCP `ssh_cmd_run` tool itself - those go through paramiko's `exec_command`, not a local shell, so this doesn't apply.
+
+**Workaround**: If constructing a local `ssh ...` command by hand in PowerShell, quote the entire remote command as a single string and be aware PowerShell's own parsing happens first.
+
 ## Host Configuration Example
 
 ```toml

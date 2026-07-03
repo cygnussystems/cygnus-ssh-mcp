@@ -41,20 +41,28 @@ ssh_cmd_run(
 ## Timeout Management
 
 ### I/O Timeout (`io_timeout`)
-- Monitors output activity
-- Triggers when no output received within the timeout period
+- An **inactivity** timeout, not a total command timeout - it only measures silence
+  since the last output
+- Triggers when no output is received within the timeout period
+- Does **NOT** kill the remote command. Only local monitoring stops; the command is
+  very likely still running remotely. The response has `status='io_timeout'`,
+  `still_running=True`, and an `id`/`pid` to check back with via
+  `ssh_cmd_check_status`/`ssh_cmd_output`
 - Default: 60 seconds
 - Use for: Commands that should produce regular output
 
 ### Runtime Timeout (`runtime_timeout`)
-- Limits total execution time
-- Hard stop regardless of output activity
+- Limits total execution time regardless of output activity
+- Hard stop - firing this **DOES** attempt to kill the remote command (Linux/macOS
+  non-sudo commands only, as of 2026-07-03; see
+  `docs_internal/CMD-EXECUTION-MODEL.md` for current platform/sudo coverage)
 - Default: None (no limit)
 - Use for: Preventing runaway processes
 
 ### Timeout Priority
-1. If both timeouts are set, whichever triggers first ends the command
-2. Runtime timeout takes precedence for planning purposes
+1. If both timeouts are set, whichever triggers first ends the local wait
+2. `runtime_timeout` is the one to rely on for an actual cap, since only it kills
+   the remote process
 3. Background thread monitors wall-clock duration
 
 ---
@@ -97,14 +105,40 @@ ssh_cmd_run(
 
 ## Status Codes
 
+### `ssh_cmd_run` response `status` field
+
 | Status | Description | Exit Code |
 |--------|-------------|-----------|
-| `success` | Command completed successfully | 0 |
+| `success` | Command completed | 0 |
 | `command_failed` | Command exited with error | Non-zero |
-| `io_timeout` | No output within timeout | N/A |
-| `runtime_timeout` | Total time exceeded | N/A |
-| `busy` | Another command is running | N/A |
-| `killed` | Manually terminated | N/A |
+| `cwd_not_found` | The `cwd` parameter didn't exist on the remote host - the command was **not** executed | N/A |
+| `io_timeout` | No output within `io_timeout` - remote command was **not** killed, still likely running | N/A |
+| `runtime_timeout` | `runtime_timeout` exceeded - an attempt was made to kill the remote command | N/A |
+| `sudo_required` | Sudo access needed but not available | N/A |
+| `busy` | Another `ssh_cmd_run` is already in flight on this connection | N/A |
+| `error` | Unexpected failure (e.g. connection dropped) | N/A |
+
+### `ssh_cmd_check_status` response `status` field
+
+| Status | Description |
+|--------|-------------|
+| `completed` | Confirmed finished, `exit_code` is populated |
+| `running` | Still being actively monitored |
+| `unknown_still_running` | Monitoring previously stopped (e.g. a prior `io_timeout`) without a confirmed exit code - the remote command was not killed and is very likely still running |
+| `not_found` | The `handle_id` doesn't exist (handles don't survive reconnects) |
+
+### `ssh_cmd_kill` response `result` field
+
+Note this is a separate field (`result`, not `status`) on the `ssh_cmd_kill` response.
+
+| Result | Description |
+|--------|-------------|
+| `killed` | Process confirmed exited after the signal (or force-kill fallback) |
+| `not_running` | Command was already not running when kill was attempted |
+| `already_exited` | Process had already exited before the signal was sent |
+| `failed_to_kill` | Process still running after signal (and force-kill, if attempted) |
+| `invalid_pid` | The tracked PID was not a real value |
+| `error` | Unexpected failure while attempting the kill |
 
 ---
 
@@ -162,10 +196,10 @@ ssh_task_launch(
 ### Strategy 3: Check and Wait
 ```
 # Start command
-result = ssh_cmd_run(command="make", runtime_timeout=5.0)
+result = ssh_cmd_run(command="make", io_timeout=5.0)
 
-if result['status'] == 'runtime_timeout':
-    handle_id = result['handle_id']
+if result['status'] == 'io_timeout':
+    handle_id = result['id']  # ssh_cmd_run returns 'id'; check_status/kill/output take it as 'handle_id'
 
     # Check periodically
     while True:
@@ -173,9 +207,13 @@ if result['status'] == 'runtime_timeout':
             handle_id=handle_id,
             wait_seconds=5.0  # Wait then check
         )
-        if not status['running']:
+        if status['status'] == 'completed':
             break
 ```
+
+Note: `runtime_timeout` firing already attempts to kill the remote command (Linux/macOS,
+non-sudo), so there's nothing left to poll for in that case. Polling to wait out a long
+command is the `io_timeout` pattern, shown above.
 
 ---
 
@@ -270,15 +308,19 @@ ssh_cmd_history(
 ### History Entry Structure
 ```json
 {
-    "handle_id": 1001,
+    "id": 1001,
     "command": "ls -la",
-    "status": "success",
     "exit_code": 0,
     "start_time": "2024-01-15T10:30:00Z",
     "end_time": "2024-01-15T10:30:01Z",
-    "output_snippet": ["file1.txt", "file2.txt", "..."]
+    "pid": 4821,
+    "output": ["file1.txt", "file2.txt", "..."]
 }
 ```
+
+Note: there is no `status` field here - `exit_code` is `null` if the command hasn't
+completed (e.g. it's still running or hit an `io_timeout`). `output` is only present
+when `ssh_cmd_history(include_output=True)` is used.
 
 ---
 

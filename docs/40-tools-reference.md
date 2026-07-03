@@ -43,17 +43,20 @@ Connect to a configured SSH host.
 ---
 
 ### ssh_conn_add_host
-Add or update a host configuration.
+Add a host configuration. Fails if the host already exists. Requires either
+`password` or `keyfile` (or both).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `host` | str | Yes | - | Hostname or IP address |
 | `user` | str | Yes | - | SSH username |
-| `password` | str | Yes | - | SSH password |
+| `password` | str | No | None | SSH password (required unless `keyfile` is given) |
 | `port` | int | No | 22 | SSH port |
 | `sudo_password` | str | No | None | Sudo password (defaults to SSH password) |
 | `alias` | str | No | None | Short name for quick access |
 | `description` | str | No | None | Human-readable description |
+| `keyfile` | str | No | None | Path to SSH private key (required unless `password` is given) |
+| `key_passphrase` | str | No | None | Passphrase for an encrypted key |
 
 **Returns:** Operation status dictionary
 
@@ -116,17 +119,6 @@ Remove a host from configuration.
 
 ---
 
-### ssh_host_reload_config
-Reload host configurations from disk.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| (none) | - | - | - | - |
-
-**Returns:** Status dictionary with host count
-
----
-
 ### ssh_host_disconnect
 Disconnect from the current host.
 
@@ -141,30 +133,38 @@ Disconnect from the current host.
 ## Command Execution (`ssh_cmd_*`)
 
 ### ssh_cmd_run
-Execute a command on the remote host.
+Execute a command on the remote host and block until it completes, an `io_timeout`
+(silence) occurs, or a `runtime_timeout` (hard cap) occurs. See
+[50-command-execution.md](50-command-execution.md) for full timeout semantics.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `command` | str | Yes | - | Command to execute |
-| `io_timeout` | float | No | 60.0 | I/O timeout in seconds |
-| `runtime_timeout` | float | No | None | Total runtime timeout |
+| `io_timeout` | float | No | 60.0 | Inactivity timeout in seconds - does NOT kill the remote command |
+| `runtime_timeout` | float | No | None | Total wall-clock cap in seconds - DOES attempt to kill the remote command |
 | `use_sudo` | bool | No | False | Run with sudo privileges |
+| `cwd` | str | No | None | Run this call in this directory (Linux/macOS only). Not remembered between calls; fails closed if the directory doesn't exist |
 
-**Returns:** Dictionary with `status`, `output`, `exit_code`, `handle_id`, timestamps
+**Returns:** Dictionary with `status`, `output`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps
 
-**Status values:** `success`, `command_failed`, `io_timeout`, `runtime_timeout`, `busy`
+**Status values:** `success`, `command_failed`, `cwd_not_found`, `io_timeout`, `runtime_timeout`, `sudo_required`, `busy`, `error`
 
 ---
 
 ### ssh_cmd_check_status
-Check status of a running command.
+Wait, then check the status of a command started with `ssh_cmd_run`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `handle_id` | int | Yes | - | Command handle ID |
-| `wait_seconds` | float | No | 0 | Seconds to wait before checking |
+| `handle_id` | int | Yes | - | Command handle ID (the `id` field from `ssh_cmd_run`'s response) |
+| `wait_seconds` | float | No | 5.0 | Seconds to wait before checking |
 
-**Returns:** Status dictionary with running state and output
+**Returns:** Dictionary with `status`, `exit_code`, `pid`, output metadata
+
+**Status values:** `completed` (finished, `exit_code` populated), `running` (still being
+monitored), `unknown_still_running` (monitoring previously stopped, e.g. a prior
+`io_timeout` - the remote command was NOT killed and is very likely still running),
+`not_found` (handle doesn't exist - handles don't survive reconnects)
 
 ---
 
@@ -301,18 +301,18 @@ This tool reads raw bytes using SFTP and decodes them client-side, bypassing any
 ---
 
 ### ssh_file_write
-Write content to a file.
+Create a new file or overwrite/append to an existing file with specified content.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `file_path` | str | Yes | - | Path to write |
 | `content` | str | Yes | - | Content to write |
-| `use_sudo` | bool | No | False | Use sudo |
 | `append` | bool | No | False | Append instead of overwrite |
-| `create_dirs` | bool | No | False | Create parent directories |
-| `encoding` | str | No | "utf-8" | File encoding |
+| `use_sudo` | bool | No | False | Use sudo |
+| `mode` | int | No | None | File permissions to set after writing (octal, e.g. `0o644`) |
+| `create_dirs` | bool | No | False | Create parent directories if they don't exist |
 
-**Returns:** Dictionary with `success`, `path`, `bytes_written`
+**Returns:** Dictionary with `success`, `file_path`, `bytes_written`, `mode`, `append`
 
 ---
 
@@ -344,12 +344,13 @@ Copy a file on the remote system.
 ---
 
 ### ssh_file_move
-Move or rename a file.
+Move or rename a file or directory.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `source` | str | Yes | - | Source path |
 | `destination` | str | Yes | - | Destination path |
+| `overwrite` | bool | No | False | Overwrite destination if it exists |
 | `use_sudo` | bool | No | False | Use sudo |
 
 **Returns:** Dictionary with `success`, `source`, `destination`
@@ -362,7 +363,8 @@ Search for lines matching a pattern.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `file_path` | str | Yes | - | File to search |
-| `pattern` | str | Yes | - | Search pattern (regex) |
+| `pattern` | str | Yes | - | Search pattern |
+| `regex` | bool | No | False | Treat `pattern` as a regular expression (otherwise literal text) |
 | `use_sudo` | bool | No | False | Use sudo |
 
 **Returns:** Dictionary with `total_matches`, `matches` (list of line info)
@@ -384,30 +386,32 @@ Get surrounding context for a line.
 ---
 
 ### ssh_file_replace_line
-Replace a single line in a file.
+Replace a unique line in a file with a new line. The match must be exact (whitespace-trimmed) and unique in the file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `file_path` | str | Yes | - | File path |
-| `match_line` | str | Yes | - | Line to replace |
+| `match_line` | str | Yes | - | Exact line content to match and replace |
 | `new_line` | str | Yes | - | Replacement line |
 | `use_sudo` | bool | No | False | Use sudo |
+| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
 
-**Returns:** Dictionary with `success`, `lines_replaced`
+**Returns:** Dictionary with `success`, `lines_written` (or `error` on failure)
 
 ---
 
 ### ssh_file_replace_line_multi
-Replace multiple lines (block replacement).
+Replace a unique line with one or more new lines (or delete it, with an empty list).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `file_path` | str | Yes | - | File path |
-| `old_block` | str | Yes | - | Text block to find |
-| `new_block` | str | Yes | - | Replacement block |
+| `match_line` | str | Yes | - | Exact line content to match and replace |
+| `new_lines` | list[str] | Yes | - | Lines to insert in place of the match (`[]` deletes the line) |
 | `use_sudo` | bool | No | False | Use sudo |
+| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
 
-**Returns:** Dictionary with `success`, `replacements`
+**Returns:** Dictionary with `success`, `lines_written` (or `error` on failure)
 
 ---
 
@@ -420,25 +424,43 @@ Insert lines after a matching line.
 | `match_line` | str | Yes | - | Line to match |
 | `lines_to_insert` | list | Yes | - | Lines to insert |
 | `use_sudo` | bool | No | False | Use sudo |
+| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
 
 **Returns:** Dictionary with `success`, `lines_inserted`
 
 ---
 
 ### ssh_file_delete_line_by_content
-Delete lines matching content.
+Delete a line matching a unique content string.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `file_path` | str | Yes | - | File path |
-| `line_content` | str | Yes | - | Content to match |
+| `match_line` | str | Yes | - | Exact line content to match and delete |
 | `use_sudo` | bool | No | False | Use sudo |
+| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
 
-**Returns:** Dictionary with `success`, `lines_deleted`
+**Returns:** Dictionary with `success` (or `error` on failure - no `lines_deleted` count is returned)
 
 ---
 
 ## Directory Operations (`ssh_dir_*`)
+
+### ssh_dir_transfer
+Transfer a directory between local and remote using archive-based transfer
+(archives locally/remotely, transfers, extracts on the other side). Archive format
+is chosen automatically by remote OS: `tar.gz` on Linux/macOS, `zip` on Windows.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `direction` | str | Yes | - | `"upload"` (local to remote) or `"download"` (remote to local) |
+| `local_path` | str | Yes | - | Local directory path |
+| `remote_path` | str | Yes | - | Remote directory path |
+| `use_sudo` | bool | No | False | Use sudo for remote archive/extract operations (Linux/macOS only) |
+
+**Returns:** Dictionary with `success`, `operation`, `local_path`, `remote_path`, `archive_format`, `files_transferred`, `bytes_transferred`
+
+---
 
 ### ssh_dir_mkdir
 Create a directory.
@@ -478,30 +500,30 @@ List directory contents.
 ---
 
 ### ssh_dir_list_advanced
-List directory with detailed metadata.
+List directory contents recursively with detailed information.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | str | Yes | - | Directory path |
-| `pattern` | str | No | None | Filter pattern |
-| `recursive` | bool | No | False | Include subdirectories |
+| `max_depth` | int | No | None | Maximum recursion depth (None for unlimited) |
 | `use_sudo` | bool | No | False | Use sudo |
 
-**Returns:** List of file metadata dictionaries
+**Returns:** List of file/directory metadata dictionaries
 
 ---
 
 ### ssh_dir_search_glob
-Search for files using glob patterns.
+Recursively search for files matching a filename glob pattern.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `base_path` | str | Yes | - | Starting directory |
+| `path` | str | Yes | - | Base directory to search from |
 | `pattern` | str | Yes | - | Glob pattern (e.g., `*.txt`) |
-| `max_depth` | int | No | None | Maximum search depth |
+| `max_depth` | int | No | None | Maximum recursion depth (None for unlimited) |
+| `include_dirs` | bool | No | False | Include matching directories in results |
 | `use_sudo` | bool | No | False | Use sudo |
 
-**Returns:** List of matching file paths
+**Returns:** List of matching file/directory info dictionaries
 
 ---
 
@@ -510,10 +532,10 @@ Search file contents (grep-like).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `directory` | str | Yes | - | Directory to search |
-| `pattern` | str | Yes | - | Search pattern |
-| `file_pattern` | str | No | None | Filter by filename |
-| `recursive` | bool | No | True | Search recursively |
+| `dir_path` | str | Yes | - | Directory to search in |
+| `pattern` | str | Yes | - | Text or pattern to search for |
+| `regex` | bool | No | False | Treat `pattern` as a regular expression |
+| `case_sensitive` | bool | No | True | Perform case-sensitive search |
 | `use_sudo` | bool | No | False | Use sudo |
 
 **Returns:** List of matches with file, line number, content
@@ -546,14 +568,14 @@ Delete a directory and contents.
 ---
 
 ### ssh_dir_batch_delete_files
-Batch delete files matching pattern.
+Delete all files matching a pattern under a directory.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `directory` | str | Yes | - | Directory path |
-| `pattern` | str | Yes | - | File pattern to match |
+| `path` | str | Yes | - | Base directory to search in |
+| `pattern` | str | Yes | - | File pattern to match for deletion (e.g. `*.tmp`) |
+| `dry_run` | bool | No | True | Preview deletion without actually deleting |
 | `use_sudo` | bool | No | False | Use sudo |
-| `dry_run` | bool | No | True | Preview without deleting |
 
 **Returns:** Status with list of affected files
 
@@ -564,39 +586,45 @@ Copy a directory recursively.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | str | Yes | - | Source directory |
-| `destination` | str | Yes | - | Destination path |
+| `source_path` | str | Yes | - | Source directory path |
+| `destination_path` | str | Yes | - | Destination directory path |
+| `overwrite` | bool | No | False | Overwrite existing files |
+| `preserve_symlinks` | bool | No | True | Preserve symbolic links |
+| `preserve_permissions` | bool | No | True | Preserve file permissions |
 | `use_sudo` | bool | No | False | Use sudo |
 
-**Returns:** Status dictionary
+**Returns:** Dictionary with copy operation details
 
 ---
 
 ## Archive Operations (`ssh_archive_*`)
 
 ### ssh_archive_create
-Create a compressed archive.
+Create a compressed archive from a directory.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_path` | str | Yes | - | Path to archive |
-| `archive_path` | str | Yes | - | Output archive path |
+| `source_path` | str | Yes | - | Directory to archive |
+| `archive_path` | str | Yes | - | Path for the created archive |
 | `format` | str | No | "tar.gz" | Archive format |
 | `use_sudo` | bool | No | False | Use sudo |
 
-**Supported formats:** `tar.gz`, `tar.bz2`, `zip`
+**Supported formats:** `tar.gz`, `tar` (Linux/macOS only). Windows always produces `.zip`
+via `ssh_dir_transfer`/internal archive helpers, regardless of `format` - there is no
+`format` choice on Windows and `zip` is not a valid value for this tool's `format` parameter.
 
 **Returns:** Archive info dictionary
 
 ---
 
 ### ssh_archive_extract
-Extract an archive.
+Extract a tar or tar.gz archive to a directory (or a `.zip` on Windows).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `archive_path` | str | Yes | - | Archive file path |
-| `destination` | str | Yes | - | Extraction destination |
+| `archive_path` | str | Yes | - | Path to the archive file |
+| `destination_path` | str | Yes | - | Directory to extract to |
+| `overwrite` | bool | No | False | Overwrite existing files |
 | `use_sudo` | bool | No | False | Use sudo |
 
 **Returns:** Extraction status dictionary
