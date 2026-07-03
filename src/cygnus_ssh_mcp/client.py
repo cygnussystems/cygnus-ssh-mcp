@@ -50,6 +50,7 @@ class SshClient:
         self.host = host
         self.user = user
         self.port = port
+        self.alias = None  # Set by the caller after connect, if the host has a configured alias
         self.keyfile = keyfile
         self.key_passphrase = key_passphrase
         self.password = password
@@ -272,12 +273,14 @@ class SshClient:
         """Establish SSH connection and update connection status."""
         self._logger.info(f"Connecting to {self.user}@{self.host}:{self.port}...")
         
-        # Update connection status with initial info
+        # Update connection status with initial info. Deliberately do NOT stamp
+        # 'last_updated' here - cwd isn't probed until update_connection_status()
+        # actually runs, and stamping it early would let the 5-minute cache mask
+        # a None cwd for the first 5 minutes of every connection.
         with self._status_lock:
             self._connection_status.update({
                 'user': self.user,
-                'host': self.host,
-                'last_updated': time.time()
+                'host': self.host
             })
         kwargs = dict(
             hostname=self.host,
@@ -345,7 +348,7 @@ class SshClient:
         """Update cached connection status if stale (>5 minutes) or forced."""
         with self._status_lock:
             now = time.time()
-            last_update = self._connection_status.get('last_updated', 0)
+            last_update = self._connection_status.get('last_updated') or 0
 
             if not force and (now - last_update) < 300:  # 5 minute cache
                 return
@@ -389,7 +392,8 @@ class SshClient:
             return {
                 **self._connection_status,
                 'timestamp': datetime.now(UTC).isoformat(),
-                'host': self.host
+                'host': self.host,
+                'alias': self.alias
             }
 
     def verify_sudo_access(self) -> bool:

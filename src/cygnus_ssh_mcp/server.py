@@ -112,6 +112,24 @@ except AttributeError:
     logger.info("FastMCP version doesn't support on_shutdown, will clean up manually")
 
 
+def _connection_metadata() -> dict:
+    """
+    Cheap {host, alias, user, cwd} block identifying which connection a mutating
+    tool actually ran against. Added to every mutating tool's response after a
+    real incident where a file was written to the wrong host in a multi-host
+    session with nothing in the response to catch it.
+    """
+    if not mcp.ssh_client:
+        return {'host': None, 'alias': None, 'user': None, 'cwd': None}
+    status = mcp.ssh_client.get_connection_status()
+    return {
+        'host': mcp.ssh_client.host,
+        'alias': mcp.ssh_client.alias,
+        'user': status.get('user'),
+        'cwd': status.get('cwd')
+    }
+
+
 # ====================================================
 #          Core SSH Tools
 # ====================================================
@@ -190,7 +208,8 @@ async def ssh_conn_connect(
             port=host_config['port'],
             sudo_password=host_config.get('sudo_password') or host_config.get('password')
         )
-        
+        mcp.ssh_client.alias = host_config.get('alias')
+
         # Get current working directory (use OS-appropriate command)
         if mcp.ssh_client.os_type == 'windows':
             cwd_result = mcp.ssh_client.run("cd")
@@ -1165,7 +1184,8 @@ async def ssh_dir_mkdir(
             'status': 'success',
             'path': path,
             'mode': f"{mode:o}",
-            'message': f"Created directory {path} with mode {mode:o}"
+            'message': f"Created directory {path} with mode {mode:o}",
+            'connection': _connection_metadata()
         }
     except Exception as e:
         logger.error(f"Failed to create directory: {e}")
@@ -1193,7 +1213,8 @@ async def ssh_dir_remove(
             'status': 'success',
             'path': path,
             'recursive': recursive,
-            'message': f"Removed directory {path}" + (" recursively" if recursive else "")
+            'message': f"Removed directory {path}" + (" recursively" if recursive else ""),
+            'connection': _connection_metadata()
         }
     except Exception as e:
         logger.error(f"Failed to remove directory: {e}")
@@ -1426,8 +1447,10 @@ async def ssh_file_replace_line(
     try:
         # Convert the single line to a list as required by the underlying method
         new_lines = [new_line]
-            
-        return mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, use_sudo, force)
+
+        result = mcp.ssh_client.replace_line_by_content(file_path, match_line, new_lines, use_sudo, force)
+        result['connection'] = _connection_metadata()
+        return result
     except Exception as e:
         logger.error(f"Failed to replace line: {e}")
         raise
@@ -1532,8 +1555,10 @@ async def ssh_file_replace_line_multi(
         # Use the Pydantic model to parse and validate the new_lines parameter
         parsed_new_lines = NewLinesModel.parse(new_lines)
         logger.info(f"Processed new_lines parameter: {parsed_new_lines}")
-            
-        return mcp.ssh_client.replace_line_by_content(file_path, match_line, parsed_new_lines, use_sudo, force)
+
+        result = mcp.ssh_client.replace_line_by_content(file_path, match_line, parsed_new_lines, use_sudo, force)
+        result['connection'] = _connection_metadata()
+        return result
     except Exception as e:
         logger.error(f"Failed to replace line: {e}")
         raise
@@ -1599,7 +1624,8 @@ async def ssh_file_transfer(
             'success': True,
             'local_path': local_path,
             'remote_path': remote_path,
-            'sudo': use_sudo
+            'sudo': use_sudo,
+            'connection': _connection_metadata()
         }
     except Exception as e:
         logger.error(f"File transfer failed: {e}")
@@ -1650,6 +1676,7 @@ async def ssh_dir_transfer(
             remote_path=remote_path,
             sudo=use_sudo
         )
+        result['connection'] = _connection_metadata()
         return result
     except Exception as e:
         logger.error(f"Directory transfer failed: {e}")
@@ -1709,8 +1736,10 @@ async def ssh_file_insert_lines_after_match(
         # Use the Pydantic model to parse and validate the lines_to_insert parameter
         parsed_lines_to_insert = NewLinesModel.parse(lines_to_insert)
         logger.info(f"Processed lines_to_insert parameter: {parsed_lines_to_insert}")
-            
-        return mcp.ssh_client.insert_lines_after_match(file_path, match_line, parsed_lines_to_insert, use_sudo, force)
+
+        result = mcp.ssh_client.insert_lines_after_match(file_path, match_line, parsed_lines_to_insert, use_sudo, force)
+        result['connection'] = _connection_metadata()
+        return result
     except Exception as e:
         logger.error(f"Failed to insert lines: {e}")
         raise
@@ -1732,7 +1761,9 @@ async def ssh_file_delete_line_by_content(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.delete_line_by_content(file_path, match_line, use_sudo, force)
+        result = mcp.ssh_client.delete_line_by_content(file_path, match_line, use_sudo, force)
+        result['connection'] = _connection_metadata()
+        return result
     except Exception as e:
         logger.error(f"Failed to delete line: {e}")
         raise
@@ -1754,7 +1785,9 @@ async def ssh_file_copy(
         raise SshError("No active SSH connection")
         
     try:
-        return mcp.ssh_client.copy_file(source_path, destination_path, append_timestamp, use_sudo)
+        result = mcp.ssh_client.copy_file(source_path, destination_path, append_timestamp, use_sudo)
+        result['connection'] = _connection_metadata()
+        return result
     except Exception as e:
         logger.error(f"Failed to copy file: {e}")
         raise
@@ -1987,7 +2020,8 @@ async def ssh_file_write(
                 'file_path': file_path,
                 'bytes_written': file_size,
                 'mode': f"{mode:o}" if mode is not None else None,
-                'append': append
+                'append': append,
+                'connection': _connection_metadata()
             }
         finally:
             # Clean up the temporary file
@@ -2020,6 +2054,7 @@ async def ssh_file_move(
 
     try:
         result = mcp.ssh_client.safe_move_or_rename(source, destination, overwrite, use_sudo)
+        result['connection'] = _connection_metadata()
         return result
     except Exception as e:
         logger.error(f"Failed to move file/directory: {e}")
@@ -2098,6 +2133,7 @@ async def ssh_dir_delete(
         
     try:
         result = mcp.ssh_client.delete_directory_recursive(path, dry_run, use_sudo)
+        result['connection'] = _connection_metadata()
         return result
     except Exception as e:
         logger.error(f"Failed to delete directory: {e}")
@@ -2122,6 +2158,7 @@ async def ssh_dir_batch_delete_files(
         
     try:
         result = mcp.ssh_client.batch_delete_by_pattern(path, pattern, dry_run, use_sudo)
+        result['connection'] = _connection_metadata()
         return result
     except Exception as e:
         logger.error(f"Failed to batch delete files: {e}")
@@ -2198,6 +2235,7 @@ async def ssh_dir_copy(
         result = mcp.ssh_client.copy_directory_recursive(
             source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, use_sudo
         )
+        result['connection'] = _connection_metadata()
         return result
     except Exception as e:
         logger.error(f"Failed to copy directory: {e}")
@@ -2226,6 +2264,7 @@ async def ssh_archive_create(
         
     try:
         result = mcp.ssh_client.create_archive_from_directory(source_path, archive_path, format, use_sudo)
+        result['connection'] = _connection_metadata()
         return result
     except Exception as e:
         logger.error(f"Failed to create archive: {e}")
@@ -2250,6 +2289,7 @@ async def ssh_archive_extract(
         
     try:
         result = mcp.ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, use_sudo)
+        result['connection'] = _connection_metadata()
         return result
     except Exception as e:
         logger.error(f"Failed to extract archive: {e}")
