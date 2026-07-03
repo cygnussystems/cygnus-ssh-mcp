@@ -99,6 +99,18 @@ class SshRunOperations(ABC):
             and self.CWD_INVALID_MARKER in handle.get_full_stderr()
         )
 
+    PID_MARKER = None  # Set by subclasses that can capture a real remote PID (see _Linux)
+
+    def _wrap_for_pid_capture(self, cmd: str) -> str:
+        """Wrap cmd to report its own real remote PID as the first thing it does.
+
+        No-op by default - handle.pid then stays paramiko's local channel id
+        (see _capture_pid), which is NOT a real remote PID and cannot be used to
+        signal/kill the remote process. Not implemented for Windows; see
+        docs_internal/CMD-EXECUTION-MODEL.md.
+        """
+        return cmd
+
     def execute_command(self, cmd: str, io_timeout: float = 60.0,
                         runtime_timeout: Optional[float] = None,
                         sudo: bool = False, cwd: Optional[str] = None) -> CommandHandle:
@@ -146,6 +158,11 @@ class SshRunOperations(ABC):
 
             # Explicit, per-call working directory - fails closed, nothing remembered
             cmd = self._wrap_for_explicit_cwd(cmd, cwd)
+
+            # Report a real remote PID as the first thing the command does, so
+            # runtime_timeout/ssh_cmd_kill can actually signal the right process
+            # (outermost wrap - must run before any cwd-guard/sudo wrapping)
+            cmd = self._wrap_for_pid_capture(cmd)
 
             # Execute command and capture PID
             chan = self._execute_command(cmd, io_timeout)
@@ -376,6 +393,73 @@ class SshRunOperations_Linux(SshRunOperations):
             f"echo {self.CWD_INVALID_MARKER} 1>&2; exit {self.CWD_INVALID_EXIT_CODE}; }}\n"
             f"{cmd}\n"
         )
+
+    PID_MARKER = '___SSH_MCP_PID___'
+    PID_CAPTURE_TIMEOUT = 3.0  # seconds to wait for the marker before falling back
+
+    def _wrap_for_pid_capture(self, cmd: str) -> str:
+        """Print the wrapper shell's own PID to stderr as the very first thing,
+        before anything else runs (including any cwd-guard or the user's command).
+        _capture_pid reads this and uses it as handle.pid instead of paramiko's
+        local channel id, so runtime_timeout/ssh_cmd_kill can actually target a
+        real process on the remote host.
+        """
+        return f"printf '{self.PID_MARKER}%s\\n' \"$$\" 1>&2\n{cmd}\n"
+
+    def _capture_pid(self, chan, handle):
+        """Capture the real remote PID via the marker _wrap_for_pid_capture prints
+        first, instead of paramiko's local channel id. Falls back to the channel
+        id (degraded - kill/status by PID won't target the right process, but the
+        call still proceeds) if the marker doesn't arrive within PID_CAPTURE_TIMEOUT.
+        """
+        handle.pid = chan.get_id()  # fallback default; overwritten below if marker found
+        stderr_buf = ''
+        stdout_chunks = []
+        deadline = time.monotonic() + self.PID_CAPTURE_TIMEOUT
+        marker_found = False
+
+        try:
+            while time.monotonic() < deadline and not marker_found:
+                if chan.exit_status_ready() and not chan.recv_ready() and not chan.recv_stderr_ready():
+                    break
+                readable, _, _ = select.select([chan], [], [], 0.1)
+                if not readable:
+                    continue
+                if chan.recv_ready():
+                    data = chan.recv(4096)
+                    if data:
+                        stdout_chunks.append(data)
+                if chan.recv_stderr_ready():
+                    data_stderr = chan.recv_stderr(4096)
+                    if data_stderr:
+                        stderr_buf += data_stderr.decode('utf-8', errors='replace')
+                        if '\n' in stderr_buf:
+                            first_line, _, rest = stderr_buf.partition('\n')
+                            if first_line.startswith(self.PID_MARKER):
+                                pid_str = first_line[len(self.PID_MARKER):].strip()
+                                if pid_str.isdigit():
+                                    handle.pid = int(pid_str)
+                                    marker_found = True
+                                stderr_buf = rest
+        except Exception as e:
+            self.logger.warning(f"Error during PID marker capture: {e}")
+
+        if marker_found:
+            self.logger.info(f"Captured real remote PID: {handle.pid}")
+        else:
+            self.logger.warning(
+                f"PID marker not received within {self.PID_CAPTURE_TIMEOUT}s, falling back to "
+                f"channel id {handle.pid} (kill/status by PID will not target the right process)"
+            )
+
+        # Flush whatever else was already read into the handle's buffers
+        if stdout_chunks:
+            decoded_data = b''.join(stdout_chunks).decode('utf-8', errors='replace')
+            for line in decoded_data.splitlines(keepends=True):
+                handle.add_output(line if line.endswith('\n') else line + '\n')
+        if stderr_buf:
+            for line in stderr_buf.splitlines(keepends=True):
+                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
 
     def _handle_sudo(self, cmd: str) -> tuple:
         """Handle sudo command preparation for Linux."""

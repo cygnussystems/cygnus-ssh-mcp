@@ -139,31 +139,49 @@ command that merely went quiet was reported as `completed` with a stale/`None` e
 code. The fix checks `exit_code is not None` instead, since `exit_code` is set
 *exclusively* by real command completion (`ops/run.py:_handle_command_completion`).
 
-## The PID problem (known gap, not yet fixed)
+## The PID problem (fixed for Linux/macOS, non-sudo, 2026-07-03)
 
-`CommandHandle.pid` for a command launched via `ssh_cmd_run` is **not a real remote OS
-process ID.** It's set here (`ops/run.py:_capture_pid`):
+`CommandHandle.pid` for a command launched via `ssh_cmd_run` **used to not be a real
+remote OS process ID at all** - it was `chan.get_id()`, paramiko's local channel number
+(0, 1, 2, ... on this side of the `Transport`), unrelated to anything on the remote
+host. Consequence: `runtime_timeout`'s kill attempt
+(`task_ops._kill_remote_process(handle.pid)`) sent `kill -15/-9 <channel_number>` to
+the remote host, which essentially never matched a real process and silently failed -
+`runtime_timeout` never actually killed anything despite being designed as the hard cap.
 
-```python
-handle.pid = chan.get_id()
-```
+**Fixed by reusing the exact pattern `ssh_task_launch` already used for background
+tasks** (`echo "PID:$!"`) - no new mechanism invented. `SshRunOperations_Linux`:
 
-`paramiko.Channel.get_id()` returns a small sequential integer local to this side of
-the SSH `Transport` (0, 1, 2, ...) — internal channel bookkeeping, unrelated to any
-process ID on the remote host. The log message even says so ("used as PID reference").
+- `_wrap_for_pid_capture` prepends `printf '___SSH_MCP_PID___%s\n' "$$" 1>&2` as the
+  very first thing the remote shell does, before any cwd-guard or the user's command
+  (`$$` is the wrapper shell's own PID and doesn't change based on what runs after it).
+- `_capture_pid` (overridden, replacing the base channel-id fallback) reads stderr in a
+  bounded loop (`PID_CAPTURE_TIMEOUT = 3s`, though the marker arrives near-instantly
+  since it's printed before the command even starts), parses the real PID, and strips
+  the marker line before any of it reaches the caller's stderr output. Falls back to
+  the old channel-id behavior (with a warning) if the marker doesn't arrive in time -
+  degraded, not broken.
 
-Consequence: `runtime_timeout`'s kill attempt (`task_ops._kill_remote_process(handle.pid)`)
-sends `kill -15/-9 <channel_number>` to the remote host, which essentially never matches
-a real process and fails (logged as a warning, not surfaced to the caller). Same root
-cause likely explains why `ssh_cmd_kill` doesn't reliably kill after an `io_timeout`
-either — noted as a related, not-yet-scoped follow-up in the timeout planning doc.
+Verified live: `runtime_timeout` on `sleep 30` now genuinely kills the remote process
+(confirmed via an independent `kill -0 <pid>` check against the actual host, not just
+by trusting our own code's success claim) - previously this silently failed 100% of
+the time. Regression-checked against `cwd`, sudo, and `io_timeout` together; all still
+work, and `io_timeout`'s returned `pid` is now also a real, independently-usable PID
+as a side benefit.
 
-**This does not need inventing a new mechanism** — `ssh_task_launch` already solves the
-identical problem correctly for background tasks, by capturing a real PID at launch
-time (`echo "PID:$!"` on Linux, `$proc.Id` from `Start-Process -PassThru` on Windows —
-see `ops/task.py:_build_launch_script`). The fix for `ssh_cmd_run` is to reuse that
-pattern for synchronous execution, which is more involved because the caller is
-blocking and streaming output at the same time, not just firing-and-forgetting.
+**Not fixed (deliberately out of scope for this pass):**
+- **Windows** - `_wrap_for_pid_capture`/`_capture_pid` aren't overridden there, so
+  `handle.pid` is still the channel id and `runtime_timeout` still can't kill anything
+  on Windows. Same "no single reliable shell to target" reasoning as the `cwd` feature.
+- **Sudo'd commands.** The PID marker is printed by the *outer*, non-privileged wrapper
+  shell - for `use_sudo=True`, the actual command runs as a *child* of that shell (via
+  `sudo -n bash -c '...'`), so killing the captured PID kills the wrapper, not
+  necessarily the privileged child doing the real work (killing a parent doesn't
+  cascade to children in Unix). This is the same class of issue as the already-flagged,
+  not-yet-scoped `ssh_cmd_kill`-after-`io_timeout`/orphaned-children problem - process-
+  group killing (`kill -{signal} -{pid}` instead of `kill -{signal} {pid}`) would likely
+  fix both at once, but changes the shared kill path also used by the already-tested
+  `ssh_task_kill`, so it was deliberately not bundled into this fix.
 
 ## `cmd` vs `task` tools — why `task` doesn't have these bugs
 
@@ -171,15 +189,16 @@ blocking and streaming output at the same time, not just firing-and-forgetting.
 |---|---|---|
 | Execution model | Synchronous, blocks until done/timeout | Fire-and-forget, returns immediately |
 | Output | Captured in-memory (circular buffer, tail-preserving) | Redirected to log files on the remote host |
-| PID captured | No — `chan.get_id()`, a local channel number (bug, see above) | Yes — real remote OS PID, captured explicitly at launch |
+| PID captured | Yes on Linux/macOS non-sudo (fixed 2026-07-03, see "The PID problem" above) — real remote OS PID via `$$`. Still `chan.get_id()` (a local channel number) for sudo'd commands and on Windows | Yes — real remote OS PID, captured explicitly at launch, all platforms |
 | Status check | `ssh_cmd_check_status` reads *cached* handle state from this connection's history | `ssh_task_status` does a *live* liveness check every call (`kill -0 <pid>` / `Get-Process`) — no caching, so no staleness bug |
 | Survives reconnect | No — handles/history are connection-scoped | Yes — PID is an OS-level identifier |
-| Known gap | Kill after timeout doesn't work (fake PID) | No exit-code or log-path recall after the task exits — `ssh_task_status` only ever reports liveness, not a documented bug, more of a missing feature (tracked separately in the consolidated feature plan, Theme D) |
+| Known gap | `runtime_timeout` kill still doesn't reliably work for sudo'd commands (kills the wrapper, not the privileged child) or on Windows | No exit-code or log-path recall after the task exits — `ssh_task_status` only ever reports liveness, not a documented bug, more of a missing feature (tracked separately in the consolidated feature plan, Theme D) |
 
 Because `ssh_task_status` re-queries the remote host live on every call instead of
 trusting cached local state, it was never exposed to the `end_ts`-vs-`exit_code`
-staleness bug that `ssh_cmd_check_status` had. And because task launch always captures
-a real PID, its kill path actually works, unlike the `cmd` path's `runtime_timeout`.
+staleness bug that `ssh_cmd_check_status` had. Task launch always captures a real PID
+on all platforms; the `cmd` path now does too for the common (non-sudo, Linux/macOS)
+case, closing most of the gap between the two tool families.
 
 ## Open items for `docs/50-command-execution.md` once this is fully stable
 
