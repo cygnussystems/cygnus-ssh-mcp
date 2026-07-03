@@ -9,9 +9,18 @@ class SshError(Exception):
 
 
 class CommandTimeout(SshError):
-    """Raised for I/O timeouts during command execution."""
-    def __init__(self, seconds):
-        super().__init__(f"Command I/O timed out after {seconds} seconds of inactivity")
+    """Raised for I/O timeouts during command execution.
+
+    The remote command is NOT killed when this is raised - only local
+    monitoring stops. handle carries the id/pid needed to check back later
+    (ssh_cmd_check_status) or retrieve output collected so far (ssh_cmd_output).
+    handle may be None for non-command timeouts (e.g. waiting for a host to
+    come back online after reboot).
+    """
+    def __init__(self, seconds, handle=None):
+        ref = f" (PID: {handle.pid}, ID: {handle.id})" if handle else ""
+        super().__init__(f"Command I/O timed out after {seconds} seconds of inactivity{ref}")
+        self.handle = handle
         self.seconds = seconds
 
 

@@ -193,11 +193,21 @@ class SshRunOperations(ABC):
                     handle.end_ts = datetime.now(UTC)
                     try:
                         if hasattr(self.ssh_client, 'task_ops') and hasattr(self.ssh_client.task_ops, '_kill_remote_process'):
+                            # NOTE: handle.pid is currently a paramiko-local channel id, not a
+                            # real remote OS PID (see run.py _capture_pid), so this kill attempt
+                            # reliably fails on the remote host. Tracked as a follow-up fix.
                             self.ssh_client.task_ops._kill_remote_process(handle.pid)
-                        else:
-                            chan.close()
                     except Exception as e_kill:
                         self.logger.warning(f"Error trying to stop process on runtime timeout: {e_kill}")
+                    finally:
+                        # Always close the channel, regardless of whether the remote kill
+                        # attempt above succeeded - previously this only ran when
+                        # task_ops/_kill_remote_process were unavailable, which is never true,
+                        # so the channel was silently leaked on every runtime_timeout.
+                        try:
+                            chan.close()
+                        except Exception as e_close:
+                            self.logger.warning(f"Error closing channel on runtime timeout: {e_close}")
                     raise CommandRuntimeTimeout(handle, runtime_timeout)
 
             # Check for I/O using select
@@ -233,7 +243,7 @@ class SshRunOperations(ABC):
                         chan.close()
                     except Exception as e_kill:
                         self.logger.warning(f"Error trying to stop process on I/O timeout: {e_kill}")
-                    raise CommandTimeout(io_timeout)
+                    raise CommandTimeout(io_timeout, handle=handle)
 
         # Drain remaining output
         while chan.recv_ready():
