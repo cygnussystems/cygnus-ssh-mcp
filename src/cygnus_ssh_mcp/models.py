@@ -24,6 +24,17 @@ class CommandTimeout(SshError):
         self.seconds = seconds
 
 
+class CwdNotFound(SshError):
+    """Raised when an explicit cwd passed to ssh_cmd_run does not exist on the remote host.
+
+    Fails closed: the command is NEVER executed in this case (the wrapper aborts before
+    it would run), so there is no ambiguity about where anything ran.
+    """
+    def __init__(self, cwd):
+        super().__init__(f"Working directory does not exist on remote host: {cwd}")
+        self.cwd = cwd
+
+
 class CommandRuntimeTimeout(SshError):
     """Raised when a command exceeds its total allowed runtime_timeout."""
     def __init__(self, handle, seconds):
@@ -83,6 +94,10 @@ class CommandHandle:
         self.end_ts = None
         self.exit_code = None
         self.running = True
+        self.cwd = None  # Set to the confirmed directory this specific call ran in, only when
+                         # an explicit cwd was passed to ssh_cmd_run (Linux/macOS). Per-call
+                         # only - not remembered or carried forward to future commands.
+        self.requested_cwd = None  # The raw cwd argument passed for this call, if any (for error messages)
         
         self.total_lines = 0        # For stdout
         self.truncated = False      # For stdout
@@ -169,7 +184,8 @@ class CommandHandle:
             'total_lines': self.total_lines, # Stdout
             'truncated': self.truncated,   # Stdout
             'total_stderr_lines': self.total_stderr_lines,
-            'stderr_truncated': self.stderr_truncated
+            'stderr_truncated': self.stderr_truncated,
+            'cwd': self.cwd
         }
 
     def chunk(self, start, length=50): # Stdout

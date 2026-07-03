@@ -409,14 +409,17 @@ class SshClient:
 
 
     def run(self, cmd: str, io_timeout: float = 60.0, runtime_timeout: Optional[float] = None,
-           sudo: bool = False) -> CommandHandle:
+           sudo: bool = False, cwd: Optional[str] = None) -> CommandHandle:
         """
         Execute a command synchronously, streaming output into a CommandHandle.
         This method BLOCKS until the command finishes, fails, or times out.
         Supports I/O inactivity timeout (io_timeout) and total runtime timeout (runtime_timeout).
-        Returns the CommandHandle upon completion or raises CommandFailed, CommandTimeout, CommandRuntimeTimeout, SudoRequired.
+        cwd (optional): run the command in this directory for this call only - no state is
+        remembered across calls (each call is a fresh remote process regardless). Fails closed:
+        if the directory doesn't exist, the command never runs at all (raises CwdNotFound).
+        Returns the CommandHandle upon completion or raises CommandFailed, CommandTimeout, CommandRuntimeTimeout, SudoRequired, CwdNotFound.
         """
-        return self.run_ops.execute_command(cmd, io_timeout, runtime_timeout, sudo)
+        return self.run_ops.execute_command(cmd, io_timeout, runtime_timeout, sudo, cwd)
 
 
     def launch(self, cmd: str, sudo: bool = False, stdout_log: Optional[str] = None,

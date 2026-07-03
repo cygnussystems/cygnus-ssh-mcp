@@ -10,7 +10,7 @@ from typing import Optional, Self
 from datetime import UTC
 from cygnus_ssh_mcp.models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
-    CommandFailed, SudoRequired, SshError, BusyError
+    CommandFailed, SudoRequired, SshError, BusyError, CwdNotFound
 )
 
 
@@ -66,9 +66,42 @@ class SshRunOperations(ABC):
     # Shared implementation methods
     # ==========================================================================
 
+    CWD_INVALID_MARKER = None  # Set by subclasses that support the explicit cwd param (see _Linux)
+    CWD_INVALID_EXIT_CODE = 77
+
+    def _wrap_for_explicit_cwd(self, cmd: str, cwd: Optional[str]) -> str:
+        """Wrap cmd to run inside cwd for THIS call only - fails closed: if cwd
+        doesn't exist, cmd never runs at all (no ambiguity about where anything ran).
+        No state is remembered across calls. No-op if cwd is None.
+
+        Not implemented for Windows by default - there's no single reliable target
+        shell to wrap against (cmd.exe vs PowerShell DefaultShell ambiguity), see
+        docs_internal/CMD-EXECUTION-MODEL.md. Subclasses that do support it should
+        set CWD_INVALID_MARKER and override this.
+        """
+        if cwd is None:
+            return cmd
+        raise SshError(
+            "The cwd parameter is not supported on this platform. Use an absolute "
+            "path in the command itself, or chain e.g. \"cd 'dir' && <command>\"."
+        )
+
+    def _is_cwd_invalid(self, handle) -> bool:
+        """True if this call's failure was our own fail-closed cwd guard tripping,
+        not the user's command. Checked via a distinct marker in stderr, gated
+        behind a reserved exit code, to avoid mistaking a command's own legitimate
+        use of that exit code for a cwd failure.
+        """
+        if not self.CWD_INVALID_MARKER:
+            return False
+        return (
+            handle.exit_code == self.CWD_INVALID_EXIT_CODE
+            and self.CWD_INVALID_MARKER in handle.get_full_stderr()
+        )
+
     def execute_command(self, cmd: str, io_timeout: float = 60.0,
                         runtime_timeout: Optional[float] = None,
-                        sudo: bool = False) -> CommandHandle:
+                        sudo: bool = False, cwd: Optional[str] = None) -> CommandHandle:
         """
         Execute a command synchronously with timeout management.
 
@@ -77,6 +110,9 @@ class SshRunOperations(ABC):
             io_timeout: I/O inactivity timeout in seconds
             runtime_timeout: Total execution timeout in seconds
             sudo: Whether to run with elevated privileges
+            cwd: Run in this directory for this call only (Linux/macOS). Fails closed -
+                the command never runs if the directory doesn't exist. Not remembered
+                across calls; see docs_internal/CMD-EXECUTION-MODEL.md.
 
         Returns:
             CommandHandle with command results
@@ -86,6 +122,7 @@ class SshRunOperations(ABC):
             CommandRuntimeTimeout: If runtime timeout occurs
             CommandFailed: If command fails
             SudoRequired: If elevation is required but not available
+            CwdNotFound: If cwd was given and doesn't exist on the remote host
             SshError: For other SSH-related errors
             BusyError: If another command is currently executing
         """
@@ -101,10 +138,14 @@ class SshRunOperations(ABC):
         try:
             # Create command handle
             handle = self._create_command_handle(cmd)
+            handle.requested_cwd = cwd
 
             # Handle sudo/elevation if needed
             if sudo:
                 cmd, sudo_pwd_attempted = self._handle_sudo(cmd)
+
+            # Explicit, per-call working directory - fails closed, nothing remembered
+            cmd = self._wrap_for_explicit_cwd(cmd, cwd)
 
             # Execute command and capture PID
             chan = self._execute_command(cmd, io_timeout)
@@ -267,6 +308,14 @@ class SshRunOperations(ABC):
         handle.running = False
         self.logger.info(f"Command finished with exit code {handle.exit_code}")
 
+        if self._is_cwd_invalid(handle):
+            # Fail closed: the wrapper aborted before the user's command ever ran.
+            raise CwdNotFound(handle.requested_cwd)
+
+        if handle.requested_cwd is not None:
+            # Confirmed: the command actually ran in the requested directory.
+            handle.cwd = handle.requested_cwd
+
         if handle.exit_code != 0:
             # Check for platform-specific sudo errors
             if self._check_sudo_error(handle, sudo_pwd_attempted):
@@ -310,6 +359,23 @@ class SshRunOperations(ABC):
 
 class SshRunOperations_Linux(SshRunOperations):
     """Linux implementation of command execution using bash and sudo."""
+
+    CWD_INVALID_MARKER = '___SSH_MCP_CWD_INVALID___'
+
+    def _wrap_for_explicit_cwd(self, cmd: str, cwd: Optional[str]) -> str:
+        """Run cmd inside cwd for this call only, failing closed: if cwd doesn't
+        exist, cmd is never executed at all - the wrapper exits immediately with
+        a reserved code plus a distinct stderr marker, checked by _is_cwd_invalid.
+        No state is remembered across calls.
+        """
+        if cwd is None:
+            return cmd
+        quoted = shlex.quote(cwd)
+        return (
+            f"cd -- {quoted} 2>/dev/null || {{ "
+            f"echo {self.CWD_INVALID_MARKER} 1>&2; exit {self.CWD_INVALID_EXIT_CODE}; }}\n"
+            f"{cmd}\n"
+        )
 
     def _handle_sudo(self, cmd: str) -> tuple:
         """Handle sudo command preparation for Linux."""

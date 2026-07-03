@@ -18,7 +18,7 @@ from pydantic import Field, BaseModel
 from typing import Annotated, Optional, Literal, Dict, Any, List, Union
 from datetime import datetime, UTC
 from cygnus_ssh_mcp.client import SshClient
-from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError
+from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, CwdNotFound
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 import stat as stat_module
 import errno
@@ -661,7 +661,8 @@ async def ssh_cmd_run(
         command: Annotated[str, Field(description="Command to execute on remote host")],
         io_timeout: Annotated[float, Field(description="Max seconds of SILENCE (no output) before giving up on waiting. Does NOT kill the remote command - it only stops local monitoring and returns control to you. Set this high (300+) for commands that may be quiet for a while: package installs (apt/dpkg/yum), Docker/image pulls, large downloads, compilation. If hit, call ssh_cmd_check_status or ssh_cmd_output to check back rather than rerunning.")] = 60.0,
         runtime_timeout: Annotated[Optional[float], Field(description="Total wall-clock cap in seconds, regardless of output activity. Unlike io_timeout, hitting this DOES attempt to kill the remote command - it's a hard ceiling. Set generously for long operations (installs/downloads can need 10-60+ minutes).", gt=0)] = None,
-        use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False
+        use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
+        cwd: Annotated[Optional[str], Field(description="Run the command in this directory, for this call only (Linux/macOS only - not yet supported on Windows). Nothing is remembered between calls: each ssh_cmd_run is an independent process, so pass cwd again on every call where it matters, or chain 'cd dir && command' yourself. Fails closed - if the directory doesn't exist, the command is never executed at all (status='cwd_not_found'), so there's no ambiguity about where anything ran.")] = None
 ) -> dict:
     """
     Execute a command on the remote host and BLOCK until it completes, an io_timeout (silence)
@@ -680,6 +681,13 @@ async def ssh_cmd_run(
 
     You can access command history using 'ssh_cmd_history' to see previous commands and their output.
 
+    Working directory: each call is an independent remote process (like a GitHub Actions step
+    or Ansible task, not a continuous shell) - nothing is remembered between calls, including
+    'cd'. Running ssh_cmd_run("cd /var/log") does NOT affect a later ssh_cmd_run("ls"); it will
+    still list the login directory. Use absolute paths, chain "cd dir && command" within one
+    call, or pass the cwd parameter to run this specific call in a specific directory
+    (Linux/macOS only for now).
+
     Returns:
         Dictionary containing command output, status, and metadata.
         Status field indicates success or the type of failure (io_timeout, runtime_timeout, command_failed, etc.)
@@ -693,7 +701,7 @@ async def ssh_cmd_run(
         }
 
     try:
-        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, use_sudo)
+        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, use_sudo, cwd=cwd)
         output = handle.get_full_output()
         return {
             'status': 'success',
@@ -702,8 +710,19 @@ async def ssh_cmd_run(
             'exit_code': handle.exit_code,
             'output': output,
             'pid': handle.pid,
+            'cwd': handle.cwd,
             'start_time': handle.start_ts.isoformat(),
             'end_time': handle.end_ts.isoformat() if handle.end_ts else None
+        }
+    except CwdNotFound as e:
+        logger.warning(f"cwd does not exist, command was not executed: {e.cwd}")
+        return {
+            'status': 'cwd_not_found',
+            'command': command,
+            'cwd': e.cwd,
+            'error': str(e),
+            'note': "The command was NOT executed - this fails closed, so nothing ran anywhere unexpected.",
+            'timestamp': datetime.now(UTC).isoformat()
         }
     except CommandTimeout as e:
         logger.warning(f"Command I/O timeout after {e.seconds}s: {command}")
