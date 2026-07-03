@@ -446,6 +446,22 @@ class SshTaskOperations_Win(SshTaskOperations):
 
         For Windows, we use PowerShell's -EncodedCommand to avoid needing a script file,
         which simplifies execution over SSH.
+
+        Uses WMI (Win32_Process::Create via Invoke-CimMethod) to spawn the process, NOT
+        Start-Process. Win32-OpenSSH puts each SSH session in a Windows Job Object, and
+        a Start-Process-launched child inherits membership in that same job regardless
+        of -WindowStyle Hidden - when the session's last handle closes (e.g. this
+        launch script's own powershell.exe exiting), Windows kills every process still
+        in the job, including the "detached" child. Verified live 2026-07-03: a
+        Start-Process-launched 'ping -n 15 127.0.0.1' was confirmed dead within 2
+        seconds, every time; the identical command launched via WMI stayed alive
+        independently. Win32_Process::Create spawns through the WMI provider host (a
+        separate service process tree), so the result is never a member of the SSH
+        session's job at all. This was a long-standing, silent bug - the existing
+        ssh_task_launch tests never caught it because they accept any of
+        ['running', 'completed', 'not_found', 'exited'] as valid regardless of cause,
+        and tend to use short commands where premature death looks identical to
+        natural completion.
         """
         timestamp = int(time.time())
         # We don't actually use a script file anymore, but keep path format for log naming
@@ -465,19 +481,28 @@ class SshTaskOperations_Win(SshTaskOperations):
             f"[System.Convert]::FromBase64String('{cmd_b64}'))"
         )
 
-        # Build the PowerShell script content
-        # Use -WindowStyle Hidden for completely detached execution
-        # Note: Start-Process doesn't allow stdout and stderr to be the same file
+        # cmd.exe's own redirection operators (not Start-Process's -RedirectStandard*
+        # params, which don't apply here - WMI's CommandLine is a single shell string).
         if stdout_log and stderr_log and stdout_log != stderr_log:
-            script_content = f'''{decode_stmt}; $proc = Start-Process -FilePath "cmd.exe" -ArgumentList ('/c ' + $__cmdText) -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_log}"; Write-Output "PID:$($proc.Id)"'''
+            redirect_ps = f' > "{stdout_log}" 2> "{stderr_log}"'
         elif stdout_log:
-            # PowerShell requires different files for stdout/stderr, so redirect stderr to separate file
+            # Keep the same same-file workaround as before: two files, not one
             stderr_path = stdout_log.replace('.log', '_err.log') if '.log' in stdout_log else stdout_log + '_err'
-            script_content = f'''{decode_stmt}; $proc = Start-Process -FilePath "cmd.exe" -ArgumentList ('/c ' + $__cmdText) -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_path}"; Write-Output "PID:$($proc.Id)"'''
+            redirect_ps = f' > "{stdout_log}" 2> "{stderr_path}"'
         else:
-            # No logging - but still need different files for NUL workaround
-            # Use cmd.exe's internal redirection: command >nul 2>&1
-            script_content = f'''{decode_stmt}; $proc = Start-Process -FilePath "cmd.exe" -ArgumentList ('/c ' + $__cmdText + ' >nul 2>&1') -PassThru -WindowStyle Hidden; Write-Output "PID:$($proc.Id)"'''
+            redirect_ps = ' >nul 2>&1'
+        # Embed as a PS single-quoted literal - double quotes need no escaping there,
+        # only a stray literal single quote (e.g. in a log path) would need doubling.
+        redirect_ps = redirect_ps.replace("'", "''")
+
+        script_content = (
+            f"{decode_stmt}; "
+            f"$__fullCmd = 'cmd.exe /c ' + $__cmdText + '{redirect_ps}'; "
+            f"$__result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+            f"-Arguments @{{CommandLine = $__fullCmd}}; "
+            f"if ($__result.ReturnValue -eq 0) {{ Write-Output \"PID:$($__result.ProcessId)\" }} "
+            f"else {{ Write-Error \"Win32_Process Create failed with code $($__result.ReturnValue)\"; exit 1 }}"
+        )
 
         # Encode the script for -EncodedCommand (requires UTF-16LE encoding)
         script_bytes = script_content.encode('utf-16-le')
@@ -511,4 +536,22 @@ class SshTaskOperations_Win(SshTaskOperations):
         return powershell_encoded_command(f"& taskkill /F /T /PID {pid}")
 
     def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
-        return powershell_encoded_command(f"Move-Item -Path '{old_path}' -Destination '{new_path}' -Force")
+        # The task may still be writing to (and holding an open handle on) the
+        # placeholder-named log file the instant this runs - now that background
+        # tasks correctly survive independently (see _build_launch_script), a
+        # still-running task keeps the file open, and Windows rejects a rename
+        # while another process holds it open (unlike POSIX rename, which
+        # succeeds regardless of open handles). Retry briefly to catch
+        # short-lived tasks that have already finished and released the file;
+        # a genuinely still-running task will keep failing until it exits,
+        # which is fine - launch_task() already tolerates rename failure (the
+        # placeholder name stays valid, just less pretty).
+        script = (
+            "$__ok = $false; "
+            "for ($__i = 0; $__i -lt 5 -and -not $__ok; $__i++) { "
+            f"try {{ Move-Item -Path '{old_path}' -Destination '{new_path}' -Force -ErrorAction Stop; $__ok = $true }} "
+            "catch { Start-Sleep -Milliseconds 300 } "
+            "}; "
+            "if (-not $__ok) { exit 1 }"
+        )
+        return powershell_encoded_command(script)
