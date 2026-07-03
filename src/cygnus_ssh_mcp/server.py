@@ -904,9 +904,14 @@ async def ssh_cmd_check_status(
     - 'killed': the remote process was confirmed terminated (e.g. runtime_timeout killed it,
       or a prior ssh_cmd_kill call found it already gone) - exit_code is not known, but there
       is nothing left to wait for. Treat this as terminal, same as 'completed'.
+    - 'completed_exit_code_unknown': monitoring previously stopped (e.g. an io_timeout) without
+      a confirmed exit code, but a live check now confirms the remote process is no longer
+      running - it finished on its own sometime after monitoring stopped. There is nothing left
+      to wait for (terminal, same as 'completed'), but the real exit code was never observed and
+      cannot be recovered - only its output (via ssh_cmd_output) is available.
     - 'unknown_still_running': monitoring previously stopped (e.g. an io_timeout on the original
-      call) without a confirmed exit code or kill. The remote command was not killed and is very
-      likely still running - this is not a failure, just call this tool again to keep checking.
+      call) and a live check confirms the remote command is still actually running. Not a
+      failure - call this tool again to keep checking.
     - 'not_found': the handle_id doesn't exist (may be from a previous connection - handles don't
       survive reconnects, but background task PIDs from ssh_task_launch do).
 
@@ -949,9 +954,23 @@ async def ssh_cmd_check_status(
                     # already gone - exit_code is unknown but nothing is left to wait for.
                     status = 'killed'
                 elif monitoring_ended:
-                    # e.g. a prior io_timeout - we stopped watching, but the remote
-                    # command was never killed and is very likely still running.
-                    status = 'unknown_still_running'
+                    # e.g. a prior io_timeout - we stopped watching, but that doesn't
+                    # mean the remote command is still running. Live-check via
+                    # task_status(pid) instead of assuming 'still running' forever -
+                    # the same cross-platform PID-liveness check ssh_cmd_kill already
+                    # uses. If it's confirmed gone, this is terminal (nothing left to
+                    # wait for), even though the real exit code was never observed.
+                    pid = handle_info.get('pid')
+                    live_status = None
+                    if pid:
+                        try:
+                            live_status = mcp.ssh_client.task_status(pid)
+                        except Exception as task_status_err:
+                            logger.debug(f"Live task_status check failed for pid {pid}: {task_status_err}")
+                    if live_status == 'exited':
+                        status = 'completed_exit_code_unknown'
+                    else:
+                        status = 'unknown_still_running'
                 else:
                     status = 'running'
 
@@ -965,7 +984,7 @@ async def ssh_cmd_check_status(
                     'output_available': True,
                     'output_lines': len(output) if output else 0
                 }
-                if status not in ('completed', 'killed'):
+                if status not in ('completed', 'killed', 'completed_exit_code_unknown'):
                     result['next_step'] = (
                         "Not confirmed complete. Call ssh_cmd_check_status again to keep polling, "
                         "or ssh_cmd_output(handle_id) to inspect output collected so far. Do not rerun this command."

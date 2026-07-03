@@ -507,6 +507,7 @@ class SshRunOperations_Win(SshRunOperations):
 
     PID_MARKER = '___SSH_MCP_PID___'
     PID_CAPTURE_TIMEOUT = 8.0  # PowerShell + .NET Process startup is slower than a bash printf
+    EXIT_CODE_MARKER = '___SSH_MCP_EXITCODE___'
 
     # Placeholders substituted via str.replace() in _wrap_for_pid_capture - avoids
     # fighting Python f-string brace-escaping against PowerShell's own {} script blocks.
@@ -517,6 +518,14 @@ class SshRunOperations_Win(SshRunOperations):
     # (verified live 2026-07-03: it silently mis-parsed into literally echoing the
     # argument text instead of running it) - decoding a base64 blob at runtime sidesteps
     # that whole class of bug, since base64's alphabet has no shell/PS metacharacters.
+    #
+    # The exit-code marker (printed right before `exit $proc.ExitCode`) exists because
+    # the channel's own exit status cannot be trusted on Windows: Win32-OpenSSH flattens
+    # a nested child process's real exit code to 1 whenever DefaultShell=cmd.exe wraps
+    # the exec payload (verified live 2026-07-03, see planning docs) - and that's exactly
+    # what this wrapper is from OpenSSH's point of view, a nested child reporting its own
+    # code via `exit $proc.ExitCode`. _handle_command_completion recovers the real value
+    # from this marker instead of chan.recv_exit_status().
     _PID_CAPTURE_SCRIPT_TEMPLATE = r"""
 $ErrorActionPreference = 'Stop'
 $__cmdText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('__CMD_B64__'))
@@ -544,6 +553,8 @@ while (-not $proc.HasExited) {
 }
 $proc.WaitForExit()
 Start-Sleep -Milliseconds 150
+[Console]::Error.WriteLine('__EXITCODE_MARKER__' + $proc.ExitCode)
+[Console]::Error.Flush()
 exit $proc.ExitCode
 """
 
@@ -567,6 +578,7 @@ exit $proc.ExitCode
         script = self._PID_CAPTURE_SCRIPT_TEMPLATE
         script = script.replace('__CMD_B64__', cmd_b64)
         script = script.replace('__PID_MARKER__', self.PID_MARKER)
+        script = script.replace('__EXITCODE_MARKER__', self.EXIT_CODE_MARKER)
         return powershell_encoded_command(script)
 
     def _capture_pid(self, chan, handle):
@@ -629,6 +641,72 @@ exit $proc.ExitCode
         if stderr_buf:
             for line in stderr_buf.splitlines(keepends=True):
                 handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+
+    def _extract_and_strip_exit_code_marker(self, handle) -> Optional[int]:
+        """Find the real exit code marker in the handle's captured stderr, remove
+        that line so it never reaches the user, and return the parsed value - or
+        None if the marker isn't present (e.g. the wrapper crashed before reaching
+        it, in which case the caller should fall back to the channel exit status).
+        """
+        for line in list(handle._stderr_buf):
+            stripped = line.strip()
+            if self.EXIT_CODE_MARKER in stripped:
+                code_str = stripped[stripped.index(self.EXIT_CODE_MARKER) + len(self.EXIT_CODE_MARKER):].strip()
+                if code_str.lstrip('-').isdigit():
+                    handle._stderr_buf.remove(line)
+                    return int(code_str)
+        return None
+
+    def _handle_command_completion(self, chan, handle, sudo_pwd_attempted):
+        """Handle successful command completion.
+
+        Overridden from the base implementation: chan.recv_exit_status() cannot be
+        trusted on Windows. Verified live 2026-07-03 (see planning docs) that
+        Win32-OpenSSH flattens a nested child process's real exit code to 1
+        whenever DefaultShell=cmd.exe wraps the exec payload - and that's exactly
+        what our own PowerShell wrapper is from OpenSSH's point of view, a nested
+        child reporting its own code via `exit $proc.ExitCode`. The wrapper prints
+        the real exit code to stderr with a marker right before exiting; this
+        recovers it from there instead, falling back to the (unreliable) channel
+        value only if the marker never arrives at all.
+        """
+        channel_exit_code = chan.recv_exit_status()
+        marker_exit_code = self._extract_and_strip_exit_code_marker(handle)
+
+        if marker_exit_code is not None:
+            handle.exit_code = marker_exit_code
+            if marker_exit_code != channel_exit_code:
+                self.logger.info(
+                    f"Channel exit status ({channel_exit_code}) differs from the real "
+                    f"exit code recovered via marker ({marker_exit_code}) - using the "
+                    f"marker value (known Win32-OpenSSH nested-exit-code flattening bug)"
+                )
+        else:
+            handle.exit_code = channel_exit_code
+            self.logger.warning(
+                f"Exit code marker not found in stderr - falling back to channel exit "
+                f"status {channel_exit_code}, which is unreliable on Windows"
+            )
+
+        handle.end_ts = datetime.now(UTC)
+        handle.running = False
+        self.logger.info(f"Command finished with exit code {handle.exit_code}")
+
+        if self._is_cwd_invalid(handle):
+            raise CwdNotFound(handle.requested_cwd)
+
+        if handle.requested_cwd is not None:
+            handle.cwd = handle.requested_cwd
+
+        if handle.exit_code != 0:
+            if self._check_sudo_error(handle, sudo_pwd_attempted):
+                pass
+
+            stdout_all = handle.get_full_output()
+            stderr_output = handle.get_full_stderr()
+            raise CommandFailed(handle.exit_code, stdout_all, stderr_output)
+
+        return handle
 
     def _handle_sudo(self, cmd: str) -> tuple:
         """Handle elevation for Windows commands."""

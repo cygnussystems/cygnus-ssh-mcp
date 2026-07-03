@@ -333,7 +333,9 @@ class SshDirectoryOperations(ABC):
         # Check if source exists
         source_check_cmd = f"[ -e {shlex.quote(source)} ] && echo 'exists' || echo 'not_exists'"
         source_check = self.ssh_client.run(source_check_cmd, io_timeout=30, sudo=sudo)
-        source_exists = 'exists' in source_check.last_nonblank()
+        # Exact match, not 'in' - 'not_exists' contains 'exists' as a substring, so a
+        # naive 'exists' in ... check is always True regardless of the real answer.
+        source_exists = source_check.last_nonblank() == 'exists'
 
         if not source_exists:
             self.logger.error(f"Source does not exist: {source}")
@@ -747,7 +749,9 @@ class SshDirectoryOperations(ABC):
         # Check if destination exists and handle overwrite
         check_dest_cmd = f"[ -d {shlex.quote(destination_path)} ] && echo 'exists' || echo 'not_exists'"
         check_handle = self.ssh_client.run(check_dest_cmd, io_timeout=30, sudo=sudo)
-        dest_exists = 'exists' in check_handle.last_nonblank()
+        # Exact match, not 'in' - 'not_exists' contains 'exists' as a substring, so a
+        # naive 'exists' in ... check is always True regardless of the real answer.
+        dest_exists = check_handle.last_nonblank() == 'exists'
 
         if dest_exists and overwrite:
             # Remove existing destination if overwrite is True
@@ -1049,7 +1053,11 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
             # Check if destination exists
             check_dst_cmd = powershell_encoded_command(f"if (Test-Path '{ps_dest}') {{ 'exists' }} else {{ 'not_exists' }}")
             check_dst = self.ssh_client.run(check_dst_cmd, io_timeout=30)
-            dest_exists = 'exists' in check_dst.last_nonblank()
+            # Exact match, not 'in' - 'not_exists' contains 'exists' as a substring, so a
+            # naive 'exists' in ... check is always True regardless of the real answer
+            # (this is exactly what made every Windows move report a false "destination
+            # already exists", verified live 2026-07-03).
+            dest_exists = check_dst.last_nonblank() == 'exists'
 
             if dest_exists and not overwrite:
                 return {'success': False, 'message': f"Destination exists and overwrite not allowed: {destination}"}

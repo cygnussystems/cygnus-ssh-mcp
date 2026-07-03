@@ -739,26 +739,19 @@ async def test_ssh_io_timeout_does_not_misreport_completion(mcp_test_environment
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason=(
-        "Known gap (2026-07-03): once io_timeout fires, the local channel is closed and "
-        "ssh_cmd_check_status never reconnects to observe real completion, so it stays "
-        "'unknown_still_running' forever even though the remote command finishes fine on "
-        "its own (verified independently via a live kill -0 check). Planned fix, in order: "
-        "(1) Windows real PID capture for ssh_cmd_run, then (2) wire ssh_cmd_check_status "
-        "to the existing cross-platform SshClient.task_status(pid) liveness check already "
-        "used by ssh_task_status/ssh_cmd_kill. See "
-        "planning/2026-07-03-session-summary-and-next-steps.md. Remove this xfail once done."
-    ),
-    strict=True
-)
 async def test_ssh_io_timeout_eventually_resolves_to_completed(mcp_test_environment):
-    """Test that ssh_cmd_check_status eventually reports 'completed' once a command that
-    hit io_timeout actually finishes remotely - the promise its own docstring makes
-    ("call this repeatedly... until status='completed'"). Currently false: see xfail reason.
+    """Test that ssh_cmd_check_status eventually reports a terminal status once a command
+    that hit io_timeout actually finishes remotely, instead of 'unknown_still_running'
+    forever - fixed 2026-07-03 by live-checking task_status(pid) when monitoring had
+    stopped without a confirmed exit code (see planning/2026-07-03-session-summary-and-next-steps.md).
+
+    The real exit code is NOT recoverable this way - once io_timeout fires, the local
+    channel is closed and there is no way to retrieve the actual value, only whether the
+    process is still alive. So this resolves to 'completed_exit_code_unknown', not
+    'completed' - a distinct terminal status that's honest about what is and isn't known.
     """
-    print_test_header("Testing io_timeout eventually resolves to completed once the remote command finishes")
-    logger.info("Starting io_timeout eventual-completion test")
+    print_test_header("Testing io_timeout eventually resolves to a terminal status once the remote command finishes")
+    logger.info("Starting io_timeout eventual-resolution test")
 
     async with Client(mcp) as client:
         try:
@@ -773,18 +766,21 @@ async def test_ssh_io_timeout_eventually_resolves_to_completed(mcp_test_environm
             handle_id = result_json['id']
 
             # Wait past the command's real remaining runtime, then check - it should
-            # now genuinely be reported as completed with the real exit code.
+            # now be reported as a terminal status, not 'unknown_still_running' forever.
             status_result = await client.call_tool("ssh_cmd_check_status", {
                 "handle_id": handle_id,
                 "wait_seconds": 6.0
             })
             status_json = json.loads(extract_result_text(status_result))
-            assert status_json['status'] == 'completed', (
-                f"Expected 'completed' after the command genuinely finished, got {status_json['status']!r}"
+            assert status_json['status'] == 'completed_exit_code_unknown', (
+                f"Expected 'completed_exit_code_unknown' after the command genuinely "
+                f"finished, got {status_json['status']!r}"
             )
-            assert status_json['exit_code'] == 0
+            assert status_json['exit_code'] is None, (
+                "The real exit code was never observed and should not be fabricated"
+            )
 
-            logger.info("io_timeout eventually resolved to completed")
+            logger.info("io_timeout eventually resolved to a terminal status")
         except Exception as e:
             logger.error(f"Error in io_timeout eventual-completion test: {e}")
             raise
