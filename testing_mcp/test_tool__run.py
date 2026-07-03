@@ -7,7 +7,7 @@ from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
     mcp_test_environment, extract_result_text,
     echo_command, multiline_echo_command, failing_command, get_expected_exit_code_error,
-    sleep_then_echo, long_running_command, skip_on_windows
+    sleep_then_echo, long_running_command, skip_on_windows, windows_only
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -491,6 +491,10 @@ async def test_ssh_cmd_run_captures_real_remote_pid(mcp_test_environment):
     command, since 'kill <pid>' targeted a PID that didn't exist remotely - and it went
     undetected because nothing checked the pid's value against the shell's own
     self-reported PID, only that *a* number was present.
+
+    Linux/macOS-only: relies on $$ self-reporting, a bash/sh builtin with no Windows
+    equivalent the wrapped command can read (see test_ssh_cmd_run_windows_pid_is_real_and_live
+    for the Windows counterpart, which proves realness/liveness instead of exact self-match).
     """
     print_test_header("Testing that ssh_cmd_run captures a real remote PID")
     logger.info("Starting real PID capture test")
@@ -548,7 +552,6 @@ async def test_ssh_cmd_run_captures_real_remote_pid(mcp_test_environment):
 
 
 @pytest.mark.asyncio
-@skip_on_windows
 async def test_ssh_runtime_timeout_kills_remote_process(mcp_test_environment):
     """Test that runtime_timeout actually terminates the remote process.
 
@@ -558,7 +561,16 @@ async def test_ssh_runtime_timeout_kills_remote_process(mcp_test_environment):
     channel/process regardless of what else is running. That test alone did not catch
     runtime_timeout's kill silently failing 100% of the time due to a fake PID (see
     test_ssh_cmd_run_captures_real_remote_pid). This test instead independently asks the
-    remote host directly whether the specific killed PID is still alive.
+    remote host directly whether the specific killed PID is still alive, via the
+    cross-platform ssh_task_status tool (backed by the same SshClient.task_status(pid)
+    check ssh_cmd_kill already uses) rather than a platform-specific shell command.
+
+    On Windows this also covers the process-tree-orphan bug found 2026-07-03: the PID
+    ssh_cmd_run reports is a cmd.exe *wrapper* process, not the real workload underneath
+    it (cmd.exe /c <command> spawns the real work as a child rather than replacing
+    itself - there's no exec() on Windows). Stop-Process on just the wrapper PID left
+    the real process running as an orphan; runtime_timeout's kill now uses taskkill
+    /F /T (tree kill) instead, verified live to actually terminate the whole tree.
     """
     print_test_header("Testing that runtime_timeout actually kills the remote process")
     logger.info("Starting runtime_timeout actual-kill test")
@@ -580,15 +592,13 @@ async def test_ssh_runtime_timeout_kills_remote_process(mcp_test_environment):
             # Give the kill signal a moment to actually land on the remote host.
             await asyncio.sleep(1.0)
 
-            # Independent check: ask the remote host directly whether that PID is still alive.
-            check_result = await client.call_tool("ssh_cmd_run", {
-                "command": f"kill -0 {pid} 2>/dev/null && echo STILL_ALIVE || echo GONE",
-                "io_timeout": 10.0
-            })
-            check_json = json.loads(extract_result_text(check_result))
-            assert "GONE" in check_json['output'], (
+            # Independent, cross-platform check: ask the remote host directly whether
+            # that PID is still alive.
+            task_status_result = await client.call_tool("ssh_task_status", {"pid": pid})
+            task_status_json = json.loads(extract_result_text(task_status_result))
+            assert task_status_json['status'] == 'exited', (
                 f"Remote process {pid} is still alive after runtime_timeout - the kill "
-                f"did not actually work: {check_json['output']!r}"
+                f"did not actually work: {task_status_json}"
             )
 
             # ssh_cmd_check_status should also reflect this as a terminal state, not
@@ -610,6 +620,65 @@ async def test_ssh_runtime_timeout_kills_remote_process(mcp_test_environment):
         finally:
             await disconnect_ssh(client)
             logger.info("SSH connection for runtime_timeout kill test cleaned up")
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+@windows_only
+async def test_ssh_cmd_run_windows_pid_is_real_and_live(mcp_test_environment):
+    """Test that ssh_cmd_run's reported 'pid' on Windows is a real Windows PID.
+
+    Windows counterpart to test_ssh_cmd_run_captures_real_remote_pid: Windows has no
+    $$-equivalent a wrapped command can read to self-report its own PID (cmd.exe /c
+    <command> spawns the command as a child rather than replacing itself), so instead
+    of an exact self-match, this proves realness via ssh_task_status: the pid must
+    resolve to 'exited' (a process that genuinely existed and finished), not
+    'invalid'/'error'. A paramiko-channel-id fake PID (the pre-fix behavior) is a tiny
+    sequential local counter with no relationship to any remote process - Get-Process
+    on it would essentially never resolve to a real, since-exited Windows process.
+
+    This checks status only AFTER completion, not mid-flight: ssh_cmd_run's handler
+    calls the blocking SSH monitoring loop synchronously with no await, which
+    monopolizes the single asyncio event loop for the whole command duration -
+    verified live (2026-07-03) that no other MCP tool call, even from a second,
+    independent Client(mcp) session, gets a response until it returns. Mid-flight
+    liveness + live streaming + taskkill tree-kill are already verified independently
+    via a real-thread/raw-paramiko script (see planning notes) bypassing this
+    constraint entirely; this test covers what's actually achievable through the MCP
+    layer's single-flight-per-command behavior.
+    """
+    print_test_header("Testing that ssh_cmd_run's Windows PID is real")
+    logger.info("Starting Windows real-PID test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": long_running_command(2, "windows pid liveness done"),
+                "io_timeout": 15.0
+            })
+            result_json = json.loads(extract_result_text(run_result))
+            assert result_json['status'] == 'success', f"Unexpected status: {result_json}"
+            pid = result_json['pid']
+            assert pid, "No pid captured for the command"
+
+            post_status = await client.call_tool("ssh_task_status", {"pid": pid})
+            post_json = json.loads(extract_result_text(post_status))
+            assert post_json['status'] == 'exited', (
+                f"pid {pid} should be reported as exited - a real Windows process that "
+                f"existed and finished - got: {post_json} (a fake channel-id pid from "
+                f"the pre-fix bug would essentially never satisfy this)"
+            )
+
+            logger.info("Windows real PID confirmed to have genuinely existed and exited")
+        except Exception as e:
+            logger.error(f"Error in Windows PID liveness test: {e}")
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for Windows PID liveness test cleaned up")
 
     print_test_footer()
 

@@ -451,22 +451,33 @@ class SshTaskOperations_Win(SshTaskOperations):
         # We don't actually use a script file anymore, but keep path format for log naming
         script_path = f"powershell_direct_{timestamp}"
 
-        # Escape the command for cmd.exe's /c argument
-        ps_escaped_cmd = cmd.replace('"', '\\"')
+        # Base64-encode the raw command and decode it at runtime instead of embedding
+        # escaped text - a command containing its own nested quoting (e.g. 'powershell
+        # -Command "Start-Sleep ...; Write-Output \'x\'"') silently mis-parses under a
+        # naive '"' -> '\"' escape (verified live 2026-07-03: it corrupted the argument
+        # into something cmd.exe misinterpreted instead of erroring loudly). Decoding a
+        # base64 blob at runtime sidesteps escaping entirely - its alphabet has no
+        # shell/PS metacharacters. Same fix as SshRunOperations_Win._wrap_for_pid_capture
+        # in ops/run.py.
+        cmd_b64 = base64.b64encode(cmd.encode('utf-8')).decode('ascii')
+        decode_stmt = (
+            f"$__cmdText = [System.Text.Encoding]::UTF8.GetString("
+            f"[System.Convert]::FromBase64String('{cmd_b64}'))"
+        )
 
         # Build the PowerShell script content
         # Use -WindowStyle Hidden for completely detached execution
         # Note: Start-Process doesn't allow stdout and stderr to be the same file
         if stdout_log and stderr_log and stdout_log != stderr_log:
-            script_content = f'''$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_log}"; Write-Output "PID:$($proc.Id)"'''
+            script_content = f'''{decode_stmt}; $proc = Start-Process -FilePath "cmd.exe" -ArgumentList ('/c ' + $__cmdText) -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_log}"; Write-Output "PID:$($proc.Id)"'''
         elif stdout_log:
             # PowerShell requires different files for stdout/stderr, so redirect stderr to separate file
             stderr_path = stdout_log.replace('.log', '_err.log') if '.log' in stdout_log else stdout_log + '_err'
-            script_content = f'''$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd}" -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_path}"; Write-Output "PID:$($proc.Id)"'''
+            script_content = f'''{decode_stmt}; $proc = Start-Process -FilePath "cmd.exe" -ArgumentList ('/c ' + $__cmdText) -PassThru -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_path}"; Write-Output "PID:$($proc.Id)"'''
         else:
             # No logging - but still need different files for NUL workaround
             # Use cmd.exe's internal redirection: command >nul 2>&1
-            script_content = f'''$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c {ps_escaped_cmd} >nul 2>&1" -PassThru -WindowStyle Hidden; Write-Output "PID:$($proc.Id)"'''
+            script_content = f'''{decode_stmt}; $proc = Start-Process -FilePath "cmd.exe" -ArgumentList ('/c ' + $__cmdText + ' >nul 2>&1') -PassThru -WindowStyle Hidden; Write-Output "PID:$($proc.Id)"'''
 
         # Encode the script for -EncodedCommand (requires UTF-16LE encoding)
         script_bytes = script_content.encode('utf-16-le')
@@ -487,13 +498,17 @@ class SshTaskOperations_Win(SshTaskOperations):
         )
 
     def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
-        # Windows doesn't have signals, but we can simulate:
-        # signal 15 (TERM) = normal Stop-Process
-        # signal 9 (KILL) = Stop-Process -Force
-        if signal == 9:
-            return powershell_encoded_command(f"Stop-Process -Id {pid} -Force -ErrorAction SilentlyContinue")
-        else:
-            return powershell_encoded_command(f"Stop-Process -Id {pid} -ErrorAction SilentlyContinue")
+        # Windows doesn't have signals, but we can simulate TERM vs KILL with
+        # taskkill's /F flag. Both use /T (tree kill): every PID we hand out
+        # (ssh_task_launch, ssh_cmd_run's real-PID capture) is a cmd.exe or
+        # powershell.exe WRAPPER process, not the actual workload - cmd.exe /c
+        # <command> launches the real work as a child and waits on it rather
+        # than replacing itself (no exec() on Windows), so Stop-Process on just
+        # the wrapper PID leaves the real process running as an orphan. Verified
+        # live 2026-07-03: Stop-Process alone left a spawned ping.exe running
+        # after its cmd.exe wrapper was confirmed killed; taskkill /F /T killed
+        # the whole tree (wrapper + all descendants) in one call.
+        return powershell_encoded_command(f"& taskkill /F /T /PID {pid}")
 
     def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
         return powershell_encoded_command(f"Move-Item -Path '{old_path}' -Destination '{new_path}' -Force")

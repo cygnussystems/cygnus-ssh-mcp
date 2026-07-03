@@ -4,6 +4,7 @@ import select
 import shlex
 import logging
 import socket
+import base64
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional, Self
@@ -12,6 +13,7 @@ from cygnus_ssh_mcp.models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
     CommandFailed, SudoRequired, SshError, BusyError, CwdNotFound
 )
+from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 
 
 class SshRunOperations(ABC):
@@ -502,6 +504,131 @@ class SshRunOperations_Linux(SshRunOperations):
 
 class SshRunOperations_Win(SshRunOperations):
     """Windows implementation of command execution using PowerShell."""
+
+    PID_MARKER = '___SSH_MCP_PID___'
+    PID_CAPTURE_TIMEOUT = 8.0  # PowerShell + .NET Process startup is slower than a bash printf
+
+    # Placeholders substituted via str.replace() in _wrap_for_pid_capture - avoids
+    # fighting Python f-string brace-escaping against PowerShell's own {} script blocks.
+    # __CMD_B64__ is base64 of the raw command's UTF-8 bytes, decoded at runtime -
+    # NOT string-escaped/interpolated into the script text. A command containing its
+    # own nested quoting (e.g. 'powershell -Command "Start-Sleep ...; Write-Output
+    # ...'x'..."') cannot survive being escaped-and-embedded as PS/cmd.exe literal text
+    # (verified live 2026-07-03: it silently mis-parsed into literally echoing the
+    # argument text instead of running it) - decoding a base64 blob at runtime sidesteps
+    # that whole class of bug, since base64's alphabet has no shell/PS metacharacters.
+    _PID_CAPTURE_SCRIPT_TEMPLATE = r"""
+$ErrorActionPreference = 'Stop'
+$__cmdText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('__CMD_B64__'))
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = 'cmd.exe'
+$psi.Arguments = '/c ' + $__cmdText
+$psi.UseShellExecute = $false
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError = $true
+$psi.CreateNoWindow = $true
+$proc = New-Object System.Diagnostics.Process
+$proc.StartInfo = $psi
+$proc.EnableRaisingEvents = $true
+$stdoutAction = { if ($EventArgs.Data -ne $null) { [Console]::Out.WriteLine($EventArgs.Data) } }
+$stderrAction = { if ($EventArgs.Data -ne $null) { [Console]::Error.WriteLine($EventArgs.Data) } }
+Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -Action $stdoutAction | Out-Null
+Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -Action $stderrAction | Out-Null
+[void]$proc.Start()
+[Console]::Error.WriteLine('__PID_MARKER__' + $proc.Id)
+[Console]::Error.Flush()
+$proc.BeginOutputReadLine()
+$proc.BeginErrorReadLine()
+while (-not $proc.HasExited) {
+    Start-Sleep -Milliseconds 50
+}
+$proc.WaitForExit()
+Start-Sleep -Milliseconds 150
+exit $proc.ExitCode
+"""
+
+    def _wrap_for_pid_capture(self, cmd: str) -> str:
+        """Spawn cmd's real child process via System.Diagnostics.Process (not
+        Start-Process, which only supports file-based redirection) so output can
+        still stream live while exposing a real Windows PID - needed for
+        runtime_timeout/ssh_cmd_kill to signal the right process. Always invoked
+        via 'powershell -EncodedCommand' (see ps_encode.py) so this works
+        regardless of whether the SSH server's DefaultShell is cmd.exe or
+        PowerShell, and regardless of anything in cmd itself.
+
+        Streaming caveat: PowerShell only runs Process's OutputDataReceived/
+        ErrorDataReceived -Action handlers while the engine is idle, which a
+        blocking WaitForExit() call up front would prevent - so this polls
+        HasExited in a sleep loop instead, matching the standard PowerShell
+        idiom for combining Register-ObjectEvent with a synchronous process wait.
+        """
+        cmd_b64 = base64.b64encode(cmd.encode('utf-8')).decode('ascii')
+
+        script = self._PID_CAPTURE_SCRIPT_TEMPLATE
+        script = script.replace('__CMD_B64__', cmd_b64)
+        script = script.replace('__PID_MARKER__', self.PID_MARKER)
+        return powershell_encoded_command(script)
+
+    def _capture_pid(self, chan, handle):
+        """Capture the real remote Windows PID via the marker _wrap_for_pid_capture
+        prints to stderr right after starting the child process, instead of
+        paramiko's local channel id. Falls back to the channel id (degraded -
+        kill/status by PID won't target the right process, but the call still
+        proceeds) if the marker doesn't arrive within PID_CAPTURE_TIMEOUT.
+        """
+        handle.pid = chan.get_id()  # fallback default; overwritten below if marker found
+        stderr_buf = ''
+        stdout_chunks = []
+        deadline = time.monotonic() + self.PID_CAPTURE_TIMEOUT
+        marker_found = False
+
+        try:
+            while time.monotonic() < deadline and not marker_found:
+                if chan.exit_status_ready() and not chan.recv_ready() and not chan.recv_stderr_ready():
+                    break
+                readable, _, _ = select.select([chan], [], [], 0.1)
+                if not readable:
+                    continue
+                if chan.recv_ready():
+                    data = chan.recv(4096)
+                    if data:
+                        stdout_chunks.append(data)
+                if chan.recv_stderr_ready():
+                    data_stderr = chan.recv_stderr(4096)
+                    if data_stderr:
+                        stderr_buf += data_stderr.decode('utf-8', errors='replace')
+                        while '\n' in stderr_buf and not marker_found:
+                            line, _, rest = stderr_buf.partition('\n')
+                            if self.PID_MARKER in line:
+                                pid_str = line[line.index(self.PID_MARKER) + len(self.PID_MARKER):].strip()
+                                if pid_str.isdigit():
+                                    handle.pid = int(pid_str)
+                                    marker_found = True
+                                stderr_buf = rest
+                            else:
+                                # Not the marker line (e.g. PowerShell startup noise) -
+                                # keep it, flush to the handle's stderr buffer below.
+                                handle.add_stderr_output(line + '\n')
+                                stderr_buf = rest
+        except Exception as e:
+            self.logger.warning(f"Error during PID marker capture: {e}")
+
+        if marker_found:
+            self.logger.info(f"Captured real remote PID: {handle.pid}")
+        else:
+            self.logger.warning(
+                f"PID marker not received within {self.PID_CAPTURE_TIMEOUT}s, falling back to "
+                f"channel id {handle.pid} (kill/status by PID will not target the right process)"
+            )
+
+        # Flush whatever else was already read into the handle's buffers
+        if stdout_chunks:
+            decoded_data = b''.join(stdout_chunks).decode('utf-8', errors='replace')
+            for line in decoded_data.splitlines(keepends=True):
+                handle.add_output(line if line.endswith('\n') else line + '\n')
+        if stderr_buf:
+            for line in stderr_buf.splitlines(keepends=True):
+                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
 
     def _handle_sudo(self, cmd: str) -> tuple:
         """Handle elevation for Windows commands."""

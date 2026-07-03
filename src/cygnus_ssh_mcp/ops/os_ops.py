@@ -488,7 +488,7 @@ class SshOsOperations_Mac(SshOsOperations):
           echo "USER:$(whoami)"
           echo "CWD:$(pwd)"
           echo "TIME:$(date -u +%Y-%m-%dT%H:%M:%S%z)"
-          echo "OS_TYPE:$(uname -s)"
+          echo "OS_TYPE:macos"
         '
         """
 
