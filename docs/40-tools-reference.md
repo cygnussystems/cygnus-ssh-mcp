@@ -97,14 +97,55 @@ Check if sudo access is available.
 
 ## Host Configuration (`ssh_host_*`)
 
+### ssh_host_use_config
+Switch which host configuration TOML file all `ssh_host_*`/`ssh_conn_add_host`
+tools operate against, for the rest of the session (not just one call) - the same
+"one active thing at a time" model `ssh_conn_connect` uses for SSH connections,
+applied to host config files instead. The alternate file must already exist (this
+does not auto-create a missing file, unlike the server's own default config file).
+Omit `config_path` to switch back to the default.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `config_path` | str | No | None | Path to an alternate host config TOML file. Omit/`""` to revert to the default |
+
+**Returns:** `{'status': 'success'/'error', 'message'?, 'config_path'?, 'is_default'?, 'host_count'?, 'error'?}`
+
+---
+
 ### ssh_host_list
-List all configured hosts.
+List all configured hosts from whichever config file is currently active. Never
+contains passwords, sudo passwords, or key passphrases - this is the only correct
+way to see what's configured; never read the host config TOML file directly.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | (none) | - | - | - | - |
 
-**Returns:** Dictionary with hosts, count, and config file path
+**Returns:** `{'hosts': [{'key', 'alias'?, 'description'?}, ...], 'config_path'}`
+
+---
+
+### ssh_host_update
+Change one or more fields on an existing host (rotate a password, change the port,
+etc.) without needing to read or hand-edit the config file. Only the fields you pass
+are changed; pass an empty string `""` to explicitly clear a field. Prefer this over
+`ssh_host_remove` + `ssh_conn_add_host`, which loses every field you don't
+explicitly resupply.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `host_name` | str | Yes | - | Host key (`user@host`) or alias |
+| `password` | str | No | None | New password. Omit to keep unchanged, `""` to clear |
+| `port` | int | No | None | New SSH port. Omit to keep unchanged |
+| `sudo_password` | str | No | None | New sudo password. Omit to keep unchanged, `""` to clear |
+| `alias` | str | No | None | New alias. Omit to keep unchanged, `""` to clear |
+| `description` | str | No | None | New description. Omit to keep unchanged, `""` to clear |
+| `keyfile` | str | No | None | New SSH key path. Omit to keep unchanged, `""` to clear |
+| `key_passphrase` | str | No | None | New key passphrase. Omit to keep unchanged, `""` to clear |
+
+**Returns:** Operation status dictionary, including `updated_fields` (list of fields
+actually changed)
 
 ---
 

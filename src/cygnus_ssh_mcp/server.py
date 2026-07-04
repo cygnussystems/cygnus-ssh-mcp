@@ -42,6 +42,12 @@ def parse_args():
 # This will be re-initialized with CLI args if main() is called
 host_manager = SshHostManager()
 
+# The "default" host manager for the running server - what ssh_host_use_config()
+# reverts to. Kept in sync with `host_manager` whenever the default itself changes
+# (i.e. in main(), if --config was passed), but NOT when ssh_host_use_config()
+# points `host_manager` at an ad-hoc alternate file for the rest of the session.
+_default_host_manager = host_manager
+
 
 # ===================
 # Logging Setup
@@ -273,7 +279,7 @@ async def ssh_conn_add_host(
     Add a new host configuration to the host configuration TOML file. Despite the name,
     this does NOT update an existing entry - if the `user@host` key already exists,
     this returns an error response (`{'status': 'error', ...}`, not a raised
-    exception) rather than overwriting it.
+    exception) rather than overwriting it; use ssh_host_update for that instead.
 
     Before calling this, check 'ssh_host_list' - the host you want may already be
     configured, in which case you can call 'ssh_conn_connect' directly without adding
@@ -287,10 +293,20 @@ async def ssh_conn_add_host(
     `sudo_password` unless the server has passwordless sudo configured.
 
     Warn the user that credentials will be visible to the LLM and that it would be better
-    for the user to add the host directly in the host configuration file.
+    for the user to add the host directly in the host configuration file. That said,
+    never read this file yourself (directly or via any file/shell tool) to look up,
+    verify, or copy existing hosts' credentials - ssh_host_list, ssh_conn_add_host,
+    ssh_host_update, ssh_host_remove, and ssh_host_use_config are the only tools you
+    should need for host management, and none of them ever expose a stored
+    password/passphrase back to you. This tool always adds to whichever config file
+    is currently active (the server's default unless ssh_host_use_config was called
+    to switch to an alternate one - check ssh_host_list's `config_path` if unsure).
 
-    The host config file is a TOML file likely in the user's home directory.
-    The configuration will be stored under a ["user@host"] key.
+    The host config file is `~/.mcp_ssh_hosts.toml` if it exists, otherwise
+    `./mcp_ssh_hosts.toml` in the server's working directory - it stores every host's
+    password, sudo password, and key passphrase in plaintext, which is exactly why the
+    tools above exist instead of editing it by hand. The configuration is stored under
+    a ["user@host"] key.
 
     Optional fields:
     - alias: A short name for connecting (e.g., 'prod' instead of 'deploy@production.example.com')
@@ -380,6 +396,120 @@ async def ssh_conn_add_host(
 
 
 @mcp.tool()
+async def ssh_host_update(
+    host_name: Annotated[str, Field(description="The 'user@hostname' key or alias of the host to update")],
+    password: Annotated[Optional[str], Field(description="New password. Omit to leave unchanged; pass an empty string to clear it (e.g. when switching to key-only auth)", secret=True)] = None,
+    port: Annotated[Optional[int], Field(description="New SSH port. Omit to leave unchanged", ge=1, le=65535)] = None,
+    sudo_password: Annotated[Optional[str], Field(description="New sudo password. Omit to leave unchanged; pass an empty string to clear it", secret=True)] = None,
+    alias: Annotated[Optional[str], Field(description="New alias. Omit to leave unchanged; pass an empty string to clear it")] = None,
+    description: Annotated[Optional[str], Field(description="New description. Omit to leave unchanged; pass an empty string to clear it")] = None,
+    keyfile: Annotated[Optional[str], Field(description="New SSH private key path. Omit to leave unchanged; pass an empty string to clear it (e.g. when switching to password-only auth)")] = None,
+    key_passphrase: Annotated[Optional[str], Field(description="New passphrase for the SSH key. Omit to leave unchanged; pass an empty string to clear it", secret=True)] = None
+) -> dict:
+    """
+    Update one or more fields of an existing host configuration - this is the safe way
+    to rotate a password, change a port, or adjust other settings without ever needing
+    to read or hand-edit the host configuration TOML file (which stores every host's
+    credentials in plaintext - never read it directly; this tool, ssh_conn_add_host,
+    ssh_host_remove, and ssh_host_list cover everything you should need).
+
+    Only the fields you pass are changed - any parameter left at its default
+    (omitted/`None`) keeps its current value. To clear a field entirely (e.g. drop a
+    password when switching a host to key-only auth), pass an empty string `""` rather
+    than omitting it. `user`/`host` themselves can't be changed this way (that changes
+    the 'user@host' key identity) - remove and re-add instead if you need that.
+
+    Prefer this over ssh_host_remove + ssh_conn_add_host for adjusting an existing
+    host: remove+re-add loses every field you don't explicitly resupply, since
+    ssh_conn_add_host has no knowledge of the entry it just deleted.
+
+    `host_name` may be either the 'user@hostname' key or a configured alias - resolved
+    the same way as ssh_conn_connect.
+
+    Warn the user that any new password/passphrase value passed here will be visible
+    to the LLM, the same caveat as ssh_conn_add_host.
+
+    Returns:
+        On success: `{'status': 'success', 'message', 'key', 'updated_fields' (list of
+        field names that were actually changed)}`. On failure (the update would leave
+        neither a password nor a keyfile set, or a duplicate alias):
+        `{'status': 'error', 'error': <message>}` - not a raised exception.
+
+    Raises:
+        SshError: If `host_name` doesn't resolve to any configured host (tried as both
+        key and alias).
+    """
+    resolved_key, existing = host_manager.resolve_host(host_name)
+
+    updates = {
+        'password': password,
+        'port': port,
+        'sudo_password': sudo_password,
+        'alias': alias,
+        'description': description,
+        'keyfile': keyfile,
+        'key_passphrase': key_passphrase
+    }
+
+    merged = dict(existing)
+    updated_fields = []
+    for field, value in updates.items():
+        if value is None:
+            continue
+        merged[field] = value if value != '' else None
+        updated_fields.append(field)
+
+    if not updated_fields:
+        return {
+            'status': 'error',
+            'error': 'No fields provided to update - pass at least one of password/port/sudo_password/alias/description/keyfile/key_passphrase'
+        }
+
+    if not merged.get('password') and not merged.get('keyfile'):
+        return {
+            'status': 'error',
+            'error': 'This update would leave the host with neither a password nor a keyfile configured - at least one authentication method must remain'
+        }
+
+    if merged.get('alias'):
+        try:
+            existing_alias_key, _ = host_manager.get_host_by_alias(merged['alias'])
+            if existing_alias_key and existing_alias_key != resolved_key:
+                return {
+                    'status': 'error',
+                    'error': f"Alias '{merged['alias']}' is already in use by host '{existing_alias_key}'"
+                }
+        except SshError as e:
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
+
+    try:
+        host_manager.add_host(
+            user=merged['parsed_user'],
+            host=merged['parsed_host'],
+            port=merged['port'],
+            password=merged.get('password'),
+            sudo_password=merged.get('sudo_password'),
+            alias=merged.get('alias'),
+            description=merged.get('description'),
+            keyfile=merged.get('keyfile'),
+            key_passphrase=merged.get('key_passphrase')
+        )
+    except Exception as e:
+        logger.error(f"Failed to update host configuration for {resolved_key}: {e}")
+        raise
+
+    return {
+        'status': 'success',
+        'message': f"Host configuration for '{resolved_key}' updated.",
+        'key': resolved_key,
+        'updated_fields': updated_fields
+    }
+
+
+@mcp.tool()
 async def ssh_conn_status() -> dict:
     """
     Get essential SSH connection status information.
@@ -437,9 +567,93 @@ async def ssh_conn_host_info() -> dict:
 
 
 @mcp.tool()
+async def ssh_host_use_config(
+    config_path: Annotated[Optional[str], Field(description="Path to an alternate host configuration TOML file to switch to. Omit or pass an empty string to revert to the server's default configuration file")] = None
+) -> dict:
+    """
+    Switch which host configuration file ssh_host_list, ssh_conn_connect,
+    ssh_conn_add_host, ssh_host_update, and ssh_host_remove all operate against, for
+    the rest of this session (or until you call this again) - not just for one call.
+    This is the same "one active thing at a time" model ssh_conn_connect uses for SSH
+    connections, applied to host configuration files instead; the two are completely
+    independent (switching config files doesn't affect any current SSH connection,
+    and vice versa).
+
+    Use this when you want to browse or use hosts from a different TOML file than
+    the server's default - e.g. a separate list of hosts for a different
+    environment/project. The alternate file must already exist and be a valid host
+    configuration TOML file (see ssh_conn_add_host's docstring for the format) - this
+    deliberately does NOT auto-create a missing file the way the server's own default
+    config file is created on first run, since an LLM-supplied path with a typo
+    should fail loudly rather than silently create a stray file somewhere.
+
+    Omit `config_path` (or pass `""`) to switch back to the server's original default
+    configuration file.
+
+    ssh_host_list's response always includes `config_path` showing whichever file is
+    currently active, so you can check before mutating anything with
+    ssh_conn_add_host/ssh_host_update/ssh_host_remove.
+
+    Returns:
+        On success: `{'status': 'success', 'message', 'config_path', 'is_default'
+        (bool), 'host_count'}`. On failure (path doesn't exist, path is a directory,
+        or the file fails to parse as valid host config TOML):
+        `{'status': 'error', 'error': <message>}` - not a raised exception.
+    """
+    global host_manager
+
+    if not config_path:
+        host_manager = _default_host_manager
+    else:
+        resolved_path = Path(config_path).expanduser()
+        if not resolved_path.exists():
+            return {
+                'status': 'error',
+                'error': f"Path '{resolved_path}' does not exist - this tool will not "
+                         f"auto-create an alternate config file the way the server's "
+                         f"own default one is created on first run. Create the file "
+                         f"first (or point at an existing one) and try again."
+            }
+        if resolved_path.is_dir():
+            return {
+                'status': 'error',
+                'error': f"Path '{resolved_path}' is a directory, not a file"
+            }
+
+        candidate = SshHostManager(config_path=resolved_path)
+        try:
+            host_count = len(candidate.hosts)  # Force a parse now, so failures surface here
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': f"Failed to load '{resolved_path}' as a host configuration file: {e}"
+            }
+        host_manager = candidate
+
+    return {
+        'status': 'success',
+        'message': f"Now using '{host_manager.config_path}' for host configuration",
+        'config_path': str(host_manager.config_path),
+        'is_default': host_manager is _default_host_manager,
+        'host_count': len(host_manager.hosts)
+    }
+
+
+@mcp.tool()
 async def ssh_host_list() -> dict:
     """
-    List all configured SSH hosts with their aliases and descriptions.
+    List all configured SSH hosts with their aliases and descriptions. This is the
+    ONLY correct way to see what hosts are configured - never read the host
+    configuration TOML file directly (ssh_conn_add_host's docstring names its path).
+    That file stores every host's password, sudo password, and key passphrase in
+    plaintext; this tool deliberately omits all of that and returns only the fields
+    below. If you need to add, change, or remove a host, use ssh_conn_add_host,
+    ssh_host_update, or ssh_host_remove instead of editing the file - between those
+    and ssh_host_use_config, there is no legitimate reason to open it.
+
+    Lists hosts from whichever config file is currently active - the server's
+    default unless ssh_host_use_config was called to switch to an alternate file.
+    The returned `config_path` always shows which one that is.
 
     Returns:
         Dictionary with:
@@ -447,6 +661,7 @@ async def ssh_host_list() -> dict:
           - key: The 'user@host' key
           - alias: Optional short name for the host
           - description: Optional description of the host
+        - config_path: The host configuration file this list came from
     """
     hosts_info = []
     for key, details in host_manager.hosts.items():
@@ -457,7 +672,8 @@ async def ssh_host_list() -> dict:
             host_entry['description'] = details['description']
         hosts_info.append(host_entry)
     return {
-        "hosts": hosts_info
+        "hosts": hosts_info,
+        "config_path": str(host_manager.config_path)
     }
 
 @mcp.tool()
@@ -465,7 +681,13 @@ async def ssh_host_remove(
     host_name: Annotated[str, Field(description="The 'user@hostname' identifier of the host to remove")]
 ) -> dict:
     """
-    Remove a host configuration from the host configuration TOML file.
+    Remove a host configuration from the host configuration TOML file (see
+    ssh_conn_add_host's docstring for its exact path and why you should never read it
+    directly - use ssh_host_list to see what's configured instead).
+
+    To change a host's password/port/etc. rather than deleting it, use
+    ssh_host_update instead - removing and re-adding loses every field you don't
+    explicitly resupply.
 
     Returns:
         Dictionary with operation status
@@ -2674,7 +2896,7 @@ def _format_size(size_bytes):
 
 def main():
     """Entry point for CLI execution."""
-    global host_manager
+    global host_manager, _default_host_manager
 
     # Parse command line arguments
     args = parse_args()
@@ -2683,6 +2905,7 @@ def main():
     host_manager = SshHostManager(
         config_path=Path(args.config) if args.config else None
     )
+    _default_host_manager = host_manager
 
     try:
         logger.info(f"Starting SSH MCP server '{mcp.name}' ")

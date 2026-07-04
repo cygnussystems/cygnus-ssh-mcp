@@ -9,8 +9,16 @@ The MCP server uses a TOML configuration file to store SSH host credentials and 
 The server looks for host configurations in this order:
 
 1. **Explicit path** via `--config` command-line parameter
-2. **User home directory**: `~/.ssh_hosts.toml`
-3. **Current working directory**: `./ssh_hosts.toml`
+2. **User home directory**: `~/.mcp_ssh_hosts.toml`
+3. **Current working directory**: `./mcp_ssh_hosts.toml`
+
+**The file is created automatically the first time the server starts**, at whichever
+of the paths above it resolves to (home directory takes priority if `--config` isn't
+given). If none of these files exist yet, the server creates an empty one at the
+home-directory path with a few commented-out example entries, and sets its
+permissions to `0o600` (owner read/write only) immediately. You don't need to create
+this file yourself before adding your first host - `ssh_conn_add_host` (or hand-editing
+the file, if you prefer) both just work against whatever file already exists.
 
 ## File Format
 
@@ -161,7 +169,7 @@ Use `ssh_host_list()` to view all configured hosts:
     }
   },
   "count": 2,
-  "config_path": "/home/user/.ssh_hosts.toml"
+  "config_path": "/home/user/.mcp_ssh_hosts.toml"
 }
 ```
 
@@ -216,6 +224,50 @@ ssh_host_remove(host_name="admin@server.example.com")
 ssh_host_remove(host_name="myserver")
 ```
 
+## Updating Hosts
+
+To change a field on an existing host (rotate a password, change the port, add a
+description) without losing every other field, use `ssh_host_update` rather than
+removing and re-adding. Only the fields you pass are changed; pass an empty string
+`""` to explicitly clear a field (e.g. dropping a password when switching a host to
+key-only auth):
+
+```
+ssh_host_update(host_name="admin@server.example.com", password="new_password123")
+ssh_host_update(host_name="myserver", port=2222, description="Moved to new port")
+ssh_host_update(host_name="myserver", password="", keyfile="~/.ssh/id_ed25519")
+```
+
+## Using an Alternate Host List
+
+By default, every host tool (`ssh_host_list`, `ssh_conn_connect`,
+`ssh_conn_add_host`, `ssh_host_update`, `ssh_host_remove`) operates against the
+single config file the server resolved at startup (see File Locations above). If you
+maintain more than one host list - e.g. separate files per project or environment -
+use `ssh_host_use_config` to point all of these tools at a different file for the
+rest of the session, without restarting the server or merging everything into one
+file:
+
+```
+ssh_host_use_config(config_path="~/projects/client-a/hosts.toml")
+# ssh_host_list, ssh_conn_connect, etc. now all use client-a/hosts.toml
+
+ssh_host_use_config()  # or config_path=""
+# back to the server's default config file
+```
+
+The alternate file must already exist and be valid host configuration TOML - unlike
+the server's own default file, this does not auto-create a missing path (an
+LLM-supplied typo in a path should fail loudly, not silently create a stray file).
+`ssh_host_list`'s response always includes `config_path`, so it's easy to confirm
+which file is currently active before running `ssh_conn_add_host`/`ssh_host_update`/
+`ssh_host_remove`.
+
+This is a session-wide switch, not a per-call argument - it stays in effect for
+every subsequent host tool call until you switch again or the server restarts. It's
+independent of any active SSH connection (`ssh_conn_connect`/`ssh_host_disconnect`),
+which is unaffected by switching config files.
+
 ## Sudo Operations with Key Authentication
 
 When using key-based authentication without a password, sudo operations require special handling:
@@ -247,18 +299,34 @@ Set strict permissions on your config file:
 
 ```bash
 # Linux/macOS
-chmod 600 ~/.ssh_hosts.toml
+chmod 600 ~/.mcp_ssh_hosts.toml
 
 # Windows (PowerShell)
-icacls $env:USERPROFILE\.ssh_hosts.toml /inheritance:r /grant:r "$($env:USERNAME):(R,W)"
+icacls $env:USERPROFILE\.mcp_ssh_hosts.toml /inheritance:r /grant:r "$($env:USERNAME):(R,W)"
 ```
+
+The server also sets these permissions itself (`0o600`) whenever it creates or
+updates the file, so this is a defense-in-depth step, not something you need to
+maintain manually.
+
+### Never Read the Config File Directly
+
+Every host's password, sudo password, and key passphrase is stored here in
+**plaintext** - that's the whole reason `ssh_host_list`, `ssh_conn_add_host`,
+`ssh_host_update`, and `ssh_host_remove` exist as dedicated tools instead of asking
+callers to edit the file themselves. None of these four tools ever return a stored
+credential back out. If you're driving this server through an LLM agent, make sure
+it's instructed to use these tools rather than reading/parsing
+`~/.mcp_ssh_hosts.toml` directly (e.g. via a generic file-read or shell tool) - doing
+so would expose every configured host's credentials to the LLM at once, not just the
+one host it actually needed.
 
 ### General Security
 
 1. **Prefer SSH keys** over passwords for authentication
 2. **Use passphrases** on SSH keys for additional security
 3. **Never commit** the config file to version control
-4. **Add to .gitignore**: `ssh_hosts.toml` and `*.toml`
+4. **Add to .gitignore**: `mcp_ssh_hosts.toml` and `*.toml`
 5. **Use unique credentials** per host when possible
 6. **Restrict key permissions**: `chmod 600 ~/.ssh/id_rsa`
 
@@ -266,9 +334,9 @@ icacls $env:USERPROFILE\.ssh_hosts.toml /inheritance:r /grant:r "$($env:USERNAME
 
 ```gitignore
 # SSH host configurations (contain credentials)
-ssh_hosts.toml
-.ssh_hosts.toml
-*.ssh_hosts.toml
+mcp_ssh_hosts.toml
+.mcp_ssh_hosts.toml
+*.mcp_ssh_hosts.toml
 ```
 
 ## Command Line Usage

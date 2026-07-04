@@ -74,8 +74,14 @@ After installation, add to your `claude_desktop_config.json`:
 
 See [Claude Desktop Setup](80-claude-desktop.md) for detailed configuration options.
 
+Note: none of the `--config` paths above need to already exist - the server creates
+an empty host configuration file at that path (with secure `0o600` permissions) the
+first time it starts if nothing is there yet. See
+[Host Configuration](30-host-configuration.md) for the exact lookup order and
+auto-creation behavior.
+
 ## Next Steps
 
-1. [Create a host configuration file](30-host-configuration.md)
+1. [Add your first host](30-host-configuration.md)
 2. [Configure Claude Desktop](80-claude-desktop.md)
 3. [Review available tools](40-tools-reference.md)
