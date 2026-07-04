@@ -68,8 +68,8 @@ class SshTaskOperations(ABC):
         pass
 
     @abstractmethod
-    def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
-        """Return command to rename a log file."""
+    def _cmd_rename_log(self, old_path: str, new_path: str, pid: int) -> str:
+        """Return command to rename a log file, once the task (pid) no longer needs it."""
         pass
 
     # ==========================================================================
@@ -163,16 +163,16 @@ class SshTaskOperations(ABC):
             if effective_stdout_log == default_log_path:
                 final_log_path = f"{log_dir}/task-{pid}.log"
                 try:
-                    rename_cmd = self._cmd_rename_log(default_log_path, final_log_path)
+                    rename_cmd = self._cmd_rename_log(default_log_path, final_log_path, pid)
                     stdin, stdout, stderr = self.ssh_client._client.exec_command(rename_cmd, timeout=10)
                     exit_status = stdout.channel.recv_exit_status()
                     if exit_status == 0:
-                        self.logger.info(f"Renamed default log to {final_log_path}")
+                        self.logger.info(f"Requested rename of default log to {final_log_path}")
                     else:
                         stderr_output = stderr.read().decode('utf-8', errors='replace')
-                        self.logger.warning(f"Failed to rename default log file: exit code {exit_status}, stderr: {stderr_output}")
+                        self.logger.warning(f"Failed to request rename of default log file: exit code {exit_status}, stderr: {stderr_output}")
                 except Exception as rename_err:
-                    self.logger.warning(f"Failed to rename default log file: {rename_err}")
+                    self.logger.warning(f"Failed to request rename of default log file: {rename_err}")
 
             # Create a handle for the task
             if add_to_history:
@@ -431,7 +431,9 @@ exit 0
             return f"sudo -n bash -c {shlex.quote(cmd)}"
         return cmd
 
-    def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
+    def _cmd_rename_log(self, old_path: str, new_path: str, pid: int) -> str:
+        # POSIX rename succeeds regardless of open file handles, so no race to
+        # work around here (unlike Windows) - a plain synchronous rename is fine.
         return f"mv {shlex.quote(old_path)} {shlex.quote(new_path)}"
 
 
@@ -535,23 +537,30 @@ class SshTaskOperations_Win(SshTaskOperations):
         # the whole tree (wrapper + all descendants) in one call.
         return powershell_encoded_command(f"& taskkill /F /T /PID {pid}")
 
-    def _cmd_rename_log(self, old_path: str, new_path: str) -> str:
-        # The task may still be writing to (and holding an open handle on) the
-        # placeholder-named log file the instant this runs - now that background
-        # tasks correctly survive independently (see _build_launch_script), a
-        # still-running task keeps the file open, and Windows rejects a rename
-        # while another process holds it open (unlike POSIX rename, which
-        # succeeds regardless of open handles). Retry briefly to catch
-        # short-lived tasks that have already finished and released the file;
-        # a genuinely still-running task will keep failing until it exits,
-        # which is fine - launch_task() already tolerates rename failure (the
-        # placeholder name stays valid, just less pretty).
-        script = (
-            "$__ok = $false; "
-            "for ($__i = 0; $__i -lt 5 -and -not $__ok; $__i++) { "
-            f"try {{ Move-Item -Path '{old_path}' -Destination '{new_path}' -Force -ErrorAction Stop; $__ok = $true }} "
-            "catch { Start-Sleep -Milliseconds 300 } "
-            "}; "
-            "if (-not $__ok) { exit 1 }"
+    def _cmd_rename_log(self, old_path: str, new_path: str, pid: int) -> str:
+        # The task keeps an open handle on the placeholder-named log file for its
+        # entire lifetime (it's redirected there via 'cmd.exe /c ... > file'), and
+        # Windows rejects a rename while another process holds a file open (unlike
+        # POSIX rename, which succeeds regardless). A short synchronous retry loop
+        # here would only catch tasks that happen to finish within that window -
+        # anything longer-running would keep the placeholder name forever. Instead,
+        # launch a small detached watcher via WMI (the same survive-the-SSH-session
+        # trick _build_launch_script uses) that waits for the task's own PID to
+        # exit, then performs the rename whenever that actually happens - seconds
+        # or hours later, it doesn't matter, since this call itself returns
+        # immediately without waiting on it.
+        old_err = old_path.replace('.log', '_err.log') if '.log' in old_path else old_path + '_err'
+        new_err = new_path.replace('.log', '_err.log') if '.log' in new_path else new_path + '_err'
+        watcher_script = (
+            f"Wait-Process -Id {pid} -ErrorAction SilentlyContinue; "
+            "Start-Sleep -Milliseconds 200; "
+            f"Move-Item -Path '{old_path}' -Destination '{new_path}' -Force -ErrorAction SilentlyContinue; "
+            f"Move-Item -Path '{old_err}' -Destination '{new_err}' -Force -ErrorAction SilentlyContinue"
         )
-        return powershell_encoded_command(script)
+        watcher_b64 = base64.b64encode(watcher_script.encode('utf-16-le')).decode('ascii')
+        launch_script = (
+            f"$__result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+            f"-Arguments @{{CommandLine = 'powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand {watcher_b64}'}}; "
+            "if ($__result.ReturnValue -ne 0) { exit 1 }"
+        )
+        return powershell_encoded_command(launch_script)
