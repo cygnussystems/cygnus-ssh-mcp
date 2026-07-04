@@ -1245,7 +1245,7 @@ async def ssh_task_launch(
         command: Annotated[str, Field(description="Command to execute in the background")],
         use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
         stdout_log: Annotated[
-            Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log on Linux/macOS; on Windows, an explicit path is recommended - see Returns note below)")] = None,
+            Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log on Linux/macOS, C:\\Windows\\Temp\\task-<pid>.log on Windows)")] = None,
         stderr_log: Annotated[
             Optional[str], Field(description="Path to redirect stderr (default: same as stdout)")] = None,
         log_output: Annotated[bool, Field(description="Whether to log output to files")] = True
@@ -1266,11 +1266,9 @@ async def ssh_task_launch(
     Returns:
         `{'command', 'pid', 'start_time', 'stdout_log', 'stderr_log'}`. `stdout_log`/
         `stderr_log` are `None` if `log_output=False`. If you didn't pass an explicit
-        `stdout_log`/`stderr_log` yourself, the returned path is always reported as
-        `/tmp/task-<pid>.log`, even on Windows, where the log is actually written to
-        `C:\\Windows\\Temp\\task-<pid>.log` - this is a known inaccuracy in the
-        reported path on Windows (the log file itself is fine, just the path string
-        returned here). Passing an explicit `stdout_log`/`stderr_log` avoids this.
+        `stdout_log`/`stderr_log` yourself, the returned path reflects the actual
+        default log location used - `/tmp/task-<pid>.log` on Linux/macOS,
+        `C:\\Windows\\Temp\\task-<pid>.log` on Windows.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1278,12 +1276,13 @@ async def ssh_task_launch(
     try:
         # Don't add tasks to command history
         handle = mcp.ssh_client.launch(command, use_sudo, stdout_log, stderr_log, log_output, add_to_history=False)
+        default_log_dir = mcp.ssh_client.task_ops._get_default_log_dir()
         return {
             'command': command,
             'pid': handle.pid,
             'start_time': handle.start_ts.isoformat() if handle.start_ts else None,
-            'stdout_log': stdout_log or f"/tmp/task-{handle.pid}.log" if log_output else None,
-            'stderr_log': stderr_log or f"/tmp/task-{handle.pid}.log" if log_output else None
+            'stdout_log': (stdout_log or f"{default_log_dir}/task-{handle.pid}.log") if log_output else None,
+            'stderr_log': (stderr_log or f"{default_log_dir}/task-{handle.pid}.log") if log_output else None
         }
     except Exception as e:
         logger.error(f"Task launch failed: {e}")
@@ -1785,7 +1784,10 @@ async def ssh_file_transfer(
 
     Caveat: `use_sudo=True` on download/upload stages a copy through `/tmp/` using
     Unix shell commands (`mv`/`chmod`/`rm`) - this only works against Linux/macOS
-    remote hosts; it is not adapted for Windows targets.
+    remote hosts. Windows has no per-command sudo concept anyway (see
+    ssh_conn_verify_sudo), so `use_sudo=True` against a Windows connection raises
+    immediately instead of attempting these Unix commands - connect as
+    Administrator instead.
 
     Returns:
         `{'operation' (human-readable description of what happened), 'success':
@@ -1794,6 +1796,12 @@ async def ssh_file_transfer(
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
+
+    if use_sudo and mcp.ssh_client.os_type == 'windows':
+        raise SshError(
+            "use_sudo is not applicable on Windows - connect as Administrator instead. "
+            "This tool's sudo staging path uses Unix-only shell commands (mv/chmod/rm)."
+        )
 
     try:
         if direction == 'upload':
@@ -2047,9 +2055,8 @@ async def ssh_file_write(
     multi-line content properly.
 
     `mode` (Unix permission bits) is applied via a `chmod` command after writing -
-    this only works on Linux/macOS. On Windows there's no equivalent, and passing
-    `mode` will attempt to run `chmod` there anyway, which will fail (Windows has no
-    `chmod` command) - omit `mode` when targeting Windows.
+    this only works on Linux/macOS. On Windows there's no equivalent, so `mode` is
+    silently ignored there (same convention as `ssh_dir_mkdir`'s `mode` parameter).
 
     Returns:
         On success: `{'success': True, 'file_path', 'bytes_written' (int), 'mode'
@@ -2239,8 +2246,8 @@ async def ssh_file_write(
                         'error': f"SFTP put failed: {str(e)}"
                     }
             
-            # Set file permissions if specified
-            if mode is not None:
+            # Set file permissions if specified (no-op on Windows, which has no chmod)
+            if mode is not None and mcp.ssh_client.os_type != 'windows':
                 chmod_cmd = f"chmod {mode:o} {shlex.quote(file_path)}"
                 mcp.ssh_client.run(chmod_cmd, sudo=use_sudo)
                 

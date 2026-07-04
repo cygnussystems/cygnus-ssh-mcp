@@ -518,7 +518,7 @@ class SshDirectoryOperations(ABC):
             verify_cmd = f"[ -f {shlex.quote(archive_path)} ] && echo 'exists' || echo 'not_exists'"
             verify_handle = self.ssh_client.run(verify_cmd, io_timeout=30, sudo=sudo)
 
-            if 'exists' not in verify_handle.last_nonblank():
+            if verify_handle.last_nonblank() != 'exists':
                 self.logger.error(f"Archive was not created at {archive_path}")
                 return {
                     'status': 'error',
