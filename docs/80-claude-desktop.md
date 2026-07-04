@@ -40,7 +40,7 @@ Then add the SSH MCP server to your `claude_desktop_config.json`:
   "mcpServers": {
     "ssh": {
       "command": "cygnus-ssh-mcp",
-      "args": ["--config", "/path/to/ssh_hosts.toml"]
+      "args": ["--config", "/path/to/.mcp_ssh_hosts.toml"]
     }
   }
 }
@@ -55,7 +55,7 @@ Run directly without installing:
   "mcpServers": {
     "ssh": {
       "command": "uvx",
-      "args": ["cygnus-ssh-mcp", "--config", "/path/to/ssh_hosts.toml"]
+      "args": ["cygnus-ssh-mcp", "--config", "/path/to/.mcp_ssh_hosts.toml"]
     }
   }
 }
@@ -100,7 +100,8 @@ Run directly without installing:
 
 ## Host Configuration
 
-Create your host configuration file (e.g., `~/.ssh_hosts.toml`):
+Create your host configuration file (e.g., `~/.mcp_ssh_hosts.toml`) - or don't; the
+server creates this file automatically on first run if it doesn't exist yet:
 
 ```toml
 # Production server
@@ -118,9 +119,14 @@ alias = "dev"
 description = "Development environment"
 ```
 
+Hosts can also be added, updated, or removed at runtime through Claude itself
+(`ssh_conn_add_host`, `ssh_host_update`, `ssh_host_remove`), and you can point every
+host tool at a different config file for the session with `ssh_host_use_config` -
+see [Host Configuration](30-host-configuration.md) for details on both.
+
 **Security:** Ensure this file has restricted permissions:
 ```bash
-chmod 600 ~/.ssh_hosts.toml
+chmod 600 ~/.mcp_ssh_hosts.toml
 ```
 
 ---
@@ -166,7 +172,7 @@ Connected to prod.example.com. Here's the system information:
 
 ### Connection Failures
 
-1. **Verify host config** - Check `ssh_hosts.toml` syntax
+1. **Verify host config** - Check `mcp_ssh_hosts.toml` syntax (list configured hosts with `ssh_host_list` rather than reading the file directly - see [Host Configuration](30-host-configuration.md))
 2. **Test SSH manually** - `ssh user@host` should work
 3. **Check firewall** - Ensure SSH port is accessible
 4. **Verify credentials** - Password may have changed

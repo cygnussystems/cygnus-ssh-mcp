@@ -9,6 +9,8 @@ The SSH MCP Server is a Model Context Protocol (MCP) server that provides SSH-ba
 ### Connection Management
 - Connect to remote hosts using password or key-based authentication
 - Store and manage host configurations with aliases for easy reference
+- Update fields on an existing host in place, or switch to an alternate host
+  config file for the session (e.g. separate host lists per project)
 - Support for sudo operations with password handling
 - Connection status monitoring and reconnection
 
@@ -81,16 +83,16 @@ The SSH MCP Server is a Model Context Protocol (MCP) server that provides SSH-ba
 | Category | Prefix | Count | Description |
 |----------|--------|-------|-------------|
 | Connection | `ssh_conn_*` | 6 | Connection and session management |
-| Host Config | `ssh_host_*` | 3 | Host configuration management |
+| Host Config | `ssh_host_*` | 5 | Host configuration management, including updating hosts in place and switching to an alternate config file |
 | Commands | `ssh_cmd_*` | 6 | Command execution and history |
 | Tasks | `ssh_task_*` | 3 | Background task management |
 | Files | `ssh_file_*` | 12 | File operations |
-| Directories | `ssh_dir_*` | 9 | Directory operations |
+| Directories | `ssh_dir_*` | 11 | Directory operations |
 | Archives | `ssh_archive_*` | 2 | Archive operations |
 
 ## Quick Start
 
-1. **Configure a host** in `~/.ssh_hosts.toml`:
+1. **Configure a host** in `~/.mcp_ssh_hosts.toml`:
    ```toml
    [admin@myserver.com]
    password = "secretpassword"

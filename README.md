@@ -11,7 +11,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Tests](https://img.shields.io/badge/tests-124%2B%20passing-brightgreen.svg)]()
 
-*Give Claude full control of your Linux, macOS, and Windows servers with 43 specialized tools*
+*Give Claude full control of your Linux, macOS, and Windows servers with 46 specialized tools*
 
 [Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](docs/)
 
@@ -167,6 +167,11 @@ Then just: *"Connect to web"*
 
 Supports **password**, **SSH key**, and **encrypted keys with passphrase**.
 
+Update a field on an existing host without losing the rest (`ssh_host_update`), or
+switch every host tool to an alternate config file for the session
+(`ssh_host_use_config`) - handy for keeping separate host lists per project or
+environment.
+
 ---
 
 ### Line-Level File Editing
@@ -268,12 +273,13 @@ Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operat
 - **Archive operations**: create and extract tar.gz
 - **System info**: OS version, memory, disk, CPU, uptime
 - **Pattern search**: regex and plain text in files
+- **Alternate host config files**: switch host lists per project/environment without restarting
 
 ---
 
-## All 43 Tools
+## All 46 Tools
 
-### Connection & Host Management (10 tools)
+### Connection & Host Management (12 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -284,7 +290,9 @@ Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operat
 | `ssh_conn_verify_sudo` | Verify sudo access |
 | `ssh_conn_add_host` | Add new host to configuration |
 | `ssh_host_list` | List all configured hosts |
+| `ssh_host_update` | Update fields on an existing host (rotate password, change port, etc.) in place |
 | `ssh_host_remove` | Remove host from configuration |
+| `ssh_host_use_config` | Switch to an alternate host config file for the session |
 | `ssh_host_disconnect` | Disconnect current session |
 | `list_tools` | List all available tools |
 
@@ -324,7 +332,7 @@ Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operat
 | `ssh_file_insert_lines_after_match` | Insert lines after match |
 | `ssh_file_delete_line_by_content` | Delete line by content |
 
-### Directory Operations (10 tools)
+### Directory Operations (11 tools)
 
 | Tool | Description |
 |------|-------------|
@@ -338,6 +346,7 @@ Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operat
 | `ssh_dir_delete` | Delete with dry-run support |
 | `ssh_dir_batch_delete_files` | Batch delete by pattern |
 | `ssh_dir_copy` | Copy directory recursively |
+| `ssh_dir_transfer` | Upload or download whole directories (archive-based) |
 
 ### Archive Operations (2 tools)
 
