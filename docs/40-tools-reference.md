@@ -162,9 +162,15 @@ Wait, then check the status of a command started with `ssh_cmd_run`.
 **Returns:** Dictionary with `status`, `exit_code`, `pid`, output metadata
 
 **Status values:** `completed` (finished, `exit_code` populated), `running` (still being
-monitored), `unknown_still_running` (monitoring previously stopped, e.g. a prior
-`io_timeout` - the remote command was NOT killed and is very likely still running),
-`not_found` (handle doesn't exist - handles don't survive reconnects)
+monitored), `killed` (the remote process was confirmed terminated - e.g. `runtime_timeout`
+killed it, or a prior `ssh_cmd_kill` call found it already gone; `exit_code` is not known,
+but treat this as terminal, same as `completed`), `completed_exit_code_unknown` (monitoring
+previously stopped, e.g. a prior `io_timeout`, without a confirmed exit code, but a live
+check now confirms the remote process is no longer running - terminal, but the real exit
+code was never observed and cannot be recovered), `unknown_still_running` (monitoring
+previously stopped and a live check confirms the remote command is still actually running -
+not a failure, call this tool again to keep checking), `not_found` (handle doesn't exist -
+handles don't survive reconnects)
 
 ---
 

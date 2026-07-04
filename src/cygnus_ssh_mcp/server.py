@@ -270,11 +270,14 @@ async def ssh_conn_add_host(
     key_passphrase: Annotated[Optional[str], Field(description="Passphrase for encrypted SSH key", secret=True)] = None
 ) -> dict:
     """
-    Add or update a host configuration in the host configuration TOML file.
-    This tool will fail if the host already exists in the host config file.
+    Add a new host configuration to the host configuration TOML file. Despite the name,
+    this does NOT update an existing entry - if the `user@host` key already exists,
+    this returns an error response (`{'status': 'error', ...}`, not a raised
+    exception) rather than overwriting it.
 
-    You can call the 'ssh_conn_connect' tool without having to add a new host! The host may already
-    be listed in the host config TOML file!
+    Before calling this, check 'ssh_host_list' - the host you want may already be
+    configured, in which case you can call 'ssh_conn_connect' directly without adding
+    anything.
 
     Authentication requires either a password OR a keyfile (or both):
     - Password authentication: Provide `password`
@@ -294,7 +297,13 @@ async def ssh_conn_add_host(
     - description: A text description of what the host is for
 
     Returns:
-        Dictionary with operation status
+        On success: `{'status': 'success', 'message', 'key', 'host', 'user', 'port',
+        'auth_method' ('key' or 'password'), and 'alias'/'description'/'keyfile' if
+        provided}`.
+        On failure (missing auth, duplicate host key, or duplicate alias):
+        `{'status': 'error', 'error': <message>}` - for a duplicate host key, also
+        includes `'existing_config'` (the current host/user/port/alias/description)
+        so you can decide whether to use it as-is via `ssh_conn_connect` instead.
     """
     try:
         # Validate that at least one authentication method is provided
@@ -522,20 +531,28 @@ async def ssh_host_disconnect() -> dict:
 @mcp.tool()
 async def ssh_conn_verify_sudo() -> dict:
     """
-    Verify if sudo access is available on the remote system.
+    Check whether elevated access is available on the remote system, without running
+    any privileged command. Call this before using `use_sudo=True` on other tools if
+    you're not sure elevation will succeed.
 
-    On Linux/macOS: Checks if sudo is available and whether it requires a password.
-    The use_sudo parameter will run commands with sudo, prompting for password if needed.
+    On Linux/macOS: probes whether `sudo` is available and whether it needs a
+    password (via a passwordless `sudo -n` check, then a password-based check if
+    that fails). Tools called afterward with `use_sudo=True` will use whichever mode
+    this detected.
 
-    On Windows: Checks if the session is running as Administrator. Windows cannot
-    elevate privileges on-demand like sudo. If you need elevated access on Windows,
-    you must connect with an Administrator account from the start.
+    On Windows: there is no per-command elevation - checks whether the current SSH
+    session itself is already running as Administrator. If it's not, no tool call
+    can become elevated; you must reconnect as an Administrator account instead.
 
     Returns:
-        Dictionary with sudo access information:
-        - available: True if any sudo access is available
-        - passwordless: True if passwordless sudo is available (or elevated on Windows)
-        - requires_password: True if sudo requires a password
+        Dictionary with:
+        - available (bool): True if sudo/elevation can be used at all (passwordless
+          OR password-based on Linux/macOS; same as `passwordless` on Windows, since
+          there's no separate password-based mode there)
+        - passwordless (bool): True if no password is needed (passwordless sudo, or
+          an already-elevated Windows session)
+        - requires_password (bool): True if sudo works but needs a password (always
+          False on Windows)
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -614,10 +631,19 @@ async def ssh_task_status(
     pid: Annotated[int, Field(description="Process ID to check status for")]
 ) -> dict:
     """
-    Check the status of a background task by PID.
-    
+    Check the liveness of a background task by PID (from ssh_task_launch, or any other
+    real remote PID - e.g. the `pid` field from ssh_cmd_run). This does a live check on
+    the remote host every call, not a cached lookup, so it's safe to call repeatedly.
+
     Returns:
-        Dictionary containing task status information
+        `{'pid', 'status', 'running' (bool, True iff status=='running'), 'timestamp'}`.
+        `status` is one of:
+        - 'running': the process currently exists.
+        - 'exited': the process is gone - it either completed or was killed; there's
+          no way to distinguish which, or recover its exit code, from this tool alone.
+        - 'invalid': the given `pid` isn't a valid positive integer.
+        - 'error': the liveness check itself failed (e.g. connection issue) - this
+          does NOT mean the process exited, just that its status is unknown.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -644,13 +670,25 @@ async def ssh_task_kill(
     wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
 ) -> dict:
     """
-    Terminate a background task by sending a signal to its PID.
-    
+    Terminate a background task (launched via ssh_task_launch, or any other real
+    remote PID) by sending a signal to its PID.
+
     If force=True and the process doesn't exit after wait_seconds,
     it will be forcibly killed with SIGKILL (signal 9).
-    
+
     Returns:
-        Dictionary containing kill operation result
+        `{'pid', 'result', 'signal', 'force_kill_used', 'timestamp'}`. `result` is
+        one of:
+        - 'killed': confirmed terminated (by the initial signal or the force-kill
+          fallback). Terminal - nothing left to check.
+        - 'already_exited': the process was already gone before any signal was sent.
+          Terminal.
+        - 'failed_to_kill': still running after both the signal and force-kill
+          attempt (or after the signal alone, if `force=False`). Not terminal - the
+          process is still alive; consider retrying or investigating why it won't die.
+        - 'invalid_pid': `pid` wasn't a valid positive integer - no signal was sent.
+        - 'error': the kill attempt itself failed unexpectedly (e.g. connection
+          issue) - the process's actual state is unknown, not necessarily still running.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -708,8 +746,25 @@ async def ssh_cmd_run(
     (Linux/macOS only for now).
 
     Returns:
-        Dictionary containing command output, status, and metadata.
-        Status field indicates success or the type of failure (io_timeout, runtime_timeout, command_failed, etc.)
+        Dictionary containing command output, status, and metadata. The handle
+        identifier is returned here as `'id'`, but every other tool that accepts it
+        (ssh_cmd_check_status, ssh_cmd_kill, ssh_cmd_output) names the same parameter
+        `handle_id` - pass this value there.
+
+        `status` is one of:
+        - 'success': command completed with exit code 0. `exit_code`, `output` populated.
+        - 'command_failed': completed with a non-zero exit code. `exit_code`, `output` populated.
+        - 'cwd_not_found': the `cwd` parameter didn't exist on the remote host - the
+          command was NOT executed at all (fails closed).
+        - 'io_timeout': no output within `io_timeout` seconds - remote command was NOT
+          killed, still_running=true. Poll with ssh_cmd_check_status(handle_id=...).
+        - 'runtime_timeout': `runtime_timeout` exceeded - an attempt was made to kill
+          the remote command (see ssh_cmd_check_status's `'killed'` status to confirm).
+        - 'sudo_required': `use_sudo=True` but elevation isn't available (see
+          ssh_conn_verify_sudo before retrying).
+        - 'busy': another ssh_cmd_run is already in flight on this connection - only
+          one command can run at a time per connection.
+        - 'error': unexpected failure (e.g. connection dropped).
     """
     if not mcp.ssh_client:
         return {
@@ -821,22 +876,39 @@ async def ssh_cmd_run(
 
 @mcp.tool()
 async def ssh_cmd_kill(
-    handle_id: Annotated[int, Field(description="Command handle ID to kill")],
+    handle_id: Annotated[int, Field(description="Command handle ID to kill - the 'id' field from ssh_cmd_run's response")],
     signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
     force: Annotated[bool, Field(description="Force kill with SIGKILL if process doesn't exit")] = True,
     wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
 ) -> dict:
     """
-    Terminate a currently running command by its handle ID.
-    
-    This tool is specifically for killing commands started with ssh_cmd_run,
-    not background tasks launched with ssh_task_launch.
-    
+    Terminate a currently running command by its handle ID (the `id` field from
+    ssh_cmd_run's response).
+
+    This tool is specifically for killing commands started with ssh_cmd_run - it
+    looks up `handle_id` in this connection's command history, not by raw PID. For
+    background tasks launched with ssh_task_launch, use ssh_task_kill with the PID
+    instead. Raises an error if `handle_id` doesn't exist in history (e.g. from a
+    previous connection - handles don't survive reconnects) or has no associated PID.
+
     If force=True and the process doesn't exit after wait_seconds,
     it will be forcibly killed with SIGKILL (signal 9).
-    
+
     Returns:
-        Dictionary containing kill operation result
+        `{'handle_id', 'pid', 'result', 'signal', 'force_kill_used', 'timestamp'}`.
+        `result` is one of:
+        - 'not_running': the command was already confirmed not running before any
+          signal was sent (checked first, via a live PID status check) - nothing to do.
+        - 'killed': confirmed terminated (by the signal or the force-kill fallback).
+        - 'already_exited': the process was gone by the time the signal landed.
+        - 'failed_to_kill': still running after the signal (and force-kill, if
+          `force=True`) - not terminal, the process is still alive.
+        - 'invalid_pid': the command's tracked PID wasn't a valid positive integer.
+        - 'error': the kill attempt itself failed unexpectedly - the process's real
+          state is unknown.
+        Note: after a successful kill (`'killed'` or `'already_exited'`, or the early
+        `'not_running'` case), a later `ssh_cmd_check_status` call for this same
+        `handle_id` will report status `'killed'`.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -892,31 +964,44 @@ async def ssh_cmd_check_status(
     wait_seconds: Annotated[float, Field(description="Seconds to wait before checking", gt=0)] = 5.0
 ) -> dict:
     """
-    Wait for the specified duration and then check the status of a command.
+    Wait for the specified duration, then check the status of a command started with
+    ssh_cmd_run. Call this repeatedly - it's designed to be polled - after
+    ssh_cmd_run returns status='io_timeout' (the remote command is very likely still
+    running; io_timeout does not kill it), until you get a TERMINAL status below.
+    Do not rerun the original command while polling.
 
-    Use this to poll a command after ssh_cmd_run returned status='io_timeout' - the remote command
-    is very likely still running (io_timeout does not kill it). Call this repeatedly (it can be
-    called multiple times) until status='completed', rather than rerunning the original command.
-
-    Possible status values:
+    Terminal status values (nothing left to wait for, stop polling):
     - 'completed': confirmed finished, exit_code is populated.
-    - 'running': still being actively monitored, not yet finished.
     - 'killed': the remote process was confirmed terminated (e.g. runtime_timeout killed it,
-      or a prior ssh_cmd_kill call found it already gone) - exit_code is not known, but there
-      is nothing left to wait for. Treat this as terminal, same as 'completed'.
+      or a prior ssh_cmd_kill call found it already gone) - exit_code is not known.
     - 'completed_exit_code_unknown': monitoring previously stopped (e.g. an io_timeout) without
       a confirmed exit code, but a live check now confirms the remote process is no longer
-      running - it finished on its own sometime after monitoring stopped. There is nothing left
-      to wait for (terminal, same as 'completed'), but the real exit code was never observed and
-      cannot be recovered - only its output (via ssh_cmd_output) is available.
+      running - it finished on its own sometime after monitoring stopped. The real exit code
+      was never observed and cannot be recovered - only its output (via ssh_cmd_output) is
+      available.
+
+    Non-terminal status values (keep polling):
+    - 'running': still being actively monitored, not yet finished.
     - 'unknown_still_running': monitoring previously stopped (e.g. an io_timeout on the original
       call) and a live check confirms the remote command is still actually running. Not a
       failure - call this tool again to keep checking.
+
+    Other:
     - 'not_found': the handle_id doesn't exist (may be from a previous connection - handles don't
       survive reconnects, but background task PIDs from ssh_task_launch do).
+    - 'unknown': the handle exists but its metadata is missing from history (rare, internal
+      inconsistency) - treat like 'not_found'.
+
+    Fallback behavior: if `handle_id` doesn't match any ssh_cmd_run handle, this tool
+    also tries treating it as a raw background-task PID (same as ssh_task_status) and,
+    if that succeeds, returns `{'pid', 'status': 'running'/'exited'/'invalid'/'error',
+    'is_background_task': True, ...}` instead - a DIFFERENT status vocabulary than the
+    one above. Prefer ssh_task_status directly for PIDs to avoid ambiguity.
 
     Returns:
-        Dictionary containing command status information after waiting
+        `{'handle_id', 'waited_seconds', 'status', 'exit_code', 'pid',
+        'output_available', 'output_lines', 'timestamp'}`, plus `'next_step'` (guidance
+        text) when `status` is non-terminal.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1040,14 +1125,22 @@ async def ssh_cmd_check_status(
 
 @mcp.tool()
 async def ssh_cmd_output(
-        handle_id: Annotated[int, Field(description="Command handle ID to retrieve output for")],
-        lines: Annotated[Optional[int], Field(description="Number of lines to retrieve (None for all)")] = None
+        handle_id: Annotated[int, Field(description="Command handle ID - the 'id' field from ssh_cmd_run's response")],
+        lines: Annotated[Optional[int], Field(description="Number of most-recent lines to retrieve; None returns the last 50 (not necessarily the full output - see ssh_cmd_history for total/truncated line counts)")] = None
 ) -> list:
     """
-    Retrieve output from a specific command execution.
+    Retrieve captured output (stdout+stderr, interleaved) from a command started with
+    ssh_cmd_run, identified by its handle_id. Useful after an io_timeout to see
+    progress so far, or any time to re-inspect an earlier command's output without
+    rerunning it.
+
+    Raises an error if handle_id doesn't exist (e.g. from a previous connection -
+    handles don't survive reconnects).
 
     Returns:
-        List of output lines from the command
+        A plain list of output lines (most recent `lines`, or the last 50 by
+        default) - not a dict, no status/metadata. For total line counts and whether
+        output was truncated, use ssh_cmd_history(include_output=True) instead.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1152,7 +1245,7 @@ async def ssh_task_launch(
         command: Annotated[str, Field(description="Command to execute in the background")],
         use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
         stdout_log: Annotated[
-            Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log)")] = None,
+            Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log on Linux/macOS; on Windows, an explicit path is recommended - see Returns note below)")] = None,
         stderr_log: Annotated[
             Optional[str], Field(description="Path to redirect stderr (default: same as stdout)")] = None,
         log_output: Annotated[bool, Field(description="Whether to log output to files")] = True
@@ -1171,7 +1264,13 @@ async def ssh_task_launch(
     log files to see progress or final output.
 
     Returns:
-        Dictionary containing task information including PID and log paths
+        `{'command', 'pid', 'start_time', 'stdout_log', 'stderr_log'}`. `stdout_log`/
+        `stderr_log` are `None` if `log_output=False`. If you didn't pass an explicit
+        `stdout_log`/`stderr_log` yourself, the returned path is always reported as
+        `/tmp/task-<pid>.log`, even on Windows, where the log is actually written to
+        `C:\\Windows\\Temp\\task-<pid>.log` - this is a known inaccuracy in the
+        reported path on Windows (the log file itself is fine, just the path string
+        returned here). Passing an explicit `stdout_log`/`stderr_log` avoids this.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1203,9 +1302,23 @@ async def ssh_dir_mkdir(
 ) -> dict:
     """
     Create a directory on the remote system.
-    
+
+    Parent-directory creation and `mode` behavior differ by platform/sudo:
+    - Linux/macOS, `use_sudo=False` (default): uses SFTP `mkdir`, which is NOT
+      recursive - this FAILS if the parent directory doesn't already exist. `mode`
+      applies to the created directory.
+    - Linux/macOS, `use_sudo=True`: uses `mkdir -p -m <mode>`, which DOES create
+      any missing parent directories.
+    - Windows: always creates missing parent directories (`New-Item -Force`,
+      regardless of `use_sudo`, which has no effect on Windows anyway). The `mode`
+      parameter is IGNORED entirely on Windows - there's no equivalent to Unix
+      octal permissions there.
+
     Returns:
-        Dictionary with operation status
+        `{'status': 'success', 'path', 'mode' (octal string - reflects the
+        requested mode even on Windows, where it was actually ignored), 'message',
+        'connection'}` on success. Raises an exception on failure (e.g. missing
+        parent directory without sudo on Linux/macOS).
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1231,10 +1344,21 @@ async def ssh_dir_remove(
     recursive: Annotated[bool, Field(description="Remove directory and contents recursively")] = False
 ) -> dict:
     """
-    Remove a directory on the remote system.
-    
+    Remove a directory on the remote system - this is the simple `rmdir`/`Remove-Item`
+    equivalent. There is NO dry-run/preview mode here (unlike ssh_dir_delete below) -
+    it acts immediately. If `recursive=False` (default) and the directory is not
+    empty, this RAISES an exception rather than returning an error dict - it does not
+    partially delete anything.
+
+    For a safer recursive delete with a preview step, use ssh_dir_delete instead,
+    which defaults to `dry_run=True` and returns a graceful `{'status': 'error', ...}`
+    on failure instead of raising.
+
     Returns:
-        Dictionary with operation status
+        `{'status': 'success', 'path', 'recursive', 'message', 'connection'}` on
+        success. Raises an exception on failure (non-empty directory with
+        `recursive=False`, path not found, permission denied, etc.) rather than
+        returning an error dict.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1258,10 +1382,14 @@ async def ssh_dir_list_files_basic(
     path: Annotated[str, Field(description="Directory path to list")]
 ) -> list:
     """
-    List contents of a directory on the remote system.
-    
+    List the immediate contents of a directory (via SFTP - not recursive, no
+    metadata). For recursive listing with size/permissions/type/etc., or to filter
+    by filename pattern, use ssh_dir_list_advanced or ssh_dir_search_glob instead.
+
     Returns:
-        List of filenames in the directory
+        List of bare filenames (strings) directly inside `path` - not full paths,
+        not recursive, and no indication of which entries are files vs. directories
+        (use ssh_file_stat on an entry, or ssh_dir_list_advanced, if you need that).
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1284,13 +1412,18 @@ async def ssh_file_stat(
     path: Annotated[str, Field(description="File or directory path to get information about")]
 ) -> dict:
     """
-    Get status information about a file or directory.
+    Get status information about a file or directory (via SFTP stat - works the same
+    way on all platforms, no shell command involved).
 
     Returns:
-        Dictionary with file/directory metadata.
-        Includes 'exists': True/False.
-        If exists, includes 'type': ('file', 'directory', 'symlink', 'unknown'),
-        'mode' (octal string), 'uid', 'gid', 'size', 'atime', 'mtime'.
+        `{'exists': True, 'path', 'type' ('file'/'directory'/'symlink'/'unknown'),
+        'mode' (octal string, e.g. "0o40755"), 'uid', 'gid', 'size' (bytes), 'atime',
+        'mtime'}` when the path exists. `atime`/`mtime` are raw numeric Unix
+        timestamps (seconds since epoch, as returned by SFTP), not formatted date
+        strings - convert with `datetime.fromtimestamp()` if you need a readable date.
+        If the path does NOT exist (or stat failed for another reason, e.g.
+        permission denied), returns `{'exists': False, 'path', 'error'}` instead -
+        this is a normal, non-exceptional return value, not a raised error.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1402,10 +1535,23 @@ async def ssh_file_find_lines_with_pattern(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Search for a pattern in a remote file and return matching lines.
-    
+    Search for a pattern in a remote file and return matching lines with their line
+    numbers. Use this to find WHERE a pattern occurs before using
+    ssh_file_get_context_around_line to see surrounding lines, or
+    ssh_file_replace_line/ssh_file_delete_line_by_content to edit (those require an
+    exact, unique line match - this tool helps you find that exact line first).
+
+    Regex flavor differs by platform when `regex=True`: POSIX extended regex
+    (`grep -E`) on Linux/macOS - avoid PCRE-only syntax like `\\d`, use `[0-9]` or
+    `[[:digit:]]` instead; .NET regex (PowerShell `Select-String`) on Windows. When
+    `regex=False` (default), the pattern is matched as a literal fixed string on
+    every platform.
+
     Returns:
-        Dictionary with total matches and list of matches (line number and content)
+        `{'total_matches': int, 'matches': [{'line_number': int, 'content': str}, ...]}`.
+        No matches is not an error - `total_matches` is 0 and `matches` is `[]`. On
+        failure (e.g. file not found, permission denied), an `'error'` key is present
+        instead.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1424,10 +1570,18 @@ async def ssh_file_get_context_around_line(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Get lines before and after a line that matches exactly.
-    
+    Get lines before and after a line, to see it in context before editing. Like the
+    line-editing tools (ssh_file_replace_line and siblings), `match_line` must match
+    exactly one line in the file (whitespace-trimmed, literal text, not a pattern) -
+    use ssh_file_find_lines_with_pattern first if you're not sure the line is unique.
+
     Returns:
-        Dictionary with match line number and context block
+        On a unique match: `{'match_found': True, 'match_line_number': int,
+        'context_block': [{'line_number': int, 'content': str}, ...]}` (the matched
+        line plus `context` lines before/after).
+        If the line isn't found, or matches more than once: `{'match_found': False,
+        'error': str}` - for a multi-match error, also includes `'matches'` (every
+        matching line, so you can pick a more specific `match_line`).
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1447,7 +1601,11 @@ async def ssh_file_replace_line(
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
-    Replace a unique line in a file with a new line.
+    Replace a line in a file with a new line. `match_line` must match EXACTLY ONE
+    line in the file (whitespace-trimmed, literal text - not a pattern); if it
+    matches zero lines or more than one, the operation fails with a descriptive
+    error rather than guessing which line you meant. Use
+    ssh_file_find_lines_with_pattern first if you're not sure the line is unique.
 
     PARAMETERS:
     * file_path: Path to the file to modify
@@ -1457,9 +1615,12 @@ async def ssh_file_replace_line(
     * force: Force operation even if file can't be read (sudo only) (default: false)
 
     RETURNS:
-    A dictionary with operation status including:
-    - success: Boolean indicating if operation succeeded
-    - file_path: Path to the modified file
+    On success: `{'success': True, 'lines_written': 1}` (or, in the rare edge case
+    where `new_line` is identical to the matched line, `{'success': True, 'message':
+    'No changes needed...'}` instead - nothing to write). On failure (match not
+    found, match not unique, file not found/unreadable): `{'success': False, 'error':
+    str}` - not a raised exception. Note: unlike some other file tools, this does NOT
+    return `file_path` in the response.
 
     EXAMPLES:
     Example 1: Replace a commented line with an active configuration
@@ -1472,6 +1633,7 @@ async def ssh_file_replace_line(
     ```
 
     Note: To delete a line entirely, use the dedicated ssh_file_delete_line_by_content tool instead.
+    To replace/insert MULTIPLE lines in one call, use ssh_file_replace_line_multi instead.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1535,7 +1697,15 @@ async def ssh_file_replace_line_multi(
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
-    Replace a unique line in a file with multiple new lines.
+    Replace a line in a file with one or more new lines (or delete it, with an empty
+    list). Use this instead of ssh_file_replace_line when you need to insert more
+    than one line, or delete a line without using the separate
+    ssh_file_delete_line_by_content tool.
+
+    `match_line` must match EXACTLY ONE line in the file (whitespace-trimmed, literal
+    text - not a pattern); if it matches zero lines or more than one, the operation
+    fails with a descriptive error rather than guessing. Use
+    ssh_file_find_lines_with_pattern first if you're not sure the line is unique.
 
     PARAMETERS:
     * file_path: Path to the file to modify
@@ -1548,9 +1718,12 @@ async def ssh_file_replace_line_multi(
     * force: Force operation even if file can't be read (sudo only) (default: false)
 
     RETURNS:
-    A dictionary with operation status including:
-    - success: Boolean indicating if operation succeeded
-    - file_path: Path to the modified file
+    On success: `{'success': True, 'lines_written': <len(new_lines)>}` (or, in the
+    rare edge case where the result is byte-identical to the original file,
+    `{'success': True, 'message': 'No changes needed...'}` instead). On failure
+    (match not found, match not unique, file not found/unreadable): `{'success':
+    False, 'error': str}` - not a raised exception. Note: does NOT return `file_path`
+    in the response.
 
     EXAMPLES:
     Example 1: Replace a line with multiple lines
@@ -1604,10 +1777,20 @@ async def ssh_file_transfer(
         use_sudo: Annotated[bool, Field(description="Use sudo for transfer")] = False
 ) -> dict:
     """
-    Transfer files between local and remote systems.
+    Transfer a single FILE between the local machine (running this MCP server) and
+    the remote host, via SFTP. Both `local_path` and `remote_path` must be file
+    paths, not directories - for whole-directory transfers, use ssh_dir_transfer
+    instead. For remote-to-remote copies (no local machine involved), use
+    ssh_file_copy instead.
+
+    Caveat: `use_sudo=True` on download/upload stages a copy through `/tmp/` using
+    Unix shell commands (`mv`/`chmod`/`rm`) - this only works against Linux/macOS
+    remote hosts; it is not adapted for Windows targets.
 
     Returns:
-        Dictionary containing transfer status and metadata
+        `{'operation' (human-readable description of what happened), 'success':
+        True, 'local_path', 'remote_path', 'sudo', 'connection'}`. Raises an
+        exception on failure rather than returning a `success: False` dict.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1725,7 +1908,11 @@ async def ssh_file_insert_lines_after_match(
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
-    Insert lines after a unique line match (ignoring leading/trailing whitespace).
+    Insert one or more new lines immediately after a matching line. `match_line`
+    must match EXACTLY ONE line in the file (whitespace-trimmed, literal text - not
+    a pattern); if it matches zero lines or more than one, the operation fails with
+    a descriptive error rather than guessing. Use ssh_file_find_lines_with_pattern
+    first if you're not sure the line is unique.
 
     PARAMETERS:
     * file_path: Path to the file to modify
@@ -1738,9 +1925,11 @@ async def ssh_file_insert_lines_after_match(
     * force: Force operation even if file can't be read (sudo only) (default: false)
 
     RETURNS:
-    A dictionary with operation status including:
-    - success: Boolean indicating if operation succeeded
-    - file_path: Path to the modified file
+    On success: `{'success': True, 'lines_inserted': <len(lines_to_insert)>}` (note:
+    the key is `lines_inserted` here, vs. `lines_written` on
+    ssh_file_replace_line/ssh_file_replace_line_multi). On failure (match not found,
+    match not unique, file not found/unreadable): `{'success': False, 'error': str}`
+    - not a raised exception. Does NOT return `file_path` in the response.
 
     EXAMPLES:
     Example 1: Insert configuration lines after a marker
@@ -1784,10 +1973,18 @@ async def ssh_file_delete_line_by_content(
     force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
 ) -> dict:
     """
-    Delete a line matching a unique content string.
-    
+    Delete a line by its exact content. `match_line` must match EXACTLY ONE line in
+    the file (whitespace-trimmed, literal text - not a pattern); if it matches zero
+    lines or more than one, the operation fails with a descriptive error rather than
+    guessing which line(s) to delete. Use ssh_file_find_lines_with_pattern first if
+    you're not sure the line is unique. (Equivalent to
+    ssh_file_replace_line_multi(new_lines=[]), provided as a clearer-named shortcut.)
+
     Returns:
-        Dictionary with operation status
+        On success: `{'success': True}` (no count field - only ever deletes the one
+        matched line). On failure (match not found, match not unique, file not
+        found/unreadable): `{'success': False, 'error': str}` - not a raised
+        exception.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1808,10 +2005,19 @@ async def ssh_file_copy(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Copy a file with optional timestamp appended to the destination.
-    
+    Copy a file on the remote host (source and destination are both remote paths -
+    for local<->remote transfers use ssh_file_transfer instead).
+
+    If `append_timestamp=True`, a timestamp is inserted before the destination's file
+    extension in the format `%Y%m%dT%H%M%S`, e.g. `destination_path="/etc/hosts.bak"`
+    becomes `/etc/hosts.20260704T153045.bak` - not appended after the extension, and
+    not configurable to a different format.
+
     Returns:
-        Dictionary with operation status
+        On success: `{'success': True, 'copied_to': <actual destination path used,
+        including the timestamp if applied>}`. On failure (source not found,
+        permission error): `{'success': False, 'error': str}` - not a raised
+        exception.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1835,11 +2041,22 @@ async def ssh_file_write(
         create_dirs: Annotated[bool, Field(description="Create parent directories if they don't exist")] = False
 ) -> dict:
     """
-    Create a new file or overwrite/append to an existing file with specified content.
-    Handles special characters and multi-line content properly.
-    
+    Create a new file, or overwrite/append to an existing one, with the given
+    content (works the same whether or not the file already exists - `append=True`
+    on a nonexistent file just creates it). Handles special characters and
+    multi-line content properly.
+
+    `mode` (Unix permission bits) is applied via a `chmod` command after writing -
+    this only works on Linux/macOS. On Windows there's no equivalent, and passing
+    `mode` will attempt to run `chmod` there anyway, which will fail (Windows has no
+    `chmod` command) - omit `mode` when targeting Windows.
+
     Returns:
-        Dictionary with operation status and details
+        On success: `{'success': True, 'file_path', 'bytes_written' (int), 'mode'
+        (octal string, or `None` if not set), 'append' (bool, echoes the parameter),
+        'connection'}`. On failure (e.g. parent directory missing and
+        `create_dirs=False`, write error): `{'success': False, 'file_path', 'error'}`
+        - not a raised exception.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2076,10 +2293,16 @@ async def ssh_file_move(
         use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Move or rename a file or directory.
+    Move or rename a file or directory (works for both - whichever `source` is).
+
+    If `destination` already exists: fails cleanly with `overwrite=False` (default);
+    with `overwrite=True`, it's replaced (`mv -f`/`Move-Item -Force`). If `source`
+    doesn't exist, also fails cleanly rather than raising.
 
     Returns:
-        Dictionary with operation status
+        `{'success': True, 'message': str}` on success, or `{'success': False,
+        'message': str}` on failure (source not found, destination exists and
+        `overwrite=False`, permission error) - not a raised exception.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2106,10 +2329,20 @@ async def ssh_dir_search_glob(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> list:
     """
-    Recursively search for files matching a pattern.
-    
+    Recursively search for files (or directories, with `include_dirs=True`) matching
+    a filename glob pattern (e.g. `*.log`) - matches by NAME only, not content; use
+    ssh_dir_search_files_content instead to search inside files. For metadata beyond
+    just path/type (size, mtime, permissions), use ssh_dir_list_advanced instead.
+
+    `max_depth` uses standard `find -maxdepth` semantics: this is the same on both
+    Linux/macOS and Windows despite the different underlying commands. `max_depth=1`
+    means the given `path` itself plus its immediate children only (not
+    grandchildren); omit `max_depth` for unlimited recursion.
+
     Returns:
-        List of dictionaries with file information
+        List of `{'path': str, 'type': str}` - `type` is a single-character code
+        (`f`=file, `d`=directory, `l`=symlink) from the underlying `find`/`stat`
+        output, not a spelled-out word.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2128,10 +2361,12 @@ async def ssh_dir_calc_size(
     path: Annotated[str, Field(description="Directory path to calculate size for")]
 ) -> dict:
     """
-    Calculate the total size of a directory recursively.
-    
+    Calculate the total size of a directory recursively (sum of all file sizes
+    under it).
+
     Returns:
-        Dictionary with size information
+        `{'path', 'size_bytes' (int), 'size_human' (e.g. "1.23 MB", "512.00 KB",
+        "3.50 GB" - 2 decimal places, binary/1024-based units)}`.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2155,10 +2390,21 @@ async def ssh_dir_delete(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Delete a directory and all its contents recursively.
-    
+    Delete a directory and all its contents recursively. `dry_run` DEFAULTS TO
+    `True` - calling this with no arguments other than `path` only PREVIEWS what
+    would be deleted and deletes NOTHING; you must explicitly pass `dry_run=False`
+    to actually delete. Refuses to delete a small set of critical paths outright
+    (root, home directory, `C:\\Windows`, `C:\\Users`, etc.) regardless of `dry_run`.
+
+    For a simpler non-recursive removal without the preview step, see ssh_dir_remove.
+
     Returns:
-        Dictionary with deletion status and details
+        `{'status': 'success'/'error', 'deleted_items': [str, ...] (paths that
+        were/would be removed, depth-first order)}`, plus `'dry_run': True` ONLY when
+        this was a preview (check for this key to tell a preview apart from a real
+        deletion - it's absent, not `False`, on actual deletions) and `'error'`
+        (string) on failure. Also fails (with `'error'` set) if `path` is a
+        recognized critical directory.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2180,10 +2426,18 @@ async def ssh_dir_batch_delete_files(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Delete all files matching a pattern under a directory.
-    
+    Recursively find and delete files matching a filename glob pattern (same pattern
+    syntax as ssh_dir_search_glob, e.g. `*.tmp`) under a directory. `dry_run`
+    DEFAULTS TO `True` - calling this with no arguments other than `path`/`pattern`
+    only PREVIEWS which files would be deleted and deletes NOTHING; you must
+    explicitly pass `dry_run=False` to actually delete.
+
     Returns:
-        Dictionary with deletion status and details
+        `{'status': 'success'/'error', 'deleted_files': [str, ...] (matching file
+        paths that were/would be deleted)}`, plus `'dry_run': True` ONLY when this
+        was a preview (check for this key to tell a preview apart from a real
+        deletion) and `'error'` (string) on failure. Note the key is `deleted_files`
+        here, vs. `deleted_items` on ssh_dir_delete.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2204,10 +2458,21 @@ async def ssh_dir_list_advanced(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> list:
     """
-    List contents of a directory recursively with detailed information.
-    
+    List contents of a directory recursively with full metadata (size, permissions,
+    ownership, modification time) - use this instead of ssh_dir_list_files_basic
+    (which only returns bare filenames, non-recursive) when you need more than just
+    names, or ssh_dir_search_glob when you only need to filter by filename pattern
+    without full metadata (that tool is also faster for large trees).
+
+    `max_depth` uses standard `find -maxdepth` semantics: `max_depth=1` means `path`
+    itself plus its immediate children only; omit for unlimited recursion.
+
     Returns:
-        List of dictionaries with file/directory information
+        List of `{'path', 'type', 'size_bytes' (int), 'modified_time' (float Unix
+        timestamp), 'permissions' (string, e.g. "755"), 'user', 'group'}`. `type` is
+        a spelled-out word here ('file'/'directory'/'symlink'/'pipe'/'socket'/
+        'block'/'character') - note this differs from ssh_dir_search_glob, which
+        returns single-character type codes ('f'/'d'/'l') for the same concept.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2229,10 +2494,19 @@ async def ssh_dir_search_files_content(
         use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> list:
     """
-    Search for text patterns in files of given directory.
+    Recursively search file CONTENTS for a pattern under a directory (unlike
+    ssh_dir_search_glob/ssh_file_find_lines_with_pattern, which match filenames or
+    search within a single already-known file respectively).
+
+    Regex flavor differs by platform when `regex=True`: POSIX extended regex
+    (`grep -E`) on Linux/macOS - avoid PCRE-only syntax like `\\d`, use `[0-9]` or
+    `[[:digit:]]` instead; .NET regex (PowerShell `Select-String`) on Windows. When
+    `regex=False` (default), the pattern is matched as a literal fixed string.
 
     Returns:
-        List of dictionaries with search matches
+        List of `{'file': str, 'line': int, 'content': str}` - one entry per matching
+        line, across all files under `dir_path`. Empty list if nothing matches (not
+        an error).
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2255,10 +2529,24 @@ async def ssh_dir_copy(
         use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Copy a directory recursively.
+    Copy a directory recursively (remote-to-remote; for local<->remote use
+    ssh_dir_transfer instead).
+
+    `overwrite` controls what happens if `destination_path` already exists:
+    - `True`: the entire existing destination directory is deleted first, then a
+      fresh copy is made.
+    - `False` (default): does NOT block the copy - it copies into the existing
+      destination as-is, merging with whatever's already there, and any file that
+      shares a name with a source file gets silently overwritten anyway. This does
+      NOT behave like the "fail if destination exists" semantics of
+      ssh_file_move/ssh_file_copy's own `overwrite` parameter.
 
     Returns:
-        Dictionary with copy operation details
+        `{'status': 'success'/'error', 'files_copied' (int), 'bytes_copied' (int),
+        'destination_path'}` (plus `'message'` on error). Note: `files_copied`/
+        `bytes_copied` are computed by counting the destination directory's TOTAL
+        contents *after* the copy, not just the files newly copied in this call - if
+        merging into a non-empty destination, these counts include pre-existing files too.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2287,9 +2575,23 @@ async def ssh_archive_create(
 ) -> dict:
     """
     Create a compressed archive from a directory.
-    
+
+    IMPORTANT cross-platform caveat: on Windows, `tar.gz`/`tar` are NOT natively
+    available - requesting either one silently creates a `.zip` file instead (via
+    `Compress-Archive`), and `archive_path`'s extension is auto-corrected to `.zip`
+    if needed. The only way to tell this happened is the returned `format` field
+    saying `'zip'` even though you asked for `tar.gz`/`tar`. An archive created this
+    way on Windows can only be extracted with ssh_archive_extract on another Windows
+    host - Linux/macOS's extractor only recognizes `.tar`/`.tar.gz`/`.tgz` files, not
+    `.zip`. There is no cross-platform-portable archive format currently available
+    through this tool.
+
     Returns:
-        Dictionary with archive information
+        On success: `{'status': 'success', 'success': True, 'archive_created' (the
+        actual path used, which may differ from `archive_path` if the extension was
+        corrected on Windows), 'format' (the ACTUAL format used - 'tar.gz'/'tar' on
+        Linux/macOS, always 'zip' on Windows), 'size_bytes'}`. On failure:
+        `{'status': 'error', 'message': str}` - not a raised exception.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2311,10 +2613,26 @@ async def ssh_archive_extract(
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False
 ) -> dict:
     """
-    Extract a tar or tar.gz archive to a directory.
-    
+    Extract an archive to a directory. The accepted format is platform-specific and
+    determined purely by `archive_path`'s file extension (not by inspecting the
+    archive's actual content):
+    - Linux/macOS: `.tar.gz`, `.tgz`, or `.tar` only. A `.zip` file (e.g. created by
+      ssh_archive_create on Windows) will fail here with an unsupported-format error.
+    - Windows: `.zip` only. A `.tar`/`.tar.gz` file (e.g. created by
+      ssh_archive_create on Linux/macOS) will fail here the same way.
+    There is no cross-platform-portable archive format currently available through
+    this tool - archives must be created and extracted on the same OS family.
+
+    `overwrite=False` (default) does not fail outright if some files already exist at
+    the destination - on Linux/macOS it extracts everything else and just logs a
+    warning about the skipped files (no per-file detail returned); on Windows the
+    behavior follows `Expand-Archive`'s own overwrite handling.
+
     Returns:
-        Dictionary with extraction information
+        On success: `{'status': 'success', 'success': True, 'extracted_files': [str,
+        ...] (paths as listed inside the archive), 'destination_path'}`. On failure
+        (wrong format for this platform, extraction error): `{'status': 'error',
+        'message': str, 'extracted_files': []}` - not a raised exception.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")

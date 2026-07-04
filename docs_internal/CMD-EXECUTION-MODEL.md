@@ -169,10 +169,22 @@ the time. Regression-checked against `cwd`, sudo, and `io_timeout` together; all
 work, and `io_timeout`'s returned `pid` is now also a real, independently-usable PID
 as a side benefit.
 
-**Not fixed (deliberately out of scope for this pass):**
-- **Windows** - `_wrap_for_pid_capture`/`_capture_pid` aren't overridden there, so
-  `handle.pid` is still the channel id and `runtime_timeout` still can't kill anything
-  on Windows. Same "no single reliable shell to target" reasoning as the `cwd` feature.
+**Fixed for Windows too (2026-07-03, later the same day):** `SshRunOperations_Win`
+now overrides `_wrap_for_pid_capture`/`_capture_pid` as well - it spawns the command
+via `System.Diagnostics.Process` inside a `powershell -EncodedCommand` wrapper
+(base64-encoding the raw command rather than escaping it, since nested-quote commands
+silently mis-parse under naive escaping), captures the real PID from a stderr marker,
+and streams output live via `Register-ObjectEvent` + a poll loop (a blocking
+`WaitForExit()` would prevent PS from ever running the event handlers). `runtime_timeout`
+kill now uses `taskkill /F /T` (not `Stop-Process`, which only killed the wrapper and
+orphaned the real workload - every PID handed out is a `cmd.exe`/`powershell.exe`
+wrapper, not the actual process, since there's no `exec()` on Windows). Windows exit
+codes are *also* now reliable - `chan.recv_exit_status()` can't be trusted there (a
+Win32-OpenSSH + `cmd.exe` bug flattens any nested child's real exit code to `1`), so
+`_handle_command_completion` recovers the real value from a second stderr marker
+printed right before the wrapper exits.
+
+**Not fixed (deliberately out of scope):**
 - **Sudo'd commands.** The PID marker is printed by the *outer*, non-privileged wrapper
   shell - for `use_sudo=True`, the actual command runs as a *child* of that shell (via
   `sudo -n bash -c '...'`), so killing the captured PID kills the wrapper, not
@@ -189,10 +201,10 @@ as a side benefit.
 |---|---|---|
 | Execution model | Synchronous, blocks until done/timeout | Fire-and-forget, returns immediately |
 | Output | Captured in-memory (circular buffer, tail-preserving) | Redirected to log files on the remote host |
-| PID captured | Yes on Linux/macOS non-sudo (fixed 2026-07-03, see "The PID problem" above) — real remote OS PID via `$$`. Still `chan.get_id()` (a local channel number) for sudo'd commands and on Windows | Yes — real remote OS PID, captured explicitly at launch, all platforms |
-| Status check | `ssh_cmd_check_status` reads *cached* handle state from this connection's history | `ssh_task_status` does a *live* liveness check every call (`kill -0 <pid>` / `Get-Process`) — no caching, so no staleness bug |
+| PID captured | Yes, on all platforms non-sudo (Linux/macOS fixed 2026-07-03 via `$$`, Windows fixed later the same day via a stderr marker - see "The PID problem" above and the Windows note below it) — real remote OS PID. Still `chan.get_id()` (a local channel number) for sudo'd commands | Yes — real remote OS PID, captured explicitly at launch, all platforms |
+| Status check | `ssh_cmd_check_status` reads *cached* handle state from this connection's history, except when monitoring stopped without a confirmed exit code (e.g. `io_timeout`) - then it does a one-off live `task_status(pid)` check to resolve to `'completed_exit_code_unknown'` (gone) or keep `'unknown_still_running'` (still alive) | `ssh_task_status` does a *live* liveness check every call (`kill -0 <pid>` / `Get-Process`) — no caching, so no staleness bug |
 | Survives reconnect | No — handles/history are connection-scoped | Yes — PID is an OS-level identifier |
-| Known gap | `runtime_timeout` kill still doesn't reliably work for sudo'd commands (kills the wrapper, not the privileged child) or on Windows | No exit-code or log-path recall after the task exits — `ssh_task_status` only ever reports liveness, not a documented bug, more of a missing feature (tracked separately in the consolidated feature plan, Theme D) |
+| Known gap | `runtime_timeout` kill still doesn't reliably work for sudo'd commands (kills the wrapper, not the privileged child) - this is now the only remaining gap, Windows is fixed | No exit-code or log-path recall after the task exits — `ssh_task_status` only ever reports liveness, not a documented bug, more of a missing feature (tracked separately in the consolidated feature plan, Theme D) |
 
 Because `ssh_task_status` re-queries the remote host live on every call instead of
 trusting cached local state, it was never exposed to the `end_ts`-vs-`exit_code`
@@ -200,16 +212,17 @@ staleness bug that `ssh_cmd_check_status` had. Task launch always captures a rea
 on all platforms; the `cmd` path now does too for the common (non-sudo, Linux/macOS)
 case, closing most of the gap between the two tool families.
 
-## Open items for `docs/50-command-execution.md` once this is fully stable
+## Open items for `docs/50-command-execution.md`
 
-The public docs currently have some drift worth fixing in the same pass as documenting
-the behavior above:
-- Example under "Strategy 3" reads `result['handle_id']` and `status['running']` (a
-  boolean) — the actual fields are `result['id']` and `status['status']` (a string enum:
-  `completed`/`running`/`unknown_still_running`/`not_found`/...).
-- The status table lists `busy` and `killed` as `ssh_cmd_run` status values; worth
-  double-checking these are real return values from that specific tool vs. from
-  `BusyError`/`ssh_cmd_kill` separately, and correcting/removing if not.
+Most of the drift originally noted here has since been fixed (the "Strategy 3" example
+now correctly uses `result['id']`/`status['status']`, and `busy` is confirmed a real
+`ssh_cmd_run` status from `BusyError` - `killed` was never actually listed under
+`ssh_cmd_run`'s own status table, only `ssh_cmd_check_status`'s, so there was nothing
+to fix there). The public docs were also updated 2026-07-03 with the new
+`ssh_cmd_check_status` terminal statuses and Windows `runtime_timeout` coverage
+described above.
+
+Still open:
 - No mention anywhere that working directory and environment do not persist between
   calls, or of the `cwd` parameter's fail-closed behavior. Suggested doc line: "Each
   ssh_cmd_run is an independent process with no shell state carried between calls

@@ -185,7 +185,7 @@ class SshOsOperations(ABC):
             - user: Username
             - cwd: Current working directory
             - time: Local time with timezone offset in ISO 8601 format
-            - os_type: Operating system type (e.g., "linux", "darwin")
+            - os_type: Operating system type (e.g., "linux", "macos")
         """
         cmd = self._cmd_user_status()
         return self._execute_status_command(cmd, self._user_key_map)

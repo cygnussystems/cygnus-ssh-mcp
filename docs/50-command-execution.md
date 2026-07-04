@@ -53,9 +53,9 @@ ssh_cmd_run(
 
 ### Runtime Timeout (`runtime_timeout`)
 - Limits total execution time regardless of output activity
-- Hard stop - firing this **DOES** attempt to kill the remote command (Linux/macOS
-  non-sudo commands only, as of 2026-07-03; see
-  `docs_internal/CMD-EXECUTION-MODEL.md` for current platform/sudo coverage)
+- Hard stop - firing this **DOES** attempt to kill the remote command, on Linux,
+  macOS, and Windows (non-sudo commands; sudo'd commands are the one remaining gap -
+  see `docs_internal/CMD-EXECUTION-MODEL.md` for current coverage details)
 - Default: None (no limit)
 - Use for: Preventing runaway processes
 
@@ -124,7 +124,9 @@ ssh_cmd_run(
 |--------|-------------|
 | `completed` | Confirmed finished, `exit_code` is populated |
 | `running` | Still being actively monitored |
-| `unknown_still_running` | Monitoring previously stopped (e.g. a prior `io_timeout`) without a confirmed exit code - the remote command was not killed and is very likely still running |
+| `killed` | The remote process was confirmed terminated (e.g. `runtime_timeout` killed it, or a prior `ssh_cmd_kill` call found it already gone) - `exit_code` is not known, but treat this as terminal, same as `completed` |
+| `completed_exit_code_unknown` | Monitoring previously stopped (e.g. a prior `io_timeout`) without a confirmed exit code, but a live check now confirms the remote process is no longer running - terminal, but the real exit code was never observed and cannot be recovered |
+| `unknown_still_running` | Monitoring previously stopped (e.g. a prior `io_timeout`) and a live check confirms the remote command is still actually running - not a failure, call this tool again to keep checking |
 | `not_found` | The `handle_id` doesn't exist (handles don't survive reconnects) |
 
 ### `ssh_cmd_kill` response `result` field
@@ -211,9 +213,9 @@ if result['status'] == 'io_timeout':
             break
 ```
 
-Note: `runtime_timeout` firing already attempts to kill the remote command (Linux/macOS,
-non-sudo), so there's nothing left to poll for in that case. Polling to wait out a long
-command is the `io_timeout` pattern, shown above.
+Note: `runtime_timeout` firing already attempts to kill the remote command (Linux, macOS,
+and Windows; non-sudo), so there's nothing left to poll for in that case. Polling to wait
+out a long command is the `io_timeout` pattern, shown above.
 
 ---
 

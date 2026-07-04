@@ -118,17 +118,32 @@ Windows uses `\r\n` (CRLF) line endings. The tools handle this automatically:
 
 ### Command Execution (`ssh_cmd_run`)
 
-Commands are executed via PowerShell:
-
-```powershell
-powershell -Command "your-command-here"
-```
-
-For CMD commands, prefix with `cmd /c`:
+Commands run with `cmd.exe` semantics by default - the same as typing them at a
+`cmd.exe` prompt - regardless of the SSH server's configured `DefaultShell`. There's
+no need to manually prefix commands with `cmd /c` or `powershell -Command "..."`;
+`ssh_cmd_run` always spawns the command through an internal wrapper that handles this
+consistently:
 
 ```
-ssh_cmd_run with command: "cmd /c dir C:\Windows"
+ssh_cmd_run with command: "dir C:\Windows"
 ```
+
+For PowerShell-specific syntax (cmdlets, pipelines using PowerShell semantics), invoke
+`powershell -Command "..."` explicitly yourself, same as you would at a `cmd.exe`
+prompt:
+
+```
+ssh_cmd_run with command: "powershell -Command \"Get-Process | Sort-Object CPU -Descending | Select-Object -First 5\""
+```
+
+The wrapper captures a **real remote process ID** (not a local placeholder), so
+`runtime_timeout` and `ssh_cmd_kill` correctly target the actual process. It also
+recovers the **real exit code** via an internal marker mechanism rather than trusting
+the SSH channel's own exit status - a plain SSH exec channel through `cmd.exe`
+silently reports the wrong exit code (a known Win32-OpenSSH/`cmd.exe` interaction)
+whenever a nested child process is involved, which is exactly what running a command
+this way requires; commands that fail now correctly report their real exit code
+instead of a generic `1`.
 
 ### Directory Operations
 
@@ -151,9 +166,19 @@ ssh_cmd_run with command: "cmd /c dir C:\Windows"
 
 | Aspect | Linux | Windows |
 |--------|-------|---------|
-| Launch method | `nohup cmd &` | `Start-Process -NoNewWindow` |
+| Launch method | `nohup cmd &` | WMI (`Invoke-CimMethod -ClassName Win32_Process -MethodName Create`) |
 | Check running | `kill -0 $pid` | `Get-Process -Id $pid` |
-| Terminate | `kill -15` / `kill -9` | `Stop-Process [-Force]` |
+| Terminate | `kill -15` / `kill -9` | `taskkill /F /T` (kills the whole process tree) |
+
+Windows background tasks are launched via WMI rather than `Start-Process`: a
+`Start-Process`-launched child inherits membership in the SSH session's Windows Job
+Object, and gets killed the instant that session ends, regardless of any
+"detached"/hidden-window flags. WMI process creation goes through a separate service
+process, so the task genuinely survives independently until it finishes or is
+explicitly killed. Termination uses `taskkill /F /T` (not `Stop-Process`) because
+every task PID is a `cmd.exe`/`powershell.exe` wrapper, not the real workload -
+`Stop-Process` on just the wrapper orphans the actual process; `/T` kills the whole
+tree in one call.
 
 ### System Information (`ssh_conn_host_info`)
 
