@@ -5,6 +5,7 @@ import shlex
 import logging
 import socket
 import base64
+import threading
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional, Self
@@ -18,6 +19,13 @@ from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 
 class SshRunOperations(ABC):
     """Base class for synchronous command execution. Platform-specific sudo handling is abstract."""
+
+    # Internal safety ceiling for background-monitored commands (io_timeout/wait_timeout
+    # handoff) that were never given an explicit runtime_timeout - without this, a command
+    # that hangs forever with no runtime_timeout would leave its background monitoring
+    # thread running forever too. This is deliberately generous (a real ceiling, not a UX
+    # timeout) - callers who care about a tighter bound should pass runtime_timeout themselves.
+    MAX_BACKGROUND_RUNTIME_SECONDS = 24 * 3600
 
     def __init__(self, ssh_client, tail_keep=100):
         """
@@ -115,24 +123,29 @@ class SshRunOperations(ABC):
 
     def execute_command(self, cmd: str, io_timeout: float = 60.0,
                         runtime_timeout: Optional[float] = None,
-                        sudo: bool = False, cwd: Optional[str] = None) -> CommandHandle:
+                        sudo: bool = False, cwd: Optional[str] = None,
+                        wait_timeout: Optional[float] = None) -> CommandHandle:
         """
         Execute a command synchronously with timeout management.
 
         Args:
             cmd: Command to execute
-            io_timeout: I/O inactivity timeout in seconds
-            runtime_timeout: Total execution timeout in seconds
+            io_timeout: I/O inactivity (silence) timeout in seconds
+            runtime_timeout: Total execution timeout in seconds - the only knob that
+                ever kills the remote command
             sudo: Whether to run with elevated privileges
             cwd: Run in this directory for this call only (Linux/macOS). Fails closed -
                 the command never runs if the directory doesn't exist. Not remembered
                 across calls; see docs_internal/CMD-EXECUTION-MODEL.md.
+            wait_timeout: Total elapsed wait in seconds, regardless of output activity -
+                unlike io_timeout, fires even if the command is actively producing
+                output. Same non-killing handoff behavior as io_timeout.
 
         Returns:
             CommandHandle with command results
 
         Raises:
-            CommandTimeout: If I/O timeout occurs
+            CommandTimeout: If io_timeout or wait_timeout fires (see .reason)
             CommandRuntimeTimeout: If runtime timeout occurs
             CommandFailed: If command fails
             SudoRequired: If elevation is required but not available
@@ -171,7 +184,8 @@ class SshRunOperations(ABC):
             self._capture_pid(chan, handle)
 
             # Monitor command execution
-            self._monitor_command(chan, handle, io_timeout, runtime_timeout, start_time)
+            self._monitor_command(chan, handle, io_timeout, runtime_timeout, start_time,
+                                   wait_timeout=wait_timeout, sudo_pwd_attempted=sudo_pwd_attempted)
 
             # Handle command completion
             return self._handle_command_completion(chan, handle, sudo_pwd_attempted)
@@ -233,8 +247,17 @@ class SshRunOperations(ABC):
         except Exception as e:
             self.logger.warning(f"Error during initial output capture: {e}")
 
-    def _monitor_command(self, chan, handle, io_timeout, runtime_timeout, start_time):
-        """Monitor command execution and handle timeouts."""
+    def _monitor_command(self, chan, handle, io_timeout, runtime_timeout, start_time,
+                          wait_timeout=None, sudo_pwd_attempted=False):
+        """Monitor command execution and handle timeouts.
+
+        io_timeout (silence) and wait_timeout (total elapsed, regardless of activity)
+        are both "soft" - neither kills the remote command. Whichever fires first hands
+        monitoring off to a background thread (_handoff_to_background) instead of
+        closing the channel, so the remote command genuinely survives and
+        ssh_cmd_check_status/ssh_cmd_output can see real output/exit code later.
+        runtime_timeout is the only "hard" timeout - it always kills.
+        """
         last_data_time = time.monotonic()
 
         effective_select_timeout = 0.1
@@ -244,34 +267,12 @@ class SshRunOperations(ABC):
         while not chan.exit_status_ready():
             current_time = time.monotonic()
 
-            # Check Runtime Timeout
+            # Check Runtime Timeout (hard cap - the only one allowed to kill)
             if runtime_timeout is not None:
                 elapsed = current_time - start_time
                 if elapsed > runtime_timeout:
                     self.logger.warning(f"Command exceeded runtime timeout of {runtime_timeout}s")
-                    handle.running = False
-                    handle.end_ts = datetime.now(UTC)
-                    try:
-                        if hasattr(self.ssh_client, 'task_ops') and hasattr(self.ssh_client.task_ops, '_kill_remote_process'):
-                            killed = self.ssh_client.task_ops._kill_remote_process(handle.pid)
-                            if killed:
-                                # We don't know the real exit code (the channel is closed
-                                # below without waiting for it), but the kill signal was
-                                # confirmed delivered - nothing is left to wait for, so
-                                # ssh_cmd_check_status should stop reporting this as
-                                # merely "unknown_still_running" forever.
-                                handle.kill_confirmed = True
-                    except Exception as e_kill:
-                        self.logger.warning(f"Error trying to stop process on runtime timeout: {e_kill}")
-                    finally:
-                        # Always close the channel, regardless of whether the remote kill
-                        # attempt above succeeded - previously this only ran when
-                        # task_ops/_kill_remote_process were unavailable, which is never true,
-                        # so the channel was silently leaked on every runtime_timeout.
-                        try:
-                            chan.close()
-                        except Exception as e_close:
-                            self.logger.warning(f"Error closing channel on runtime timeout: {e_close}")
+                    self._kill_on_runtime_timeout(chan, handle)
                     raise CommandRuntimeTimeout(handle, runtime_timeout)
 
             # Check for I/O using select
@@ -296,20 +297,29 @@ class SshRunOperations(ABC):
                             handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
                         last_data_time = time.monotonic()
 
-            # Check I/O Timeout
+            # Check I/O Timeout (silence-based, soft - hands off, does not kill)
             if io_timeout:
                 io_inactive_time = current_time - last_data_time
                 if io_inactive_time > io_timeout:
-                    self.logger.warning(f"Command I/O timeout after {io_inactive_time:.2f}s of inactivity")
-                    handle.running = False
-                    handle.end_ts = datetime.now(UTC)
-                    try:
-                        chan.close()
-                    except Exception as e_kill:
-                        self.logger.warning(f"Error trying to stop process on I/O timeout: {e_kill}")
-                    raise CommandTimeout(io_timeout, handle=handle)
+                    self.logger.warning(f"Command I/O timeout after {io_inactive_time:.2f}s of inactivity "
+                                         f"- handing off to background monitoring")
+                    self._handoff_to_background(chan, handle, runtime_timeout, start_time,
+                                                 sudo_pwd_attempted, 'io_timeout', io_timeout)
 
-        # Drain remaining output
+            # Check wait_timeout (elapsed-based, soft - fires even if actively producing
+            # output, unlike io_timeout - hands off the same way, does not kill)
+            if wait_timeout:
+                total_elapsed = current_time - start_time
+                if total_elapsed > wait_timeout:
+                    self.logger.warning(f"Command wait_timeout of {wait_timeout}s reached "
+                                         f"- handing off to background monitoring")
+                    self._handoff_to_background(chan, handle, runtime_timeout, start_time,
+                                                 sudo_pwd_attempted, 'wait_timeout', wait_timeout)
+
+        self._drain_remaining_output(chan, handle)
+
+    def _drain_remaining_output(self, chan, handle):
+        """Read whatever's left in the channel's buffers after it's confirmed done."""
         while chan.recv_ready():
             data = chan.recv(4096)
             if not data:
@@ -323,6 +333,119 @@ class SshRunOperations(ABC):
                 break
             for line in data.decode('utf-8', errors='replace').splitlines(keepends=True):
                 handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+
+    def _kill_on_runtime_timeout(self, chan, handle):
+        """Kill the remote process and close the channel - the only path in this whole
+        flow allowed to do either, since runtime_timeout is the hard safety net.
+        Shared by the foreground loop and background-monitoring loop.
+        """
+        handle.end_ts = datetime.now(UTC)
+        try:
+            if hasattr(self.ssh_client, 'task_ops') and hasattr(self.ssh_client.task_ops, '_kill_remote_process'):
+                killed = self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                if killed:
+                    # We don't know the real exit code (the channel is closed below
+                    # without waiting for it), but the kill signal was confirmed
+                    # delivered - nothing is left to wait for, so ssh_cmd_check_status
+                    # should stop reporting this as merely "unknown_still_running" forever.
+                    handle.kill_confirmed = True
+        except Exception as e_kill:
+            self.logger.warning(f"Error trying to stop process on runtime timeout: {e_kill}")
+        finally:
+            try:
+                chan.close()
+            except Exception as e_close:
+                self.logger.warning(f"Error closing channel on runtime timeout: {e_close}")
+            handle.running = False
+
+    def _handoff_to_background(self, chan, handle, runtime_timeout, start_time,
+                                sudo_pwd_attempted, reason, seconds):
+        """Hand off monitoring of a still-running remote command to a background
+        thread, instead of closing the channel - the whole point of io_timeout/
+        wait_timeout is that the remote command survives, so nothing in this call's
+        stack may touch the channel again after this. Always raises CommandTimeout;
+        never returns normally.
+        """
+        handle._background_monitored = True
+        thread = threading.Thread(
+            target=self._continue_monitoring_in_background,
+            args=(chan, handle, runtime_timeout, start_time, sudo_pwd_attempted),
+            daemon=True,
+            name=f"ssh-cmd-bg-monitor-{handle.id}"
+        )
+        thread.start()
+        raise CommandTimeout(seconds, handle=handle, reason=reason)
+
+    def _continue_monitoring_in_background(self, chan, handle, runtime_timeout, start_time,
+                                            sudo_pwd_attempted):
+        """Runs in a daemon thread after io_timeout/wait_timeout hands off monitoring.
+        Keeps draining the channel and watching for real completion, so
+        ssh_cmd_check_status/ssh_cmd_output eventually see the real exit code and full
+        output - without ever closing the channel early. Only runtime_timeout (still
+        enforced here, with an internal ceiling if the caller never set one) may end
+        this early. handle.running/.end_ts/.exit_code are set in that order (running
+        last) so a concurrent reader never observes "not running" alongside stale
+        exit info - deliberately not using a lock, consistent with how the rest of
+        this handle is already accessed across the sync/async boundary elsewhere.
+        """
+        effective_runtime_timeout = (
+            runtime_timeout if runtime_timeout is not None else self.MAX_BACKGROUND_RUNTIME_SECONDS
+        )
+        try:
+            while not chan.exit_status_ready():
+                current_time = time.monotonic()
+                if current_time - start_time > effective_runtime_timeout:
+                    self.logger.warning(
+                        f"Backgrounded command {handle.id} exceeded runtime timeout of "
+                        f"{effective_runtime_timeout}s"
+                    )
+                    self._kill_on_runtime_timeout(chan, handle)
+                    return
+
+                readable, _, _ = select.select([chan], [], [], 1.0)
+                if readable:
+                    if chan.recv_ready():
+                        data = chan.recv(4096)
+                        if data:
+                            for line in data.decode('utf-8', errors='replace').splitlines(keepends=True):
+                                handle.add_output(line if line.endswith('\n') else line + '\n')
+                    if chan.recv_stderr_ready():
+                        stderr_data = chan.recv_stderr(4096)
+                        if stderr_data:
+                            for line in stderr_data.decode('utf-8', errors='replace').splitlines(keepends=True):
+                                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+
+            self._drain_remaining_output(chan, handle)
+
+            try:
+                # Sets handle.exit_code/end_ts (platform-specific recovery, e.g. the
+                # Windows exit-code marker) as its first action, before possibly
+                # raising CommandFailed (nonzero exit) or CwdNotFound (never actually
+                # possible here - cwd is validated before io_timeout/wait_timeout could
+                # ever fire) - nobody is waiting synchronously for those anymore, so
+                # just log them; the handle state they set is what matters now.
+                self._handle_command_completion(chan, handle, sudo_pwd_attempted)
+            except Exception as completion_err:
+                self.logger.info(
+                    f"Backgrounded command {handle.id} finished: {completion_err}"
+                )
+            finally:
+                handle.running = False
+                try:
+                    chan.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            self.logger.error(
+                f"Error in background monitoring for command {handle.id}: {e}", exc_info=True
+            )
+            if handle.end_ts is None:
+                handle.end_ts = datetime.now(UTC)
+            handle.running = False
+            try:
+                chan.close()
+            except Exception:
+                pass
 
     def _handle_command_completion(self, chan, handle, sudo_pwd_attempted):
         """Handle successful command completion."""
@@ -352,7 +475,7 @@ class SshRunOperations(ABC):
 
     def _handle_execution_error(self, e, handle):
         """Handle known execution errors."""
-        if handle:
+        if handle and not handle._background_monitored:
             handle.running = False
             handle.end_ts = datetime.now(UTC)
             if hasattr(handle, 'error_message'):
@@ -361,7 +484,7 @@ class SshRunOperations(ABC):
 
     def _handle_unexpected_error(self, e, handle):
         """Handle unexpected errors."""
-        if handle:
+        if handle and not handle._background_monitored:
             handle.running = False
             handle.end_ts = datetime.now(UTC)
             if hasattr(handle, 'error_message'):
@@ -370,6 +493,13 @@ class SshRunOperations(ABC):
 
     def _cleanup_command(self, chan, handle):
         """Cleanup command resources."""
+        if handle is not None and handle._background_monitored:
+            # Ownership of the channel and completion state was handed off to a
+            # background thread (io_timeout/wait_timeout) - it owns both now. Touching
+            # either here would race with it and/or re-introduce the exact bug this
+            # mechanism exists to fix (closing a channel whose remote command is
+            # supposed to survive).
+            return
         if chan:
             chan.close()
         if handle:

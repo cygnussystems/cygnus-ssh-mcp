@@ -938,25 +938,36 @@ async def ssh_task_kill(
 @mcp.tool()
 async def ssh_cmd_run(
         command: Annotated[str, Field(description="Command to execute on remote host")],
-        io_timeout: Annotated[float, Field(description="Max seconds of SILENCE (no output) before giving up on waiting. Does NOT kill the remote command - it only stops local monitoring and returns control to you. Set this high (300+) for commands that may be quiet for a while: package installs (apt/dpkg/yum), Docker/image pulls, large downloads, compilation. If hit, call ssh_cmd_check_status or ssh_cmd_output to check back rather than rerunning.")] = 60.0,
-        runtime_timeout: Annotated[Optional[float], Field(description="Total wall-clock cap in seconds, regardless of output activity. Unlike io_timeout, hitting this DOES attempt to kill the remote command - it's a hard ceiling. Set generously for long operations (installs/downloads can need 10-60+ minutes).", gt=0)] = None,
+        io_timeout: Annotated[float, Field(description="Max seconds of SILENCE (no output) before giving up on waiting. Does NOT kill the remote command - hands off to background monitoring and returns control to you. Set this high (300+) for commands that may be quiet for a while: package installs (apt/dpkg/yum), Docker/image pulls, large downloads, compilation. If hit, call ssh_cmd_check_status or ssh_cmd_output to check back rather than rerunning.")] = 60.0,
+        runtime_timeout: Annotated[Optional[float], Field(description="Total wall-clock cap in seconds, regardless of output activity. Unlike io_timeout/wait_timeout, hitting this DOES attempt to kill the remote command - it's the only hard ceiling. Set generously for long operations (installs/downloads can need 10-60+ minutes) - this should be a safety net, not a UX mechanism.", gt=0)] = None,
         use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
-        cwd: Annotated[Optional[str], Field(description="Run the command in this directory, for this call only (Linux/macOS only - not yet supported on Windows). Nothing is remembered between calls: each ssh_cmd_run is an independent process, so pass cwd again on every call where it matters, or chain 'cd dir && command' yourself. Fails closed - if the directory doesn't exist, the command is never executed at all (status='cwd_not_found'), so there's no ambiguity about where anything ran.")] = None
+        cwd: Annotated[Optional[str], Field(description="Run the command in this directory, for this call only (Linux/macOS only - not yet supported on Windows). Nothing is remembered between calls: each ssh_cmd_run is an independent process, so pass cwd again on every call where it matters, or chain 'cd dir && command' yourself. Fails closed - if the directory doesn't exist, the command is never executed at all (status='cwd_not_found'), so there's no ambiguity about where anything ran.")] = None,
+        wait_timeout: Annotated[Optional[float], Field(description="Max seconds to wait in THIS call, regardless of output activity - unlike io_timeout, fires even if the command is actively producing output. Does NOT kill the remote command, same non-destructive handoff as io_timeout. Use this when you want to check in periodically on a command that's chatty but long-running (e.g. a verbose Docker pull), rather than being blocked until it finishes or goes quiet.", gt=0)] = None
 ) -> dict:
     """
-    Execute a command on the remote host and BLOCK until it completes, an io_timeout (silence)
-    occurs, or a runtime_timeout (hard cap) occurs.
+    Execute a command on the remote host and BLOCK until it completes, an io_timeout (silence),
+    a wait_timeout (elapsed cap), or a runtime_timeout (hard cap) occurs.
 
     Timeout semantics (read this before choosing values):
-    - io_timeout firing does NOT mean the remote command stopped. It almost certainly did not -
-      only local monitoring gave up. The response will have status='io_timeout', still_running=true,
+    - io_timeout and wait_timeout firing do NOT mean the remote command stopped - it genuinely
+      keeps running. Monitoring is handed off to a background thread so output/exit code continue
+      to be collected; the response has status='io_timeout'/'wait_timeout', still_running=true,
       and an id/pid you can use with ssh_cmd_check_status(handle_id=...) to poll again later, or
-      ssh_cmd_output(handle_id=...) to read output collected so far. Do not rerun the command.
-    - runtime_timeout firing DOES attempt to terminate the remote command - use it as your real cap.
-    - For commands you expect to be quiet for a long time or run long (package installs, container
-      image pulls, large downloads, compilation), prefer either a high io_timeout (300s+), or launch
-      the command with ssh_task_launch instead so it runs detached and you can check on it whenever
-      you want without holding this tool call open.
+      ssh_cmd_output(handle_id=...) to read output collected so far (including output produced
+      after this call returned). Do not rerun the command. You can also still decide to end it
+      early with ssh_cmd_kill(handle_id=...) at any point after either of these fires.
+    - io_timeout fires only on SILENCE (no output for N seconds) - a command that keeps producing
+      output never triggers it, however long it runs.
+    - wait_timeout fires after N seconds of TOTAL elapsed wait, regardless of activity - use this
+      if you want to check in periodically on a long-running command even while it's actively
+      producing output, rather than being blocked until completion.
+    - runtime_timeout is the only knob that DOES attempt to terminate the remote command - a hard
+      safety ceiling, not a UX mechanism. Set it generously (much longer than the command should
+      ever realistically take).
+    - For commands that should survive you disconnecting/reconnecting entirely (not just this
+      call returning), use ssh_task_launch instead - it runs fully detached from this SSH session,
+      whereas a command started here (even after surviving io_timeout/wait_timeout) is still tied
+      to the current connection's lifetime.
 
     You can access command history using 'ssh_cmd_history' to see previous commands and their output.
 
@@ -980,6 +991,8 @@ async def ssh_cmd_run(
           command was NOT executed at all (fails closed).
         - 'io_timeout': no output within `io_timeout` seconds - remote command was NOT
           killed, still_running=true. Poll with ssh_cmd_check_status(handle_id=...).
+        - 'wait_timeout': `wait_timeout` elapsed regardless of activity - remote command was
+          NOT killed, still_running=true. Poll with ssh_cmd_check_status(handle_id=...).
         - 'runtime_timeout': `runtime_timeout` exceeded - an attempt was made to kill
           the remote command (see ssh_cmd_check_status's `'killed'` status to confirm).
         - 'sudo_required': `use_sudo=True` but elevation isn't available (see
@@ -997,7 +1010,7 @@ async def ssh_cmd_run(
         }
 
     try:
-        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, use_sudo, cwd=cwd)
+        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, use_sudo, cwd=cwd, wait_timeout=wait_timeout)
         output = handle.get_full_output()
         return {
             'status': 'success',
@@ -1021,11 +1034,15 @@ async def ssh_cmd_run(
             'timestamp': datetime.now(UTC).isoformat()
         }
     except CommandTimeout as e:
-        logger.warning(f"Command I/O timeout after {e.seconds}s: {command}")
+        logger.warning(f"Command {e.reason} after {e.seconds}s: {command}")
         handle = e.handle
+        trigger_desc = (
+            f"no output for {e.seconds}s" if e.reason == 'io_timeout'
+            else f"{e.seconds}s of total elapsed wait, regardless of activity"
+        )
 
         return {
-            'status': 'io_timeout',
+            'status': e.reason,  # 'io_timeout' or 'wait_timeout'
             'id': handle.id if handle else None,
             'pid': handle.pid if handle else None,
             'command': command,
@@ -1033,10 +1050,12 @@ async def ssh_cmd_run(
             'output': handle.get_full_output() if handle else None,
             'still_running': True,
             'next_step': (
-                f"The remote command was NOT killed - only local monitoring stopped after "
-                f"{e.seconds}s of inactivity. It is very likely still running on the remote host. "
-                f"Call ssh_cmd_check_status(handle_id={handle.id}) to poll, or ssh_cmd_output(handle_id={handle.id}) "
-                f"for output collected so far. Do not rerun this command."
+                f"The remote command was NOT killed - only local monitoring handed off to background "
+                f"monitoring after {trigger_desc}. It is still running on the remote host and output/exit "
+                f"code continue to be collected. Call ssh_cmd_check_status(handle_id={handle.id}) to poll, "
+                f"ssh_cmd_output(handle_id={handle.id}) for output collected so far (including output "
+                f"produced after this call returned), or ssh_cmd_kill(handle_id={handle.id}) if you want "
+                f"to end it early. Do not rerun this command."
             ) if handle else (
                 "No command handle is available to check back with. Inspect the remote process "
                 "directly if you need to confirm its status."
@@ -1182,30 +1201,32 @@ async def ssh_cmd_kill(
 
 @mcp.tool()
 async def ssh_cmd_check_status(
-    handle_id: Annotated[int, Field(description="Command handle ID to check status for - the 'id' returned by ssh_cmd_run, including in its io_timeout response")],
+    handle_id: Annotated[int, Field(description="Command handle ID to check status for - the 'id' returned by ssh_cmd_run, including in its io_timeout/wait_timeout response")],
     wait_seconds: Annotated[float, Field(description="Seconds to wait before checking", gt=0)] = 5.0
 ) -> dict:
     """
     Wait for the specified duration, then check the status of a command started with
     ssh_cmd_run. Call this repeatedly - it's designed to be polled - after
-    ssh_cmd_run returns status='io_timeout' (the remote command is very likely still
-    running; io_timeout does not kill it), until you get a TERMINAL status below.
-    Do not rerun the original command while polling.
+    ssh_cmd_run returns status='io_timeout' or 'wait_timeout' (the remote command is
+    still genuinely running in both cases - background monitoring keeps collecting
+    its output/exit code), until you get a TERMINAL status below. Do not rerun the
+    original command while polling.
 
     Terminal status values (nothing left to wait for, stop polling):
-    - 'completed': confirmed finished, exit_code is populated.
+    - 'completed': confirmed finished, exit_code is populated - including for commands
+      that survived an io_timeout/wait_timeout, since background monitoring keeps
+      watching for the real exit code.
     - 'killed': the remote process was confirmed terminated (e.g. runtime_timeout killed it,
       or a prior ssh_cmd_kill call found it already gone) - exit_code is not known.
-    - 'completed_exit_code_unknown': monitoring previously stopped (e.g. an io_timeout) without
-      a confirmed exit code, but a live check now confirms the remote process is no longer
-      running - it finished on its own sometime after monitoring stopped. The real exit code
-      was never observed and cannot be recovered - only its output (via ssh_cmd_output) is
-      available.
+    - 'completed_exit_code_unknown': rare fallback - monitoring stopped without a confirmed
+      exit code (should only really happen from before background monitoring existed, or
+      after an unexpected error) and a live check now confirms the remote process is no
+      longer running. Only its output (via ssh_cmd_output) is available, not its exit code.
 
     Non-terminal status values (keep polling):
     - 'running': still being actively monitored, not yet finished.
-    - 'unknown_still_running': monitoring previously stopped (e.g. an io_timeout on the original
-      call) and a live check confirms the remote command is still actually running. Not a
+    - 'unknown_still_running': rare fallback (same caveat as 'completed_exit_code_unknown')
+      where a live check confirms the remote command is still actually running. Not a
       failure - call this tool again to keep checking.
 
     Other:
@@ -1352,9 +1373,10 @@ async def ssh_cmd_output(
 ) -> list:
     """
     Retrieve captured output (stdout+stderr, interleaved) from a command started with
-    ssh_cmd_run, identified by its handle_id. Useful after an io_timeout to see
-    progress so far, or any time to re-inspect an earlier command's output without
-    rerunning it.
+    ssh_cmd_run, identified by its handle_id. Useful after an io_timeout/wait_timeout
+    to see progress so far - including output produced after that call returned,
+    since background monitoring keeps collecting it - or any time to re-inspect an
+    earlier command's output without rerunning it.
 
     Raises an error if handle_id doesn't exist (e.g. from a previous connection -
     handles don't survive reconnects).

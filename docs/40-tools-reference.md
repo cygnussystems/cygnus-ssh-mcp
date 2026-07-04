@@ -175,20 +175,25 @@ Disconnect from the current host.
 
 ### ssh_cmd_run
 Execute a command on the remote host and block until it completes, an `io_timeout`
-(silence) occurs, or a `runtime_timeout` (hard cap) occurs. See
+(silence), a `wait_timeout` (elapsed cap), or a `runtime_timeout` (hard cap) occurs.
+`io_timeout`/`wait_timeout` never kill the remote command - monitoring hands off to
+a background thread instead, so the command keeps running and
+`ssh_cmd_check_status`/`ssh_cmd_output`/`ssh_cmd_kill` all still work on it
+afterward. Only `runtime_timeout` ever kills. See
 [50-command-execution.md](50-command-execution.md) for full timeout semantics.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `command` | str | Yes | - | Command to execute |
-| `io_timeout` | float | No | 60.0 | Inactivity timeout in seconds - does NOT kill the remote command |
+| `io_timeout` | float | No | 60.0 | Inactivity (silence) timeout in seconds - does NOT kill the remote command |
+| `wait_timeout` | float | No | None | Total elapsed wait in seconds, regardless of output activity - does NOT kill the remote command, same handoff as `io_timeout` |
 | `runtime_timeout` | float | No | None | Total wall-clock cap in seconds - DOES attempt to kill the remote command |
 | `use_sudo` | bool | No | False | Run with sudo privileges |
 | `cwd` | str | No | None | Run this call in this directory (Linux/macOS only). Not remembered between calls; fails closed if the directory doesn't exist |
 
 **Returns:** Dictionary with `status`, `output`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps
 
-**Status values:** `success`, `command_failed`, `cwd_not_found`, `io_timeout`, `runtime_timeout`, `sudo_required`, `busy`, `error`
+**Status values:** `success`, `command_failed`, `cwd_not_found`, `io_timeout`, `wait_timeout`, `runtime_timeout`, `sudo_required`, `busy`, `error`
 
 ---
 
@@ -202,16 +207,18 @@ Wait, then check the status of a command started with `ssh_cmd_run`.
 
 **Returns:** Dictionary with `status`, `exit_code`, `pid`, output metadata
 
-**Status values:** `completed` (finished, `exit_code` populated), `running` (still being
-monitored), `killed` (the remote process was confirmed terminated - e.g. `runtime_timeout`
-killed it, or a prior `ssh_cmd_kill` call found it already gone; `exit_code` is not known,
-but treat this as terminal, same as `completed`), `completed_exit_code_unknown` (monitoring
-previously stopped, e.g. a prior `io_timeout`, without a confirmed exit code, but a live
-check now confirms the remote process is no longer running - terminal, but the real exit
-code was never observed and cannot be recovered), `unknown_still_running` (monitoring
-previously stopped and a live check confirms the remote command is still actually running -
-not a failure, call this tool again to keep checking), `not_found` (handle doesn't exist -
-handles don't survive reconnects)
+**Status values:** `completed` (finished, `exit_code` populated - including a command
+that survived an `io_timeout`/`wait_timeout`, since background monitoring keeps watching
+for the real exit code), `running` (still being actively monitored, including a
+backgrounded command that isn't done yet), `killed` (the remote process was confirmed
+terminated - e.g. `runtime_timeout` killed it, or a prior `ssh_cmd_kill` call found it
+already gone; `exit_code` is not known, but treat this as terminal, same as `completed`),
+`completed_exit_code_unknown` (rare fallback - monitoring stopped without a confirmed exit
+code, e.g. an unexpected error, but a live check now confirms the remote process is no
+longer running - terminal, but the real exit code was never observed and cannot be
+recovered), `unknown_still_running` (rare fallback, same caveat - a live check confirms
+the remote command is still actually running - not a failure, call this tool again to
+keep checking), `not_found` (handle doesn't exist - handles don't survive reconnects)
 
 ---
 

@@ -9,8 +9,14 @@ Written after fixing a cluster of timeout/status bugs on 2026-07-03 (see
 `planning/2026-07-03-timeout-recovery-bugfix.md`, gitignored/local-only) where several
 wrong assumptions about this model — including ones this assistant stated out loud
 before checking — caused real confusion. This doc exists so that doesn't happen again,
-and so `docs/50-command-execution.md` can eventually be corrected to match reality
-(it currently has some drift — noted inline below where relevant).
+and so `docs/50-command-execution.md` can eventually be corrected to match reality.
+
+Updated 2026-07-04 after a black-box LLM usability test found that `io_timeout` was
+likely violating its own documented promise (silently killing the remote command via
+`chan.close()` instead of leaving it running) - see the "Timeout semantics" section
+below for the fix, and the new `wait_timeout` parameter added alongside it. The public
+docs (`docs/50-command-execution.md`, `docs/40-tools-reference.md`) have been updated
+to match and shouldn't have further drift as of this date.
 
 ## The mental model: one SSH connection, many separate remote processes
 
@@ -104,40 +110,64 @@ calls too. Verified live.
 running returns a `busy`-type error rather than queuing or running in parallel. Use
 separate connections (or `ssh_task_launch`) if you need concurrency.
 
-## Timeout semantics (as of the 2026-07-03 fix)
+## Timeout semantics (updated 2026-07-04 — background-monitoring handoff)
 
-Two independent timeout knobs, checked every poll iteration in `_monitor_command`:
+Three independent timeout knobs, checked every poll iteration in `_monitor_command`:
 
 - **`io_timeout`** (default 60s): max seconds of *silence* — no stdout/stderr activity.
-  When hit, **only the local SSH channel is closed** (`chan.close()`); the remote
-  process is deliberately *not* killed. This is intentional — quiet periods (package
-  installs, downloads, compilation) are normal and shouldn't be treated as failures.
-  Raises `CommandTimeout`, which now carries the `CommandHandle` (id + pid), so the
-  caller always gets a real, checkable reference back — this used to be lost via a
-  fragile history-lookup-by-command-text.
+- **`wait_timeout`** (default: none): max seconds of *total elapsed wait*, regardless
+  of output activity — unlike `io_timeout`, this fires even if the command is
+  actively producing output. Added 2026-07-04 so a caller can check in periodically
+  on a long-running-but-chatty command (a `docker pull` with a constant progress bar)
+  instead of being blocked until it finishes or genuinely goes quiet.
 - **`runtime_timeout`** (default: none): a hard wall-clock cap regardless of output
-  activity. When hit, the code *attempts* to kill the remote process and now always
-  closes the local channel afterward (previously that close was dead code and silently
-  never ran). **The kill attempt itself is currently unreliable** — see "The PID
-  problem" below. This is a known, tracked gap, not yet fully fixed.
+  activity — the *only* one of the three that ever kills the remote process.
+
+**When `io_timeout` or `wait_timeout` fires** (`ops/run.py:_handoff_to_background`),
+the channel is **not** closed. Monitoring is handed off to a daemon thread
+(`_continue_monitoring_in_background`) that keeps draining stdout/stderr into the
+handle and watching for real completion — it still enforces `runtime_timeout` itself
+(with an internal `MAX_BACKGROUND_RUNTIME_SECONDS` ceiling, currently 24h, applied if
+the caller never set one, so a background thread can never run unbounded), and
+reuses the same platform-specific `_handle_command_completion` the foreground path
+uses (including Windows's exit-code-marker recovery) once the command actually
+finishes. `CommandTimeout` now also carries a `.reason` (`'io_timeout'` or
+`'wait_timeout'`) alongside the `CommandHandle` (id + pid).
+
+**Before 2026-07-04, this closed the channel instead** (`chan.close()` right after
+`io_timeout` fired), which — since the command was never launched detached/`nohup`'d
+— likely sent the remote process `SIGHUP`, silently killing exactly the commands the
+tool's own docstring promised would keep running. This was found via a black-box
+LLM usability test (see `planning/2026-07-04-llm-test-session1-linux-bugs.md`,
+finding #1, gitignored/local-only) and fixed the same day. `runtime_timeout`'s kill
+path is unaffected by this change — still the only thing in this whole flow allowed
+to close the channel early (`_kill_on_runtime_timeout`, shared by both the
+foreground loop and the background thread).
 
 ### Recovering after a timeout
 
 `ssh_cmd_check_status(handle_id, wait_seconds)` polls the handle's recorded state
-after waiting. As of the fix, its `status` field means:
+after waiting. Its `status` field means:
 
 | status | meaning |
 |---|---|
-| `completed` | Confirmed — a real exit code was captured. |
-| `running` | Still actively being monitored (rare from `check_status`'s perspective — usually you're calling it *because* the original call already returned/timed out). |
-| `unknown_still_running` | The original call's monitoring stopped (e.g. `io_timeout`) without ever capturing an exit code. The remote command was not killed and is very likely still running. Call `check_status` again, or use `ssh_cmd_output` to see output collected so far. **Not** an error state. |
+| `completed` | Confirmed — a real exit code was captured. This now includes commands that survived `io_timeout`/`wait_timeout`, since the background thread keeps watching for the real exit code, not just for `runtime_timeout`-killed or same-call completions. |
+| `running` | Still actively being monitored — including a command that's past `io_timeout`/`wait_timeout` but hasn't finished yet, since the background thread has definite live knowledge of it, not a guess. |
+| `killed` | Confirmed terminated — `runtime_timeout` killed it, or a prior `ssh_cmd_kill` call found it already gone. `exit_code` is not known but this is terminal. |
+| `completed_exit_code_unknown` | Rare fallback now (previously the common `io_timeout` outcome) — monitoring stopped without a confirmed exit code (e.g. an unexpected error/lost connection during background monitoring) and a live `task_status(pid)` check confirms the process is gone. |
+| `unknown_still_running` | Rare fallback, same caveat as above, but the live check confirms it's still alive. **Not** an error state — call `check_status` again. |
 | `not_found` | The handle doesn't exist — often because the connection was reconnected (handles/history are connection-scoped and do not survive reconnect; `ssh_task_launch` PIDs do). |
 
-The old bug: completion was inferred from `end_ts is not None`, but `end_ts` gets set
-on *every* exit path (real completion, `io_timeout`, `runtime_timeout`, errors) — so a
-command that merely went quiet was reported as `completed` with a stale/`None` exit
-code. The fix checks `exit_code is not None` instead, since `exit_code` is set
-*exclusively* by real command completion (`ops/run.py:_handle_command_completion`).
+The old bug (2026-07-03): completion was inferred from `end_ts is not None`, but
+`end_ts` gets set on *every* exit path (real completion, `io_timeout`,
+`runtime_timeout`, errors) — so a command that merely went quiet was reported as
+`completed` with a stale/`None` exit code. The fix checks `exit_code is not None`
+instead, since `exit_code` is set *exclusively* by real command completion
+(`ops/run.py:_handle_command_completion`) — this remains true after the 2026-07-04
+change too, since `_handle_execution_error`/`_cleanup_command` now both skip setting
+`end_ts` at all for a handle that's been handed off to background monitoring
+(`handle._background_monitored`), so it stays `None` until the background thread
+itself confirms real completion.
 
 ## The PID problem (fixed for Linux/macOS, non-sudo, 2026-07-03)
 
@@ -202,8 +232,8 @@ printed right before the wrapper exits.
 | Execution model | Synchronous, blocks until done/timeout | Fire-and-forget, returns immediately |
 | Output | Captured in-memory (circular buffer, tail-preserving) | Redirected to log files on the remote host |
 | PID captured | Yes, on all platforms non-sudo (Linux/macOS fixed 2026-07-03 via `$$`, Windows fixed later the same day via a stderr marker - see "The PID problem" above and the Windows note below it) — real remote OS PID. Still `chan.get_id()` (a local channel number) for sudo'd commands | Yes — real remote OS PID, captured explicitly at launch, all platforms |
-| Status check | `ssh_cmd_check_status` reads *cached* handle state from this connection's history, except when monitoring stopped without a confirmed exit code (e.g. `io_timeout`) - then it does a one-off live `task_status(pid)` check to resolve to `'completed_exit_code_unknown'` (gone) or keep `'unknown_still_running'` (still alive) | `ssh_task_status` does a *live* liveness check every call (`kill -0 <pid>` / `Get-Process`) — no caching, so no staleness bug |
-| Survives reconnect | No — handles/history are connection-scoped | Yes — PID is an OS-level identifier |
+| Status check | `ssh_cmd_check_status` reads handle state that a background thread keeps updating in real time after `io_timeout`/`wait_timeout` (2026-07-04) - the live `task_status(pid)` fallback to `'completed_exit_code_unknown'`/`'unknown_still_running'` is now a rare path (unexpected errors / lost connections during background monitoring), not the common outcome it used to be | `ssh_task_status` does a *live* liveness check every call (`kill -0 <pid>` / `Get-Process`) — no caching, so no staleness bug |
+| Survives reconnect | No — handles/history are connection-scoped (the background monitoring thread dies with the connection too) | Yes — PID is an OS-level identifier |
 | Known gap | `runtime_timeout` kill still doesn't reliably work for sudo'd commands (kills the wrapper, not the privileged child) - this is now the only remaining gap, Windows is fixed | No exit-code or log-path recall after the task exits — `ssh_task_status` only ever reports liveness, not a documented bug, more of a missing feature (tracked separately in the consolidated feature plan, Theme D) |
 
 Because `ssh_task_status` re-queries the remote host live on every call instead of
@@ -220,7 +250,9 @@ now correctly uses `result['id']`/`status['status']`, and `busy` is confirmed a 
 `ssh_cmd_run`'s own status table, only `ssh_cmd_check_status`'s, so there was nothing
 to fix there). The public docs were also updated 2026-07-03 with the new
 `ssh_cmd_check_status` terminal statuses and Windows `runtime_timeout` coverage
-described above.
+described above, and again 2026-07-04 with the `wait_timeout` parameter and the
+background-monitoring fix (both `docs/50-command-execution.md` and
+`docs/40-tools-reference.md` now reflect the current behavior described in this file).
 
 Still open:
 - No mention anywhere that working directory and environment do not persist between

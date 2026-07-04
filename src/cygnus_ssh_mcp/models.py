@@ -9,19 +9,23 @@ class SshError(Exception):
 
 
 class CommandTimeout(SshError):
-    """Raised for I/O timeouts during command execution.
+    """Raised for a soft timeout during command execution - either `io_timeout`
+    (silence: no output for N seconds) or `wait_timeout` (N seconds of total elapsed
+    wait, regardless of output activity) - see `reason`.
 
-    The remote command is NOT killed when this is raised - only local
-    monitoring stops. handle carries the id/pid needed to check back later
-    (ssh_cmd_check_status) or retrieve output collected so far (ssh_cmd_output).
-    handle may be None for non-command timeouts (e.g. waiting for a host to
-    come back online after reboot).
+    The remote command is NOT killed when this is raised - monitoring is handed off
+    to a background thread instead, so ssh_cmd_check_status/ssh_cmd_output eventually
+    see the real output/exit code once the command actually finishes. handle carries
+    the id/pid needed to check back later. handle may be None for non-command
+    timeouts (e.g. waiting for a host to come back online after reboot).
     """
-    def __init__(self, seconds, handle=None):
+    def __init__(self, seconds, handle=None, reason='io_timeout'):
         ref = f" (PID: {handle.pid}, ID: {handle.id})" if handle else ""
-        super().__init__(f"Command I/O timed out after {seconds} seconds of inactivity{ref}")
+        label = "I/O timed out after" if reason == 'io_timeout' else "wait_timeout reached after"
+        super().__init__(f"Command {label} {seconds} seconds{ref}")
         self.handle = handle
         self.seconds = seconds
+        self.reason = reason
 
 
 class CwdNotFound(SshError):
@@ -103,6 +107,12 @@ class CommandHandle:
                                       # later ssh_cmd_kill/ssh_cmd_check_status discovering the
                                       # process already gone) - exit_code is still unknown, but
                                       # there is nothing left to wait for.
+        self._background_monitored = False  # True once io_timeout/wait_timeout hands off
+                                             # ongoing monitoring of this command to a background
+                                             # thread (see ops/run.py's _handoff_to_background) -
+                                             # while True, this handle's channel/completion state
+                                             # belongs to that thread; nothing else may close the
+                                             # channel or set running/end_ts/exit_code.
         
         self.total_lines = 0        # For stdout
         self.truncated = False      # For stdout

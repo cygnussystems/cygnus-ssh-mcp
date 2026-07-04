@@ -7,7 +7,7 @@ from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
     mcp_test_environment, extract_result_text,
     echo_command, multiline_echo_command, failing_command, get_expected_exit_code_error,
-    sleep_then_echo, long_running_command, skip_on_windows, windows_only
+    sleep_then_echo, long_running_command, skip_on_windows, windows_only, IS_WINDOWS
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -694,6 +694,13 @@ async def test_ssh_io_timeout_does_not_misreport_completion(mcp_test_environment
     never actually fire - it exercised the already-completed path only, never the exact
     code path Bug 1 lived in. This test deliberately sets io_timeout shorter than the
     command's runtime so io_timeout genuinely fires while the command is still running.
+
+    Updated 2026-07-04: io_timeout now hands monitoring off to a background thread
+    instead of closing the channel (see ops/run.py's _handoff_to_background), so
+    end_ts is no longer set at all until the command genuinely finishes - status now
+    resolves to 'running' (definite - the background thread is actively watching it),
+    not the old 'unknown_still_running' fallback (which existed for the case where
+    monitoring had stopped and we only had a live PID-liveness guess to go on).
     """
     print_test_header("Testing io_timeout does not misreport a running command as completed")
     logger.info("Starting io_timeout false-completion regression test")
@@ -720,10 +727,11 @@ async def test_ssh_io_timeout_does_not_misreport_completion(mcp_test_environment
                 "wait_seconds": 1.0
             })
             status_json = json.loads(extract_result_text(status_result))
-            assert status_json['status'] == 'unknown_still_running', (
-                f"Expected 'unknown_still_running' while the command is still running "
-                f"remotely, got {status_json['status']!r} (this is the exact false "
-                f"'completed' misreport Bug 1 caused)"
+            assert status_json['status'] == 'running', (
+                f"Expected 'running' while the command is still running remotely and "
+                f"background monitoring is actively watching it, got "
+                f"{status_json['status']!r} (this is the exact false 'completed' "
+                f"misreport Bug 1 caused)"
             )
             assert status_json['exit_code'] is None, "exit_code must not be populated before real completion"
 
@@ -732,6 +740,10 @@ async def test_ssh_io_timeout_does_not_misreport_completion(mcp_test_environment
             logger.error(f"Error in io_timeout false-completion test: {e}")
             raise
         finally:
+            # Let the background monitor thread from the still-running 6s sleep finish
+            # naturally before disconnecting, so it doesn't log a spurious "connection
+            # dropped" completion after this test's SSH client goes away underneath it.
+            await asyncio.sleep(5.0)
             await disconnect_ssh(client)
             logger.info("SSH connection for io_timeout false-completion test cleaned up")
 
@@ -742,13 +754,16 @@ async def test_ssh_io_timeout_does_not_misreport_completion(mcp_test_environment
 async def test_ssh_io_timeout_eventually_resolves_to_completed(mcp_test_environment):
     """Test that ssh_cmd_check_status eventually reports a terminal status once a command
     that hit io_timeout actually finishes remotely, instead of 'unknown_still_running'
-    forever - fixed 2026-07-03 by live-checking task_status(pid) when monitoring had
-    stopped without a confirmed exit code (see planning/2026-07-03-session-summary-and-next-steps.md).
+    forever - originally fixed 2026-07-03 by live-checking task_status(pid) when
+    monitoring had stopped without a confirmed exit code.
 
-    The real exit code is NOT recoverable this way - once io_timeout fires, the local
-    channel is closed and there is no way to retrieve the actual value, only whether the
-    process is still alive. So this resolves to 'completed_exit_code_unknown', not
-    'completed' - a distinct terminal status that's honest about what is and isn't known.
+    Updated 2026-07-04: io_timeout no longer closes the channel at all - it hands
+    monitoring off to a background thread (see ops/run.py's _handoff_to_background)
+    that keeps draining output and watching for real completion. So the real exit
+    code IS now recoverable - this resolves to 'completed' with the genuine exit
+    code, not the old 'completed_exit_code_unknown' fallback (which only exists now
+    for the rarer case of an unexpected error/lost connection during background
+    monitoring).
     """
     print_test_header("Testing io_timeout eventually resolves to a terminal status once the remote command finishes")
     logger.info("Starting io_timeout eventual-resolution test")
@@ -772,12 +787,14 @@ async def test_ssh_io_timeout_eventually_resolves_to_completed(mcp_test_environm
                 "wait_seconds": 6.0
             })
             status_json = json.loads(extract_result_text(status_result))
-            assert status_json['status'] == 'completed_exit_code_unknown', (
-                f"Expected 'completed_exit_code_unknown' after the command genuinely "
-                f"finished, got {status_json['status']!r}"
+            assert status_json['status'] == 'completed', (
+                f"Expected 'completed' with a real exit code after the command genuinely "
+                f"finished (background monitoring should have captured it), got "
+                f"{status_json['status']!r}"
             )
-            assert status_json['exit_code'] is None, (
-                "The real exit code was never observed and should not be fabricated"
+            assert status_json['exit_code'] == 0, (
+                f"Expected the real exit code (0) to be recovered via background "
+                f"monitoring, got {status_json['exit_code']!r}"
             )
 
             logger.info("io_timeout eventually resolved to a terminal status")
@@ -787,5 +804,128 @@ async def test_ssh_io_timeout_eventually_resolves_to_completed(mcp_test_environm
         finally:
             await disconnect_ssh(client)
             logger.info("SSH connection for io_timeout eventual-completion test cleaned up")
+
+    print_test_footer()
+
+
+def chatty_command(seconds: int, message: str) -> str:
+    """A command that produces output every second for `seconds` seconds, then echoes
+    `message` - unlike sleep_then_echo, this never goes quiet, so io_timeout (silence-
+    based) should never fire on it, only wait_timeout (elapsed-based) can.
+    """
+    if IS_WINDOWS:
+        return (
+            f"powershell -Command \"for ($i=1; $i -le {seconds}; $i++) "
+            f"{{ Write-Output \\\"tick-$i\\\"; Start-Sleep -Seconds 1 }}; Write-Output '{message}'\""
+        )
+    return f"for i in $(seq 1 {seconds}); do echo tick-$i; sleep 1; done; echo '{message}'"
+
+
+@pytest.mark.asyncio
+async def test_ssh_wait_timeout_fires_despite_active_output(mcp_test_environment):
+    """Test that wait_timeout fires even while a command is actively producing output
+    (unlike io_timeout, which only fires on silence), and that the remote command
+    survives - same non-killing handoff to background monitoring as io_timeout.
+    """
+    print_test_header("Testing wait_timeout fires despite continuous output and does not kill the command")
+    logger.info("Starting wait_timeout test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # This command emits output every second for 6s - io_timeout (60s) would
+            # never fire on it, but wait_timeout (2s) should fire almost immediately
+            # regardless of the ongoing chatter.
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": chatty_command(6, "chatty done"),
+                "io_timeout": 60.0,
+                "wait_timeout": 2.0
+            })
+            result_json = json.loads(extract_result_text(run_result))
+            assert result_json['status'] == 'wait_timeout', f"Unexpected status: {result_json}"
+            assert result_json.get('still_running') is True
+            handle_id = result_json['id']
+
+            # Immediately after, the command is still genuinely running remotely -
+            # background monitoring should report 'running', not a terminal status.
+            status_result = await client.call_tool("ssh_cmd_check_status", {
+                "handle_id": handle_id,
+                "wait_seconds": 1.0
+            })
+            status_json = json.loads(extract_result_text(status_result))
+            assert status_json['status'] == 'running', f"Unexpected status: {status_json}"
+
+            # Wait past the command's real remaining runtime - background monitoring
+            # should have captured the real exit code by now, same as io_timeout does.
+            final_status_result = await client.call_tool("ssh_cmd_check_status", {
+                "handle_id": handle_id,
+                "wait_seconds": 6.0
+            })
+            final_status_json = json.loads(extract_result_text(final_status_result))
+            assert final_status_json['status'] == 'completed', f"Unexpected status: {final_status_json}"
+            assert final_status_json['exit_code'] == 0
+
+            output_result = await client.call_tool("ssh_cmd_output", {"handle_id": handle_id})
+            output_lines = json.loads(extract_result_text(output_result))
+            assert any('chatty done' in line for line in output_lines), (
+                f"Expected final output line to be recoverable via background monitoring, got: {output_lines}"
+            )
+
+            logger.info("wait_timeout correctly fired despite active output and did not kill the command")
+        except Exception as e:
+            logger.error(f"Error in wait_timeout test: {e}")
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for wait_timeout test cleaned up")
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_kill_after_io_timeout(mcp_test_environment):
+    """Test that a command which survived io_timeout can still be killed on purpose via
+    ssh_cmd_kill - the LLM should be able to decide to end a backgrounded command early.
+    """
+    print_test_header("Testing ssh_cmd_kill works on a command that survived io_timeout")
+    logger.info("Starting kill-after-io_timeout test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": sleep_then_echo(30, "should never print"),
+                "io_timeout": 1.0
+            })
+            result_json = json.loads(extract_result_text(run_result))
+            assert result_json['status'] == 'io_timeout', f"Unexpected status: {result_json}"
+            handle_id = result_json['id']
+            pid = result_json['pid']
+            assert pid, "No pid captured for the backgrounded command"
+
+            kill_result = await client.call_tool("ssh_cmd_kill", {"handle_id": handle_id})
+            kill_json = json.loads(extract_result_text(kill_result))
+            assert kill_json['result'] in ('killed', 'already_exited'), f"Unexpected kill result: {kill_json}"
+
+            # Give the background monitor thread a moment to notice the channel/process
+            # is gone and finalize the handle.
+            await asyncio.sleep(1.0)
+
+            status_result = await client.call_tool("ssh_cmd_check_status", {
+                "handle_id": handle_id,
+                "wait_seconds": 0.5
+            })
+            status_json = json.loads(extract_result_text(status_result))
+            assert status_json['status'] == 'killed', f"Unexpected status after kill: {status_json}"
+
+            logger.info("ssh_cmd_kill correctly terminated a command that survived io_timeout")
+        except Exception as e:
+            logger.error(f"Error in kill-after-io_timeout test: {e}")
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for kill-after-io_timeout test cleaned up")
 
     print_test_footer()

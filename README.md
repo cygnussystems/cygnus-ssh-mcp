@@ -227,17 +227,23 @@ ssh_archive_extract(archive="/backup.tar.gz", dest="/", use_sudo=True)
 
 ---
 
-### Dual Timeout System
+### Three-Way Timeout System
 
-Never get stuck on a hanging command.
+Never get stuck on a hanging command - and never lose track of a long one either.
 
 ```python
 ssh_cmd_run(
     command="./long_script.sh",
-    io_timeout=60.0,       # Kill if no output for 60s
-    runtime_timeout=3600.0  # Kill if total time exceeds 1 hour
+    io_timeout=60.0,        # Check back in if silent for 60s (does NOT kill it)
+    wait_timeout=20.0,      # Or check back in every 20s regardless of activity
+    runtime_timeout=3600.0  # Hard safety cap - the only one that actually kills it
 )
 ```
+
+`io_timeout` and `wait_timeout` never kill the remote command - they hand off to
+background monitoring so you can check back later (`ssh_cmd_check_status`), read
+output collected so far (`ssh_cmd_output`), or decide to end it early
+(`ssh_cmd_kill`). Only `runtime_timeout` ever terminates anything.
 
 ---
 
