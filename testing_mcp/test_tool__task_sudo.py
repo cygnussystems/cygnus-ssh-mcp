@@ -1,7 +1,11 @@
 import pytest
 import json
 import time
-from conftest import print_test_header, print_test_footer, make_connection, disconnect_ssh, extract_result_text, skip_on_windows
+from conftest import (
+    print_test_header, print_test_footer, make_connection, disconnect_ssh,
+    extract_result_text, skip_on_windows, get_process_group, process_group_is_alive,
+    process_exists,
+)
 
 # Skip all tests in this module on Windows (sudo not available)
 pytestmark = skip_on_windows
@@ -100,5 +104,81 @@ async def test_ssh_task_operations_with_sudo(mcp_test_environment):
                 "io_timeout": 5.0
             })
             await disconnect_ssh(client)
-    
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_task_kill_sudo_actually_kills_the_real_process(mcp_test_environment):
+    """Test that ssh_task_kill on a sudo'd task kills the REAL privileged process,
+    not just the outer, non-privileged wrapper. Regression test for a bug scoped
+    2026-07-05 (see planning/2026-07-05-sudo-kill-scope.md): ssh_task_launch's sudo
+    path is a 3-process chain (bash -> sudo -> the real command, since the wrapper
+    script is a pipeline and can't tail-exec-collapse itself away) and the PID
+    ssh_task_kill was given only ever reached the outermost `bash`, leaving `sudo`
+    and the real command running, orphaned under init.
+
+    Crucially, this checks ground truth via a raw paramiko connection
+    (get_process_group/process_group_is_alive/process_exists in conftest.py),
+    NOT via the MCP tool's own status reporting - the existing
+    test_ssh_task_operations_with_sudo test above only re-checks the same
+    already-killed wrapper pid via ssh_task_status, so it would report "not
+    running" whether or not the real process actually died, and could never have
+    caught this bug either way.
+    """
+    print_test_header("Testing ssh_task_kill(use_sudo=True) kills the real process, not just the wrapper")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            sudo_check = await client.call_tool("ssh_conn_verify_sudo", {})
+            sudo_json = json.loads(extract_result_text(sudo_check))
+            if not sudo_json['available']:
+                print("Skipping sudo test as sudo is not available")
+                return
+
+            launch_result = await client.call_tool("ssh_task_launch", {
+                "command": "sleep 60",
+                "use_sudo": True,
+                "log_output": False
+            })
+            launch_json = json.loads(extract_result_text(launch_result))
+            pid = launch_json['pid']
+
+            time.sleep(1)  # let the sudo chain fully establish before inspecting it
+
+            pgid = get_process_group(pid)
+            assert pgid is not None, f"Captured pid {pid} should be alive right after launch"
+
+            # Sanity-check the bug's precondition: the sudo chain really is more
+            # than just the captured pid alone (bash -> sudo -> sleep) - if this
+            # ever becomes a single process again (e.g. the launch script changes),
+            # this test's premise no longer holds and should be revisited.
+            members_before = process_group_is_alive(pgid)
+            assert members_before, f"Expected process group {pgid} to have live members before kill"
+
+            kill_result = await client.call_tool("ssh_task_kill", {
+                "pid": pid,
+                "signal": 15,
+                "use_sudo": True,
+                "force": True
+            })
+            kill_json = json.loads(extract_result_text(kill_result))
+            assert kill_json['result'] in ('killed', 'already_exited'), f"Unexpected kill result: {kill_json}"
+
+            time.sleep(1)  # let the kill fully land before checking
+
+            assert not process_exists(pid), (
+                f"Captured pid {pid} (the wrapper) should be gone after kill"
+            )
+            assert not process_group_is_alive(pgid), (
+                f"Process group {pgid} should have no live members after kill - if "
+                f"this fails, sudo/the real 'sleep' process survived the kill "
+                f"(this is the exact bug: only the outer wrapper used to die)"
+            )
+
+        finally:
+            await disconnect_ssh(client)
+
     print_test_footer()

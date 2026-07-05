@@ -164,7 +164,7 @@ class SshRunOperations(ABC):
 
         try:
             # Create command handle
-            handle = self._create_command_handle(cmd)
+            handle = self._create_command_handle(cmd, sudo=sudo)
             handle.requested_cwd = cwd
 
             # Handle sudo/elevation if needed
@@ -201,9 +201,9 @@ class SshRunOperations(ABC):
             # Always release the lock
             self.ssh_client._busy_lock.release()
 
-    def _create_command_handle(self, cmd):
+    def _create_command_handle(self, cmd, sudo=False):
         """Create and track a new CommandHandle."""
-        handle = self.ssh_client.history_manager.add_command(cmd)
+        handle = self.ssh_client.history_manager.add_command(cmd, sudo=sudo)
         if handle._tail_keep is None:
             handle.set_tail_keep(self.tail_keep)
         else:
@@ -342,7 +342,13 @@ class SshRunOperations(ABC):
         handle.end_ts = datetime.now(UTC)
         try:
             if hasattr(self.ssh_client, 'task_ops') and hasattr(self.ssh_client.task_ops, '_kill_remote_process'):
-                killed = self.ssh_client.task_ops._kill_remote_process(handle.pid)
+                # Elevate the kill itself when the timed-out command was sudo'd -
+                # otherwise this never has permission to reach sudo's real (often
+                # root-owned) child at all, regardless of PID/group targeting.
+                # handle.sudo is the only way this path can know that (unlike
+                # ssh_cmd_kill/ssh_task_kill, where the caller passes use_sudo
+                # explicitly on the kill call itself).
+                killed = self.ssh_client.task_ops._kill_remote_process(handle.pid, sudo=handle.sudo)
                 if killed:
                     # We don't know the real exit code (the channel is closed below
                     # without waiting for it), but the kill signal was confirmed

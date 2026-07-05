@@ -25,14 +25,14 @@ class CommandHistoryManager:
         self.tail_keep = default_tail  # Add this attribute for compatibility with tests
         self._next_id = 1
 
-    def add_command(self, cmd: str, pid: Optional[int] = None) -> CommandHandle:
+    def add_command(self, cmd: str, pid: Optional[int] = None, sudo: bool = False) -> CommandHandle:
         """Add a new command to history and return its handle."""
         handle_id = self._next_id
         self._next_id += 1
-        
+
         # Create handle with appropriate buffer size
         tail_keep = None if self.recent_full_output > 0 else self.default_tail
-        handle = CommandHandle(handle_id, cmd, tail_keep=tail_keep, pid=pid)
+        handle = CommandHandle(handle_id, cmd, tail_keep=tail_keep, pid=pid, sudo=sudo)
         
         # Trim history if needed
         if len(self._history) >= self.history_limit:

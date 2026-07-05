@@ -163,13 +163,21 @@ Fixed by reusing the exact pattern `ssh_task_launch` already used:
   output live via `Register-ObjectEvent` + a poll loop (a blocking `WaitForExit()`
   would prevent PowerShell from ever running the event handlers).
 
-**Not fixed (deliberately out of scope so far):** sudo'd commands. The PID marker is
-printed by the *outer*, non-privileged wrapper shell; the actual command runs as a
-*child* of that shell via `sudo -n bash -c '...'`, so killing the captured PID kills
-the wrapper, not the privileged child doing the real work. Process-group killing
-(`kill -{signal} -{pid}` instead of `kill -{signal} {pid}`) would likely fix this,
-but changes the shared kill path also used by `ssh_task_kill`, so it hasn't been
-bundled in yet.
+**Sudo'd commands - fixed 2026-07-05, but only for `ssh_task_launch`/`ssh_task_kill`.**
+Live-verified the actual shape of the problem differs by launch path: `ssh_task_launch`'s
+sudo wrapper is a pipeline (`echo pw | sudo -S bash -c "$CMD"`), so bash can't
+tail-exec-collapse it away - the captured PID is 3 processes above the real command
+(bash → sudo → real command), and killing just that PID left sudo/the real command
+running, orphaned. `ssh_cmd_run`'s sudo wrapper has no pipe and is the last statement
+in its script, so bash *does* collapse it - the captured PID for `ssh_cmd_run` is
+already `sudo` itself, and killing it directly already worked (sudo forwards the
+signal to its child) - this path was never actually broken, despite earlier
+assumptions here. Fixed `ops/task.py`'s `_cmd_kill_process` (Linux/macOS) to query
+the real process-group ID live at kill-time (`ps -o pgid=` - never a fixed offset
+from the pid) and kill the whole group when the target may be a sudo chain; also
+gave `CommandHandle` a `sudo` flag so `runtime_timeout`'s automatic kill
+(previously unable to elevate at all) can now do the same. See
+`planning/2026-07-05-sudo-kill-scope.md` for the full live-verification writeup.
 
 ### 3.2 Windows exit code recovery
 
@@ -341,13 +349,9 @@ manages a TOML file of host definitions and is not tied to any particular connec
 
 ## 5. Known limitations
 
-Real, currently-unfixed gaps, kept short here - detailed write-ups (repro steps,
-suggested fixes) live in the maintainer's local `planning/` folder (gitignored, not
-part of this repo checkout) when one exists.
-
-1. **Sudo'd commands can't be reliably killed** - PID capture only reaches the outer
-   wrapper shell, not the privileged child (section 3.1). Same root cause affects
-   both `ssh_cmd_kill` and `runtime_timeout`'s kill attempt for sudo'd commands.
+No currently-known unfixed gaps as of 2026-07-05. Historical detailed write-ups
+(repro steps, live-verification notes) live in the maintainer's local `planning/`
+folder (gitignored, not part of this repo checkout) when one exists.
 
 Since fixed (kept out of this list, see git history / the local `planning/` folder
 for detail): the non-sudo `ssh_task_launch` `nohup` question from section 2.2
@@ -363,7 +367,11 @@ used to corrupt non-ASCII content on Windows by shelling out to PowerShell
 command-execution stdout path, which decodes bytes as UTF-8 while the actual bytes
 on the wire are in Windows' OEM console code page - fixed 2026-07-05 by rerouting
 both through an SFTP read + local Python matching instead (same mechanism
-`ssh_file_read` already used), verified live against `win-server-2016`; and
+`ssh_file_read` already used), verified live against `win-server-2016`;
+sudo'd commands launched via `ssh_task_launch` couldn't be reliably killed
+(section 3.1) - fixed 2026-07-05 via process-group killing with a live-queried
+real PGID, plus giving `runtime_timeout`'s automatic kill a way to elevate
+(`CommandHandle.sudo`) that it never had before; and
 `ssh_cmd_check_status` used to misreport a `ssh_cmd_kill`'d background-monitored
 command as `'completed'` instead of `'killed'` on Windows specifically - a
 `taskkill`'d process's death is reported back over the SSH channel as a real

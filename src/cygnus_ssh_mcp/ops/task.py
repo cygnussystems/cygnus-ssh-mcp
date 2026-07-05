@@ -56,14 +56,22 @@ class SshTaskOperations(ABC):
         pass
 
     @abstractmethod
-    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
+    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool, use_process_group: bool = False) -> str:
         """
         Return command to kill a process with the given signal.
 
         Args:
             pid: Process ID
             signal: Signal number (15=TERM, 9=KILL on Linux)
-            sudo: Whether to use elevated privileges
+            sudo: Whether to inline-wrap this kill command itself in `sudo -n` -
+                only meaningful for callers executing it via a raw channel
+                (`_kill_remote_process`); `kill_task` always passes False here and
+                elevates one layer up instead, via `ssh_client.run(sudo=...)`.
+            use_process_group: Whether `pid` may be the outermost process of a
+                multi-process sudo chain (see `_build_launch_script`'s sudo
+                branch) rather than the real target itself - if True, kill the
+                whole process group instead of just `pid` (Linux/macOS only;
+                Windows already handles this via `taskkill /T`, see below).
         """
         pass
 
@@ -236,7 +244,10 @@ class SshTaskOperations(ABC):
         killed = False
 
         for signal in [15, 9]:  # Try TERM then KILL
-            cmd = self._cmd_kill_process(pid, signal, sudo)
+            # sudo'd commands may have a multi-process chain under the captured
+            # pid (see _build_launch_script's sudo branch) - use_process_group
+            # reaches the real target, not just the outermost wrapper.
+            cmd = self._cmd_kill_process(pid, signal, sudo, use_process_group=sudo)
 
             with self.ssh_client._client.get_transport().open_session() as chan:
                 chan.settimeout(5.0)
@@ -300,8 +311,11 @@ class SshTaskOperations(ABC):
             self.logger.warning(f"Could not determine initial status for PID {pid}. Proceeding with kill attempt.")
 
         # Try initial signal
-        # Use base kill command and let ssh_client.run() handle sudo (supports password-based sudo)
-        cmd = self._cmd_kill_process(pid, signal, sudo=False)
+        # Use base kill command and let ssh_client.run() handle sudo (supports
+        # password-based sudo) - use_process_group=sudo since a sudo'd task's
+        # captured pid may be an outer wrapper, not the real target (see
+        # _build_launch_script's sudo branch / planning/2026-07-05-sudo-kill-scope.md)
+        cmd = self._cmd_kill_process(pid, signal, sudo=False, use_process_group=sudo)
         kill_cmd_succeeded = False
         try:
             handle = self.ssh_client.run(cmd, io_timeout=10, runtime_timeout=15, sudo=sudo)
@@ -328,7 +342,7 @@ class SshTaskOperations(ABC):
         # Try force kill if needed
         if force_kill_signal is not None and current_status == "running":
             self.logger.warning(f"PID {pid} still running after signal {signal}. Attempting force kill with signal {force_kill_signal}.")
-            cmd_force = self._cmd_kill_process(pid, force_kill_signal, sudo=False)
+            cmd_force = self._cmd_kill_process(pid, force_kill_signal, sudo=False, use_process_group=sudo)
             try:
                 handle_force = self.ssh_client.run(cmd_force, io_timeout=10, runtime_timeout=15, sudo=sudo)
                 if handle_force.exit_code == 0:
@@ -431,8 +445,18 @@ exit 0
     def _cmd_check_process_running(self, pid: int) -> str:
         return f"kill -0 {pid}"
 
-    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
-        cmd = f"kill -{signal} {pid}"
+    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool, use_process_group: bool = False) -> str:
+        if use_process_group:
+            # Query the real process group at kill-time - never assume a fixed
+            # offset from pid. Verified live 2026-07-05: a sudo'd task's real
+            # group leader (the original launch script) has often already
+            # exited by the time its pid is captured, so the group id and the
+            # captured pid are NOT the same number. This reaches sudo's real
+            # (possibly root-owned) child, not just the outer wrapper `kill pid`
+            # alone would hit - see planning/2026-07-05-sudo-kill-scope.md.
+            cmd = f"kill -{signal} -$(ps -o pgid= -p {pid} | tr -d ' ')"
+        else:
+            cmd = f"kill -{signal} {pid}"
         if sudo:
             return f"sudo -n bash -c {shlex.quote(cmd)}"
         return cmd
@@ -530,7 +554,7 @@ class SshTaskOperations_Win(SshTaskOperations):
             f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}"
         )
 
-    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool) -> str:
+    def _cmd_kill_process(self, pid: int, signal: int, sudo: bool, use_process_group: bool = False) -> str:
         # Windows doesn't have signals, but we can simulate TERM vs KILL with
         # taskkill's /F flag. Both use /T (tree kill): every PID we hand out
         # (ssh_task_launch, ssh_cmd_run's real-PID capture) is a cmd.exe or
@@ -541,6 +565,8 @@ class SshTaskOperations_Win(SshTaskOperations):
         # live 2026-07-03: Stop-Process alone left a spawned ping.exe running
         # after its cmd.exe wrapper was confirmed killed; taskkill /F /T killed
         # the whole tree (wrapper + all descendants) in one call.
+        # use_process_group is a no-op here - /T already handles the whole tree,
+        # and Windows has no sudo/process-group concept to route around.
         return powershell_encoded_command(f"& taskkill /F /T /PID {pid}")
 
     def _cmd_rename_log(self, old_path: str, new_path: str, pid: int) -> str:

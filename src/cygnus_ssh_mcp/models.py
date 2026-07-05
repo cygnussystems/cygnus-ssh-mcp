@@ -85,10 +85,15 @@ class CommandHandle:
     """Tracks the state and output of a single SSH command execution.
     For launched commands, tracks the PID.
     """
-    def __init__(self, handle_id, cmd, tail_keep=None, pid=None):
+    def __init__(self, handle_id, cmd, tail_keep=None, pid=None, sudo=False):
         self.id = handle_id
         self.cmd = cmd
         self.pid = pid
+        self.sudo = sudo  # Whether this command was run with use_sudo=True - lets
+                           # runtime_timeout's kill attempt (_kill_on_runtime_timeout)
+                           # know it needs to elevate, since it has no other way to
+                           # find out (unlike ssh_cmd_kill/ssh_task_kill, where the
+                           # caller passes use_sudo explicitly on the kill call itself).
         self._tail_keep = tail_keep
         
         self._buf = deque(maxlen=self._tail_keep)      # For stdout
@@ -201,7 +206,8 @@ class CommandHandle:
             'total_stderr_lines': self.total_stderr_lines,
             'stderr_truncated': self.stderr_truncated,
             'cwd': self.cwd,
-            'kill_confirmed': self.kill_confirmed
+            'kill_confirmed': self.kill_confirmed,
+            'sudo': self.sudo
         }
 
     def chunk(self, start, length=50): # Stdout

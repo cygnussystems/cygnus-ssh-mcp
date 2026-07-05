@@ -278,6 +278,94 @@ async def cleanup_remote_path(client, path):
 
 
 # =============================================================================
+# Independent Verification Helpers (bypass the MCP tool entirely)
+# =============================================================================
+# Tests that need to confirm ground truth on the remote host (e.g. "is the real
+# process actually dead") shouldn't check that via the MCP tool's own
+# ssh_cmd_run/ssh_task_launch machinery - if that machinery has a bug, the
+# verification could share it, giving false confidence. These use a raw paramiko
+# connection instead, same pattern as setup_linux_workspace/setup_windows_workspace
+# above, so they're a genuinely independent oracle.
+_paramiko_verify_client = None
+
+
+def _get_paramiko_verify_client():
+    """Lazily open (and cache) a raw paramiko connection, independent of the MCP
+    tool's own SshClient."""
+    global _paramiko_verify_client
+    import paramiko
+    if _paramiko_verify_client is not None:
+        transport = _paramiko_verify_client.get_transport()
+        if transport is not None and transport.is_active():
+            return _paramiko_verify_client
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(SSH_TEST_HOST, port=SSH_TEST_PORT, username=SSH_TEST_USER, password=SSH_TEST_PASSWORD)
+    _paramiko_verify_client = client
+    return _paramiko_verify_client
+
+
+def paramiko_verify(cmd: str) -> tuple:
+    """Run a command via a raw paramiko connection, bypassing the MCP tool
+    entirely. Returns (exit_code, stdout, stderr) - all str except exit_code."""
+    client = _get_paramiko_verify_client()
+    _, stdout, stderr = client.exec_command(cmd)
+    exit_code = stdout.channel.recv_exit_status()
+    out = stdout.read().decode('utf-8', errors='replace')
+    err = stderr.read().decode('utf-8', errors='replace')
+    return exit_code, out, err
+
+
+def process_exists(pid: int, name: str = None) -> bool:
+    """Check whether a PID is genuinely alive on the remote host (Linux/macOS).
+    If `name` is given, also confirms the process's command name matches - guards
+    against PID-reuse false positives (a dead pid getting recycled by an
+    unrelated new process before the check runs)."""
+    exit_code, out, _ = paramiko_verify(f"ps -o comm= -p {pid}")
+    if exit_code != 0:
+        return False
+    return name in out if name is not None else True
+
+
+def get_process_group(pid: int):
+    """Look up the real process group ID for a PID (Linux/macOS) - NOT assumed
+    from the pid itself. Verified live 2026-07-05: a ssh_task_launch sudo'd
+    command's real PGID differs from its captured pid (the launch script that
+    was the group's leader has already exited by the time the pid is captured),
+    so never assume a fixed offset - always look this up live. Returns None if
+    the pid doesn't exist."""
+    exit_code, out, _ = paramiko_verify(f"ps -o pgid= -p {pid}")
+    if exit_code != 0:
+        return None
+    stripped = out.strip()
+    return int(stripped) if stripped.isdigit() else None
+
+
+def process_group_is_alive(pgid: int) -> bool:
+    """Check whether any process in a process group is still alive (Linux/macOS),
+    via a plain `ps -eo pid,pgid` scan - avoids relying on `ps -g`/`-G`, whose
+    exact semantics (session vs. group) differ between GNU and BSD ps."""
+    exit_code, out, _ = paramiko_verify(f"ps -eo pid,pgid | awk '$2 == {pgid} {{print $1}}'")
+    return exit_code == 0 and out.strip() != ""
+
+
+def _close_paramiko_verify_client():
+    global _paramiko_verify_client
+    if _paramiko_verify_client is not None:
+        try:
+            _paramiko_verify_client.close()
+        except Exception:
+            pass
+        _paramiko_verify_client = None
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Close the cached independent-verification connection at the end of the
+    test session."""
+    _close_paramiko_verify_client()
+
+
+# =============================================================================
 # Cross-Platform Command Helpers
 # =============================================================================
 def echo_command(message: str) -> str:
