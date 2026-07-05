@@ -66,6 +66,19 @@ class CommandHistoryManager:
             raise KeyError(f"No command handle found with ID {handle_id}")
         return self._history[handle_id]
 
+    def remove_command(self, handle_id: int) -> None:
+        """Remove a handle from history entirely - for cases where the handle was
+        added optimistically (before a command's real PID/exit code is known) but
+        turned out not to represent a real, user-visible execution at all (e.g. a
+        cwd-validation failure, where the wrapper process that ran is an
+        implementation detail, not the user's command). No-op if already absent.
+        """
+        self._history.pop(handle_id, None)
+        try:
+            self._history_order.remove(handle_id)
+        except ValueError:
+            pass
+
     def get_history(self) -> List[Dict[str, Any]]:
         """Get metadata for all commands in history order."""
         return [self._history[handle_id].info()

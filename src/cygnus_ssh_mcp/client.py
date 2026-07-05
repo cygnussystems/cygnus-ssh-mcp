@@ -454,16 +454,20 @@ class SshClient:
 
 
     def task_kill(self, pid: int, signal: int = 15, sudo: bool = False,
-                 force_kill_signal: int = 9, wait_seconds: float = 1.0) -> Literal['killed', 'already_exited', 'failed_to_kill', 'invalid_pid', 'error']:
+                 force_kill_signal: int = 9, wait_seconds: float = 1.0) -> tuple[Literal['killed', 'already_exited', 'failed_to_kill', 'invalid_pid', 'error'], bool]:
         """
         Send a signal to a process with the given PID on the remote host.
         Uses self.run() internally, so it respects the busy lock and handles sudo.
         Tries the specified signal, waits, checks status, then tries force_kill_signal (default SIGKILL) if needed.
         Returns:
-            'killed': Process was successfully terminated (by signal or force_kill_signal).
-            'already_exited': Process was already gone before signaling.
-            'failed_to_kill': Signaling attempts failed or process remained running.
-            'error': An error occurred during the kill attempt.
+            Tuple of (status, force_kill_used):
+            - 'killed': Process was successfully terminated (by signal or force_kill_signal).
+            - 'already_exited': Process was already gone before signaling.
+            - 'failed_to_kill': Signaling attempts failed or process remained running.
+            - 'error': An error occurred during the kill attempt.
+            force_kill_used is True iff the force_kill_signal fallback was actually
+            attempted (the initial signal alone was not enough), regardless of
+            whether that fallback itself succeeded.
         """
         return self.task_ops.kill_task(pid, signal, sudo, force_kill_signal, wait_seconds)
 
@@ -480,8 +484,13 @@ class SshClient:
         handle.kill_confirmed = True
 
     def output(self, handle_id: int, mode: Literal['tail', 'chunk'] = 'tail',
-              n: int = 50, start: Optional[int] = None, lines: Optional[int] = None) -> List[str]:
-        """Retrieve output from a previous CommandHandle created by run()."""
+              n: int = 50, start: Optional[int] = None, lines: Optional[int] = None,
+              stream: Literal['stdout', 'stderr'] = 'stdout') -> List[str]:
+        """Retrieve output from a previous CommandHandle created by run().
+
+        stream: 'stdout' (default) or 'stderr' - only affects 'tail' mode; 'chunk'
+        mode remains stdout-only (nothing currently exposes stderr chunking).
+        """
         try:
             handle = self.history_manager.get_handle(handle_id)
         except KeyError: # history_manager.get_handle raises KeyError if handle_id not found.
@@ -492,6 +501,8 @@ class SshClient:
             num_lines_to_tail = n  # Default to n
             if lines is not None:  # If lines is provided, it takes precedence for tail mode
                 num_lines_to_tail = lines
+            if stream == 'stderr':
+                return handle.tail_stderr(num_lines_to_tail)
             return handle.tail(num_lines_to_tail)
         elif mode == 'chunk':
             if start is None:

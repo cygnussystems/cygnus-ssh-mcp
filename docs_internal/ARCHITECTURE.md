@@ -237,10 +237,12 @@ could legitimately also exit 77) before raising `CwdNotFound`. Not implemented f
 Windows (raises a clear error instead) - there's no single reliable shell to wrap
 against there (`cmd.exe` vs. PowerShell `DefaultShell` ambiguity).
 
-**Known side effect (not yet fixed):** the cwd-validation wrapper is a real remote
-process with a real PID and this sentinel exit code, and its handle currently still
-ends up in `ssh_cmd_history` looking like the user's command actually ran and exited
-with code `77` - see "Known limitations" below.
+**Fixed side effect:** the cwd-validation wrapper is a real remote process with a
+real PID and this sentinel exit code - its handle used to still end up in
+`ssh_cmd_history` looking like the user's command actually ran and exited with code
+`77`. Now removed from history entirely when this fires
+(`CommandHistoryManager.remove_command`), since the caller was never even given the
+handle's `id` to look it up by.
 
 ### 3.7 Sudo handling
 
@@ -343,15 +345,14 @@ part of this repo checkout) when one exists.
 1. **The non-sudo `ssh_task_launch` path on Linux** lacks the `nohup` the sudo path
    has (section 2.2) - whether it reliably survives a full session disconnect isn't
    empirically verified yet.
-2. **`ssh_cmd_run` drops stderr entirely on a successful (exit 0) command** - only
-   captured/returned when the command fails. `ssh_cmd_output`'s "stdout+stderr,
-   interleaved" description is only accurate for the failure case right now.
-3. **`cwd_not_found` pollutes `ssh_cmd_history`** with the validation wrapper's own
-   sentinel PID/exit code (section 3.6), indistinguishable from a real execution of
-   the user's command.
-4. **Sudo'd commands can't be reliably killed** - PID capture only reaches the outer
+2. **Sudo'd commands can't be reliably killed** - PID capture only reaches the outer
    wrapper shell, not the privileged child (section 3.1). Same root cause affects
    both `ssh_cmd_kill` and `runtime_timeout`'s kill attempt for sudo'd commands.
-5. **`ssh_task_kill`'s `force_kill_used` field is ambiguous** - doesn't distinguish
-   "the initial signal worked on its own" from "the SIGKILL fallback actually fired."
-   Naming/clarity issue, not a correctness bug.
+
+Since fixed (kept out of this list, see git history / the local `planning/` folder
+for detail): `ssh_cmd_run` used to drop stderr entirely on a successful command
+(`output`/`stderr` are now two separate fields, and `ssh_cmd_output` gained a
+`stream` parameter); `cwd_not_found` used to pollute `ssh_cmd_history` with the
+validation wrapper's own sentinel PID/exit code (the handle is now removed from
+history entirely); `ssh_task_kill`'s `force_kill_used` field used to be ambiguous
+(it now accurately reflects whether the SIGKILL fallback was actually needed).

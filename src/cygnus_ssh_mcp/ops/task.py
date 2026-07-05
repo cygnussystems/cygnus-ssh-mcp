@@ -273,11 +273,17 @@ class SshTaskOperations(ABC):
             wait_seconds: Time to wait after initial signal before checking status
 
         Returns:
-            'killed', 'already_exited', 'failed_to_kill', 'invalid_pid', or 'error'
+            Tuple of (status, force_kill_used):
+            - status: 'killed', 'already_exited', 'failed_to_kill', 'invalid_pid', or 'error'
+            - force_kill_used: True iff the force_kill_signal fallback was actually
+              attempted (regardless of whether it succeeded) - i.e. the initial
+              signal alone was NOT enough. False if the initial signal succeeded on
+              its own, the process was already gone, the PID was invalid, or no
+              force_kill_signal was configured to try.
         """
         if not isinstance(pid, int) or pid <= 0:
             self.logger.warning(f"Invalid PID provided: {pid}")
-            return "invalid_pid"
+            return "invalid_pid", False
         if not isinstance(signal, int):
             raise ValueError("Signal must be an integer.")
         if force_kill_signal is not None and not isinstance(force_kill_signal, int):
@@ -289,7 +295,7 @@ class SshTaskOperations(ABC):
         initial_status = self.get_task_status(pid)
         if initial_status == "exited":
             self.logger.info(f"PID {pid} was already exited before sending signal.")
-            return "already_exited"
+            return "already_exited", False
         if initial_status == "error":
             self.logger.warning(f"Could not determine initial status for PID {pid}. Proceeding with kill attempt.")
 
@@ -315,7 +321,7 @@ class SshTaskOperations(ABC):
         current_status = self.get_task_status(pid)
         if current_status == "exited":
             self.logger.info(f"PID {pid} confirmed exited after signal {signal} attempt.")
-            return "killed"
+            return "killed", False
         if current_status == "error":
             self.logger.warning(f"Could not determine status for PID {pid} after signal {signal}.")
 
@@ -331,21 +337,21 @@ class SshTaskOperations(ABC):
                     final_status = self.get_task_status(pid)
                     if final_status == "exited":
                         self.logger.info(f"PID {pid} confirmed exited after force signal {force_kill_signal}.")
-                        return "killed"
+                        return "killed", True
                     else:
                         self.logger.error(f"PID {pid} still not exited after force signal {force_kill_signal}.")
-                        return "failed_to_kill"
+                        return "failed_to_kill", True
                 else:
                     self.logger.error(f"Force kill command for PID {pid} failed with exit code {handle_force.exit_code}.")
-                    return "failed_to_kill"
+                    return "failed_to_kill", True
             except Exception as e_force:
                 self.logger.error(f"Error sending force signal {force_kill_signal} to PID {pid}: {e_force}")
-                return "error"
+                return "error", True
         elif current_status == "running":
             self.logger.warning(f"PID {pid} still running after signal {signal}, no force kill attempted.")
-            return "failed_to_kill"
+            return "failed_to_kill", False
 
-        return "failed_to_kill"
+        return "failed_to_kill", False
 
 
 class SshTaskOperations_Linux(SshTaskOperations):

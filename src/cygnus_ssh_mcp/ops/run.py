@@ -456,6 +456,12 @@ class SshRunOperations(ABC):
 
         if self._is_cwd_invalid(handle):
             # Fail closed: the wrapper aborted before the user's command ever ran.
+            # The handle so far only reflects the cwd-guard wrapper's own PID/exit
+            # code (77), not anything the user's command did - remove it from
+            # history so it can't be mistaken for a real execution (the caller was
+            # never even given this handle's id, since the cwd_not_found response
+            # doesn't include one).
+            self.ssh_client.history_manager.remove_command(handle.id)
             raise CwdNotFound(handle.requested_cwd)
 
         if handle.requested_cwd is not None:
@@ -823,6 +829,9 @@ exit $proc.ExitCode
         self.logger.info(f"Command finished with exit code {handle.exit_code}")
 
         if self._is_cwd_invalid(handle):
+            # See the base class's identical branch for why this is removed from
+            # history rather than left looking like a real execution.
+            self.ssh_client.history_manager.remove_command(handle.id)
             raise CwdNotFound(handle.requested_cwd)
 
         if handle.requested_cwd is not None:

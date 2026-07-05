@@ -929,3 +929,64 @@ async def test_ssh_cmd_kill_after_io_timeout(mcp_test_environment):
             logger.info("SSH connection for kill-after-io_timeout test cleaned up")
 
     print_test_footer()
+
+
+@pytest.mark.asyncio
+@skip_on_windows
+async def test_ssh_cwd_not_found_does_not_pollute_history(mcp_test_environment):
+    """Test that a cwd_not_found failure doesn't leave a misleading entry in
+    ssh_cmd_history. The cwd-validation wrapper is a real remote process with its
+    own real PID and sentinel exit code (77) - before this fix, that leaked into
+    history looking exactly like the user's command ('pwd') had actually run and
+    exited with code 77, even though the response explicitly said it was never
+    executed. Not implemented on Windows (raises a plain SshError there instead of
+    CwdNotFound - cwd isn't supported on Windows at all), hence skip_on_windows.
+    """
+    print_test_header("Testing cwd_not_found does not pollute command history")
+    logger.info("Starting cwd_not_found history-pollution regression test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # This test's connection/history is shared with other tests in the same
+            # pytest run (make_connection reuses an already-open connection), so
+            # compare exact handle-id sets rather than assuming empty/unique history -
+            # a marker command text also avoids colliding with any legitimate prior
+            # run of a similarly-named command elsewhere in the suite.
+            history_before = await client.call_tool("ssh_cmd_history", {})
+            history_before_json = json.loads(extract_result_text(history_before))
+            ids_before = {entry['id'] for entry in history_before_json}
+
+            marker_command = "pwd # cwd_not_found_history_test_20260704"
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": marker_command,
+                "cwd": "/tmp/definitely_does_not_exist_cwd_test_20260704"
+            })
+            result_json = json.loads(extract_result_text(run_result))
+            assert result_json['status'] == 'cwd_not_found', f"Unexpected status: {result_json}"
+            assert 'id' not in result_json, "cwd_not_found response should not hand out a handle id"
+
+            history_after = await client.call_tool("ssh_cmd_history", {})
+            history_after_json = json.loads(extract_result_text(history_after))
+            ids_after = {entry['id'] for entry in history_after_json}
+
+            assert ids_after == ids_before, (
+                f"Expected the exact same set of history handle ids after a "
+                f"cwd_not_found failure, got new ids {ids_after - ids_before} - a "
+                f"phantom entry was added for the cwd-guard wrapper"
+            )
+            assert not any(entry['command'] == marker_command for entry in history_after_json), (
+                "The cwd-guard wrapper's PID/exit code should not appear in history "
+                "as if the marker command actually ran"
+            )
+
+            logger.info("cwd_not_found correctly left no trace in command history")
+        except Exception as e:
+            logger.error(f"Error in cwd_not_found history-pollution test: {e}")
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for cwd_not_found history test cleaned up")
+
+    print_test_footer()

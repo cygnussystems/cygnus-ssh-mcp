@@ -902,7 +902,8 @@ async def ssh_task_kill(
         `{'pid', 'result', 'signal', 'force_kill_used', 'timestamp'}`. `result` is
         one of:
         - 'killed': confirmed terminated (by the initial signal or the force-kill
-          fallback). Terminal - nothing left to check.
+          fallback - see `force_kill_used` to tell which). Terminal - nothing left
+          to check.
         - 'already_exited': the process was already gone before any signal was sent.
           Terminal.
         - 'failed_to_kill': still running after both the signal and force-kill
@@ -911,18 +912,24 @@ async def ssh_task_kill(
         - 'invalid_pid': `pid` wasn't a valid positive integer - no signal was sent.
         - 'error': the kill attempt itself failed unexpectedly (e.g. connection
           issue) - the process's actual state is unknown, not necessarily still running.
+
+        `force_kill_used` is True iff the SIGKILL fallback was actually attempted
+        (the initial signal alone was not enough to end the process), regardless of
+        whether the fallback itself succeeded - False if the initial signal alone
+        was sufficient, the process was already gone, `pid` was invalid, or
+        `force=False` so no fallback was ever attempted.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
-        
+
     try:
         force_kill_signal = 9 if force else None
-        result = mcp.ssh_client.task_kill(pid, signal, use_sudo, force_kill_signal, wait_seconds)
+        result, force_kill_used = mcp.ssh_client.task_kill(pid, signal, use_sudo, force_kill_signal, wait_seconds)
         return {
             'pid': pid,
             'result': result,
             'signal': signal,
-            'force_kill_used': result == 'killed' and force,
+            'force_kill_used': force_kill_used,
             'timestamp': datetime.now(UTC).isoformat()
         }
     except Exception as e:
@@ -982,11 +989,14 @@ async def ssh_cmd_run(
         Dictionary containing command output, status, and metadata. The handle
         identifier is returned here as `'id'`, but every other tool that accepts it
         (ssh_cmd_check_status, ssh_cmd_kill, ssh_cmd_output) names the same parameter
-        `handle_id` - pass this value there.
+        `handle_id` - pass this value there. `output` (stdout) and `stderr` are always
+        two SEPARATE fields, never interleaved into one combined stream - a command
+        that succeeds can still have written to stderr (warnings, progress meters,
+        non-fatal messages), so check `stderr` even on `status='success'`.
 
         `status` is one of:
-        - 'success': command completed with exit code 0. `exit_code`, `output` populated.
-        - 'command_failed': completed with a non-zero exit code. `exit_code`, `output` populated.
+        - 'success': command completed with exit code 0. `exit_code`, `output`, `stderr` populated.
+        - 'command_failed': completed with a non-zero exit code. `exit_code`, `output`, `stderr` populated.
         - 'cwd_not_found': the `cwd` parameter didn't exist on the remote host - the
           command was NOT executed at all (fails closed).
         - 'io_timeout': no output within `io_timeout` seconds - remote command was NOT
@@ -1012,12 +1022,14 @@ async def ssh_cmd_run(
     try:
         handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, use_sudo, cwd=cwd, wait_timeout=wait_timeout)
         output = handle.get_full_output()
+        stderr_output = handle.get_full_stderr()
         return {
             'status': 'success',
             'id': handle.id,
             'command': command,
             'exit_code': handle.exit_code,
             'output': output,
+            'stderr': stderr_output,
             'pid': handle.pid,
             'cwd': handle.cwd,
             'start_time': handle.start_ts.isoformat(),
@@ -1140,13 +1152,20 @@ async def ssh_cmd_kill(
         `result` is one of:
         - 'not_running': the command was already confirmed not running before any
           signal was sent (checked first, via a live PID status check) - nothing to do.
-        - 'killed': confirmed terminated (by the signal or the force-kill fallback).
+        - 'killed': confirmed terminated (by the signal or the force-kill fallback -
+          see `force_kill_used` to tell which).
         - 'already_exited': the process was gone by the time the signal landed.
         - 'failed_to_kill': still running after the signal (and force-kill, if
           `force=True`) - not terminal, the process is still alive.
         - 'invalid_pid': the command's tracked PID wasn't a valid positive integer.
         - 'error': the kill attempt itself failed unexpectedly - the process's real
           state is unknown.
+
+        `force_kill_used` is True iff the SIGKILL fallback was actually attempted
+        (the initial signal alone was not enough), regardless of whether the
+        fallback itself succeeded - False if the initial signal alone was
+        sufficient, the process was already gone, or `force=False`.
+
         Note: after a successful kill (`'killed'` or `'already_exited'`, or the early
         `'not_running'` case), a later `ssh_cmd_check_status` call for this same
         `handle_id` will report status `'killed'`.
@@ -1182,7 +1201,7 @@ async def ssh_cmd_kill(
 
         # Kill the process using the existing task_kill method
         force_kill_signal = 9 if force else None
-        result = mcp.ssh_client.task_kill(pid, signal, False, force_kill_signal, wait_seconds)
+        result, force_kill_used = mcp.ssh_client.task_kill(pid, signal, False, force_kill_signal, wait_seconds)
         if result in ('killed', 'already_exited'):
             mcp.ssh_client.mark_kill_confirmed(handle_id)
 
@@ -1191,7 +1210,7 @@ async def ssh_cmd_kill(
             'pid': pid,
             'result': result,
             'signal': signal,
-            'force_kill_used': result == 'killed' and force,
+            'force_kill_used': force_kill_used,
             'timestamp': datetime.now(UTC).isoformat()
         }
     except Exception as e:
@@ -1369,28 +1388,36 @@ async def ssh_cmd_check_status(
 @mcp.tool()
 async def ssh_cmd_output(
         handle_id: Annotated[int, Field(description="Command handle ID - the 'id' field from ssh_cmd_run's response")],
-        lines: Annotated[Optional[int], Field(description="Number of most-recent lines to retrieve; None returns the last 50 (not necessarily the full output - see ssh_cmd_history for total/truncated line counts)")] = None
+        lines: Annotated[Optional[int], Field(description="Number of most-recent lines to retrieve; None returns the last 50 (not necessarily the full output - see ssh_cmd_history for total/truncated line counts)")] = None,
+        stream: Annotated[Literal['stdout', 'stderr'], Field(description="Which captured stream to retrieve - stdout (default) or stderr. These are NOT interleaved into one combined stream - call this twice (once per stream) if you need both")] = 'stdout'
 ) -> list:
     """
-    Retrieve captured output (stdout+stderr, interleaved) from a command started with
-    ssh_cmd_run, identified by its handle_id. Useful after an io_timeout/wait_timeout
-    to see progress so far - including output produced after that call returned,
-    since background monitoring keeps collecting it - or any time to re-inspect an
-    earlier command's output without rerunning it.
+    Retrieve captured output from a command started with ssh_cmd_run, identified by
+    its handle_id. Useful after an io_timeout/wait_timeout to see progress so far -
+    including output produced after that call returned, since background monitoring
+    keeps collecting it - or any time to re-inspect an earlier command's output
+    without rerunning it.
+
+    stdout and stderr are captured in separate buffers, not interleaved - `stream`
+    picks which one to retrieve. ssh_cmd_run's own response only ever includes
+    `output` (stdout); to see stderr from a successful command (warnings, progress
+    meters, non-fatal messages - stderr on success is real output, not just for
+    failures), call this tool with `stream='stderr'`.
 
     Raises an error if handle_id doesn't exist (e.g. from a previous connection -
     handles don't survive reconnects).
 
     Returns:
-        A plain list of output lines (most recent `lines`, or the last 50 by
-        default) - not a dict, no status/metadata. For total line counts and whether
-        output was truncated, use ssh_cmd_history(include_output=True) instead.
+        A plain list of output lines from the selected stream (most recent `lines`,
+        or the last 50 by default) - not a dict, no status/metadata. For total line
+        counts and whether output was truncated, use ssh_cmd_history(include_output=True)
+        instead (stdout only there).
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
 
     try:
-        return mcp.ssh_client.output(handle_id, lines=lines)
+        return mcp.ssh_client.output(handle_id, lines=lines, stream=stream)
     except Exception as e:
         logger.error(f"Failed to retrieve output: {e}")
         raise
@@ -1657,6 +1684,12 @@ async def ssh_file_stat(
     """
     Get status information about a file or directory (via SFTP stat - works the same
     way on all platforms, no shell command involved).
+
+    On Windows, `mode`/`uid`/`gid` come from the SFTP subsystem's own cross-platform
+    attribute reporting, not real Windows ACLs/ownership - Windows has no equivalent
+    concept, so these values (e.g. `uid`/`gid` of `0`) are not meaningful there and
+    should not be relied on to reason about actual Windows permissions/ownership.
+    `type`/`size`/`atime`/`mtime` are unaffected and accurate on all platforms.
 
     Returns:
         `{'exists': True, 'path', 'type' ('file'/'directory'/'symlink'/'unknown'),
@@ -2304,10 +2337,11 @@ async def ssh_file_write(
 
     Returns:
         On success: `{'success': True, 'file_path', 'bytes_written' (int), 'mode'
-        (octal string, or `None` if not set), 'append' (bool, echoes the parameter),
-        'connection'}`. On failure (e.g. parent directory missing and
-        `create_dirs=False`, write error): `{'success': False, 'file_path', 'error'}`
-        - not a raised exception.
+        (octal string, or `None` if not set OR if the connection is Windows - the
+        response never echoes back a mode value that wasn't actually applied),
+        'append' (bool, echoes the parameter), 'connection'}`. On failure (e.g.
+        parent directory missing and `create_dirs=False`, write error):
+        `{'success': False, 'file_path', 'error'}` - not a raised exception.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -2515,11 +2549,16 @@ async def ssh_file_write(
             except IOError:
                 file_size = len(content)
             
+            # mode is silently ignored on Windows (no chmod there - see the guard
+            # above) - report None rather than echoing back a value that was never
+            # actually applied, which would misleadingly look like it took effect.
+            reported_mode = f"{mode:o}" if (mode is not None and mcp.ssh_client.os_type != 'windows') else None
+
             return {
                 'success': True,
                 'file_path': file_path,
                 'bytes_written': file_size,
-                'mode': f"{mode:o}" if mode is not None else None,
+                'mode': reported_mode,
                 'append': append,
                 'connection': _connection_metadata()
             }
@@ -2724,6 +2763,9 @@ async def ssh_dir_list_advanced(
         a spelled-out word here ('file'/'directory'/'symlink'/'pipe'/'socket'/
         'block'/'character') - note this differs from ssh_dir_search_glob, which
         returns single-character type codes ('f'/'d'/'l') for the same concept.
+        On Windows, `permissions` is always the literal placeholder `"0"` (Windows
+        has no Unix-style permission bits) and `group` is always `"unknown"` -
+        `user` still reflects the real file owner there.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")

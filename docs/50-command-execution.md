@@ -188,17 +188,25 @@ Note this is a separate field (`result`, not `status`) on the `ssh_cmd_kill` res
 ## Output Management
 
 ### Circular Buffer
-- Output stored in memory with tail preservation
-- Default: 100 lines retained
+- stdout and stderr are captured into **separate** in-memory buffers with tail
+  preservation - never interleaved into one combined stream
+- Default: 100 lines retained per stream
 - Streaming capture with line normalization
+- `ssh_cmd_run`'s own response only ever includes `output` (stdout) and `stderr` as
+  two distinct fields - a command that succeeds can still have written to stderr
+  (warnings, progress meters, non-fatal messages), so check `stderr` even on
+  `status='success'`
 
 ### Retrieving Output
 ```
-# Get last N lines
+# Get last N lines of stdout (default stream)
 ssh_cmd_output(handle_id=1001, lines=50)
 
-# Get all captured output
+# Get all captured stdout
 ssh_cmd_output(handle_id=1001)
+
+# Get stderr instead
+ssh_cmd_output(handle_id=1001, stream="stderr")
 ```
 
 ### Output in History
@@ -208,6 +216,7 @@ ssh_cmd_history(
     output_lines=5  # Lines per entry
 )
 ```
+Note: `ssh_cmd_history`'s output snippets are stdout only.
 
 ---
 

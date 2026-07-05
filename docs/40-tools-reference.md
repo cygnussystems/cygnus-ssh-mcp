@@ -191,7 +191,7 @@ afterward. Only `runtime_timeout` ever kills. See
 | `use_sudo` | bool | No | False | Run with sudo privileges |
 | `cwd` | str | No | None | Run this call in this directory (Linux/macOS only). Not remembered between calls; fails closed if the directory doesn't exist |
 
-**Returns:** Dictionary with `status`, `output`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps
+**Returns:** Dictionary with `status`, `output` (stdout), `stderr`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps. `output`/`stderr` are always separate, never interleaved - a command that succeeds can still have written to `stderr` (warnings, progress meters), so check it even on `status='success'`.
 
 **Status values:** `success`, `command_failed`, `cwd_not_found`, `io_timeout`, `wait_timeout`, `runtime_timeout`, `sudo_required`, `busy`, `error`
 
@@ -232,7 +232,10 @@ Terminate a running command.
 | `force` | bool | No | True | Force kill if process doesn't exit |
 | `wait_seconds` | float | No | 1.0 | Seconds to wait before force kill |
 
-**Returns:** Kill result dictionary
+**Returns:** Kill result dictionary, including `force_kill_used` (bool) - True iff
+the SIGKILL fallback was actually attempted (the initial signal alone was not
+enough), regardless of whether the fallback itself succeeded; False if the initial
+signal alone was sufficient, the process was already gone, or `force=False`.
 
 ---
 
@@ -243,8 +246,9 @@ Retrieve output from a command.
 |-----------|------|----------|---------|-------------|
 | `handle_id` | int | Yes | - | Command handle ID |
 | `lines` | int | No | None | Number of lines to retrieve |
+| `stream` | str | No | `'stdout'` | Which captured stream to retrieve - `'stdout'` or `'stderr'`. Not interleaved - call twice for both |
 
-**Returns:** List of output lines
+**Returns:** List of output lines from the selected stream
 
 ---
 
@@ -313,7 +317,9 @@ Terminate a background task.
 | `force` | bool | No | True | Force kill if needed |
 | `wait_seconds` | float | No | 1.0 | Wait before force kill |
 
-**Returns:** Dictionary with `pid`, `result`, `signal`, `force_kill_used`
+**Returns:** Dictionary with `pid`, `result`, `signal`, `force_kill_used` (bool - True
+iff the SIGKILL fallback was actually attempted, regardless of whether it succeeded;
+see `ssh_cmd_kill` above for the full explanation)
 
 **Result values:** `killed`, `already_exited`, `failed_to_kill`, `error`
 
