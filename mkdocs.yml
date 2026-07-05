@@ -1,0 +1,57 @@
+site_name: cygnus-ssh-mcp
+site_description: The most powerful SSH MCP server for AI assistants
+site_url: https://cygnussystems.github.io/cygnus-ssh-mcp/
+repo_url: https://github.com/cygnussystems/cygnus-ssh-mcp
+repo_name: cygnussystems/cygnus-ssh-mcp
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - search.suggest
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Overview: 10-overview.md
+      - Installation: 15-installation.md
+      - Host Configuration: 30-host-configuration.md
+  - Platform Guides:
+      - Platform Compatibility: 20-platform-compatibility.md
+      - macOS Compatibility: MACOS_COMPATIBILITY.md
+      - Windows Support: 25-windows-support.md
+  - Using the Tools:
+      - Tools Reference: 40-tools-reference.md
+      - Command Execution: 50-command-execution.md
+      - Process Management: 60-process-management.md
+      - Logging: 70-logging.md
+      - Claude Desktop Setup: 80-claude-desktop.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - tables
+  - toc:
+      permalink: true
+
+copyright: Copyright &copy; Cygnus Systems
