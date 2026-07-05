@@ -155,17 +155,29 @@ async def list_tools() -> list:
     """
     logger.info("Request received to list available tools.")
     available_tools = []
-    # mcp.get_tools() returns a dict of {tool_name: FunctionTool}
+    # FastMCP renamed this between major versions with no overlap: 2.x only has
+    # get_tools() (returns a dict of {tool_name: FunctionTool}), 3.x only has
+    # list_tools() (returns a list of FunctionTool, name read off each one) -
+    # verified live 2026-07-05 against fastmcp 2.13.0.2 and 3.4.2. pyproject.toml's
+    # fastmcp constraint is unbounded (>=2.0.0), so support both rather than
+    # pinning to one side.
     try:
-        tools_dict = await mcp.get_tools()
-        for name, tool_spec in tools_dict.items():
-            tool_details = {
-                "name": name,
-                "description": getattr(tool_spec, 'description', 'No description available.')
-            }
-            available_tools.append(tool_details)
+        if hasattr(mcp, 'list_tools'):
+            tools = await mcp.list_tools()
+            for tool_spec in tools:
+                available_tools.append({
+                    "name": tool_spec.name,
+                    "description": getattr(tool_spec, 'description', 'No description available.')
+                })
+        else:
+            tools_dict = await mcp.get_tools()
+            for name, tool_spec in tools_dict.items():
+                available_tools.append({
+                    "name": name,
+                    "description": getattr(tool_spec, 'description', 'No description available.')
+                })
     except Exception as e:
-        logger.error(f"Error accessing mcp.get_tools(): {e}", exc_info=True)
+        logger.error(f"Error listing tools: {e}", exc_info=True)
 
     return available_tools
 

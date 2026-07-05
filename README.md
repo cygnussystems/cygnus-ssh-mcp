@@ -13,7 +13,7 @@
 
 *Give Claude full control of your Linux, macOS, and Windows servers with 46 specialized tools*
 
-[Prerequisites](#prerequisites-ssh-on-your-target-servers) · [Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](docs/)
+[Prerequisites](#prerequisites-ssh-on-your-target-servers) · [Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](https://cygnussystems.github.io/cygnus-ssh-mcp/)
 
 </div>
 
@@ -548,7 +548,8 @@ Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operat
 
 ## Documentation
 
-Detailed guides available in [docs/](docs/):
+**Full docs site: [cygnussystems.github.io/cygnus-ssh-mcp](https://cygnussystems.github.io/cygnus-ssh-mcp/)**
+— searchable, with navigation. Or browse the raw files directly in [docs/](docs/):
 
 - [Overview](docs/10-overview.md)
 - [Installation](docs/15-installation.md)

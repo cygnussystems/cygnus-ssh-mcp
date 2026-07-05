@@ -32,13 +32,17 @@ RUNNERS = {
         'path_sep': '\\',
     },
     'macos': {
-        'alias': 'testmac',
-        'host': '192.168.1.53',
+        'alias': 'macbook-2014',
+        'host': '192.168.1.200',
         'port': 22,
         'user': 'claude',
         'password': 'claudepwd',
         'home': '/Users/claude',
-        'python': '/usr/local/bin/python3.12',  # Full path required for SSH sessions
+        # NOTE: plain 'python3' on PATH still resolves to Apple's bundled 3.8.9
+        # (too old for this project's >=3.10 requirement) - a newer Python 3.13.5
+        # was installed via python.org's installer at /usr/local/bin/python3,
+        # verified working as a runner 2026-07-05.
+        'python': '/usr/local/bin/python3',
         'venv_activate': 'source venv/bin/activate',
         'path_sep': '/',
     },

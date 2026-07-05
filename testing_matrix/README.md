@@ -93,7 +93,7 @@ Each runner machine needs:
 |--------|--------|--------|
 | Linux (192.168.1.27) | Python 3.11 | Ready |
 | Windows (192.168.1.9) | Unknown | Needs setup/verification (replaces the old .28 win-test VM, which no longer exists) |
-| macOS (192.168.1.53) | Python 3.9.6 | Needs upgrade to 3.10+ |
+| macOS (192.168.1.200) | Python 3.8.9 | Can't be a runner (needs 3.10+) - target only |
 
 ## Files
 
@@ -118,7 +118,7 @@ Runner: WINDOWS (claude@192.168.1.9)
   -> WINDOWS  ... 135 passed in 200s
   -> MACOS    ... 135 passed in 199s
 
-Runner: MACOS (claude@192.168.1.53)
+Runner: MACOS (claude@192.168.1.200)
   -> LINUX    ... 135 passed in 201s
   -> WINDOWS  ... 135 passed in 200s
   -> MACOS    ... 135 passed in 199s
