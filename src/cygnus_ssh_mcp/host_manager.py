@@ -12,8 +12,8 @@ class SshHostManager:
     def __init__(self, config_path: Optional[Path] = None):
         # Try paths in this order:
         # 1. Explicit config_path if provided
-        # 2. ~/.ssh_hosts.toml
-        # 3. ./ssh_hosts.toml
+        # 2. ~/.mcp_ssh_hosts.toml
+        # 3. ./mcp_ssh_hosts.toml
         if config_path:
             self.config_path = config_path
         else:

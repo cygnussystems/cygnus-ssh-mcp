@@ -9,11 +9,11 @@
 [![PyPI version](https://img.shields.io/pypi/v/cygnus-ssh-mcp.svg)](https://pypi.org/project/cygnus-ssh-mcp/)
 [![Python](https://img.shields.io/pypi/pyversions/cygnus-ssh-mcp.svg)](https://pypi.org/project/cygnus-ssh-mcp/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Tests](https://img.shields.io/badge/tests-124%2B%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-145%2B%20passing-brightgreen.svg)]()
 
 *Give Claude full control of your Linux, macOS, and Windows servers with 46 specialized tools*
 
-[Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](docs/)
+[Prerequisites](#prerequisites-ssh-on-your-target-servers) · [Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](docs/)
 
 </div>
 
@@ -34,29 +34,92 @@ Most SSH MCP servers let you run commands. **cygnus-ssh-mcp** lets you *manage s
 | Command history with output | ❌ | ✅ |
 | Recursive directory operations | ❌ | ✅ |
 | Archive create/extract | ❌ | ✅ |
-| Full Unicode support | ? | ✅ |
+| Full Unicode support | Varies | ✅ |
+
+---
+
+## Prerequisites: SSH on Your Target Servers
+
+cygnus-ssh-mcp connects over standard SSH - it doesn't provide SSH itself, so each
+server you want to manage needs an SSH server already installed and running.
+
+**Linux** - usually pre-installed on server distros; if not:
+```bash
+sudo apt install openssh-server   # Debian/Ubuntu
+sudo systemctl enable --now ssh
+```
+
+**macOS** - enable Remote Login in System Preferences → Sharing, or from the terminal:
+```bash
+sudo systemsetup -setremotelogin on
+```
+
+**Windows** (Server 2019+, or Windows 10/11) - OpenSSH Server is an optional feature:
+```powershell
+Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType 'Automatic'
+```
+See [Windows Support](docs/25-windows-support.md) for Windows Server 2016 and other edge cases.
 
 ---
 
 ## Installation
 
+Pick **one** of the two options below - they're independent tools that don't share
+storage, so commands from one won't see or affect what the other did.
+
+### Option A: pip (a persistent install)
+
 ```bash
 pip install cygnus-ssh-mcp
 ```
 
-Or run without installing using [uvx](https://docs.astral.sh/uv/):
+Uninstalling or upgrading:
+
+```bash
+pip uninstall cygnus-ssh-mcp
+pip install --upgrade cygnus-ssh-mcp
+```
+
+### Option B: uvx (no install at all)
+
+> [!NOTE]
+> **What's `uvx`?** It's part of [`uv`](https://docs.astral.sh/uv/) (a fast Python
+> package manager) - `uvx <package>` downloads a package into a disposable,
+> isolated cache and runs it immediately, without installing it into your system
+> Python, a project, or anywhere `pip` can see. Nothing lingers afterward for you
+> to manage. It's the easiest option if you just want Claude Desktop to launch this
+> server without thinking about Python environments at all.
 
 ```bash
 uvx cygnus-ssh-mcp
 ```
 
+There's nothing to "uninstall" - `uvx` re-resolves and re-fetches the latest
+version on every run anyway. To force a fresh fetch or clear its cache instead:
+
+```bash
+uvx --refresh cygnus-ssh-mcp   # force this run to ignore the cache
+uv cache clean                 # clear uv's entire package cache
+```
+
+If you want a `uvx`-style setup that *does* persist (so it doesn't re-fetch every
+time) and can be upgraded deliberately, use `uv tool install cygnus-ssh-mcp`
+instead - manage that with `uv tool uninstall cygnus-ssh-mcp` / `uv tool upgrade
+cygnus-ssh-mcp`. This is still separate from `pip` (Option A) - don't mix `pip`
+commands with anything set up via `uv`/`uvx`, they can't see each other.
+
 ---
 
 ## Quick Start
 
-### 1. Create your hosts file
+### 1. Add your hosts
 
-Create `~/.mcp_ssh_hosts.toml`:
+You don't need to create anything by hand - the first time the server starts, it
+automatically creates an empty host config file at `~/.mcp_ssh_hosts.toml` (secure
+`0o600` permissions) if nothing is there yet. Just open that file (or use
+`ssh_conn_add_host` from within Claude) and add entries like:
 
 ```toml
 # Minimal (password auth) - only required fields
@@ -88,10 +151,54 @@ alias = "win-prod"
 **Required fields:** `port` + (`password` OR `keyfile`)
 **Optional fields:** `alias`, `description`, `sudo_password`, `key_passphrase`
 
+`sudo_password` is optional if your account uses password auth - when omitted, the
+regular `password` is reused for `use_sudo` operations too. It's only required if
+your sudo password differs from your login password, or if you're using SSH key
+auth (`keyfile`) with no `password` field at all - in that case, either set
+`sudo_password` explicitly or configure passwordless sudo on the server.
+
+> [!TIP]
 > **Host file locations:** Default is `~/.mcp_ssh_hosts.toml`. Falls back to `./mcp_ssh_hosts.toml` if not found.
-> Use `--config /path/to/hosts.toml` for a custom location.
+> Use `--config /path/to/hosts.toml` for a custom location. If a file already exists
+> at whichever path is used, it is **never** overwritten or reset - auto-creation
+> only ever happens when nothing is there yet.
+
+> [!WARNING]
+> **Watch for hidden file extensions.** If you create this file yourself in Notepad
+> or TextEdit, Windows and macOS both hide known extensions by default - a file you
+> named `mcp_ssh_hosts.toml` can silently actually be saved as
+> `mcp_ssh_hosts.toml.txt`, and the server will never find it. Turn on "show file
+> extensions" in Explorer/Finder, or verify from a terminal:
+> `ls -la ~/.mcp_ssh_hosts.toml*` (macOS/Linux) or
+> `dir %USERPROFILE%\.mcp_ssh_hosts.toml*` (Windows) - either should show exactly
+> one file, with no extra extension after `.toml`.
 
 ### 2. Add to Claude Desktop
+
+> [!WARNING]
+> **Python must be on `PATH` for `"command": "cygnus-ssh-mcp"` (below) to work at
+> all.** This is the most common reason Claude Desktop fails to start the server
+> (or the tool list never appears) - and with Python often installed in several
+> different places on one machine, it's easy to hit. Check first with:
+> ```bash
+> python --version   # Windows/macOS/Linux
+> python3 --version  # macOS/Linux, if the above isn't found
+> ```
+> If that fails with "not recognized"/"command not found", Python isn't on `PATH` -
+> fix that first (reinstall Python with "Add to PATH" checked on Windows, or add it
+> to your shell profile), or work around it entirely by finding the full path to
+> the installed executable instead: `where cygnus-ssh-mcp` (Windows) or
+> `which cygnus-ssh-mcp` (macOS/Linux), then use that directly as `command`:
+> ```json
+> {
+>   "mcpServers": {
+>     "ssh": {
+>       "command": "C:\\Users\\yourname\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\cygnus-ssh-mcp.exe",
+>       "args": ["--config", "C:\\Users\\yourname\\.mcp_ssh_hosts.toml"]
+>     }
+>   }
+> }
+> ```
 
 Edit your `claude_desktop_config.json`:
 
@@ -118,15 +225,91 @@ Or with a custom hosts file location:
 }
 ```
 
+On Windows, use an absolute path with **escaped** backslashes (JSON needs `\\`, not
+a single `\`):
+
+```json
+{
+  "mcpServers": {
+    "ssh": {
+      "command": "cygnus-ssh-mcp",
+      "args": ["--config", "C:\\Users\\yourname\\.mcp_ssh_hosts.toml"]
+    }
+  }
+}
+```
+
+**Using [Claude Code](https://claude.com/claude-code) instead of Claude Desktop?**
+It reads its own project-level `.mcp.json` file (in your project root) rather than
+`claude_desktop_config.json`, and its schema supports a couple of extra fields
+Desktop doesn't have:
+
+```json
+{
+  "mcpServers": {
+    "cygnus_ssh": {
+      "command": "cygnus-ssh-mcp",
+      "args": ["--config", "/path/to/.mcp_ssh_hosts.toml"],
+      "working_dir": "/path/to/your/project",
+      "auto_start": true
+    }
+  }
+}
+```
+
+- **`working_dir`** - the directory the server process runs from. Claude Desktop
+  has no equivalent - it doesn't expose a configurable working directory at all,
+  which is exactly why the Desktop examples above always use absolute paths.
+- **`auto_start`** - whether Claude Code starts this server automatically. Claude
+  Desktop always auto-starts every configured server; there's no toggle for it.
+
+Everything else - the `--config` argument, and the PATH/backslash caveats from the
+warning above - applies the same way to both clients.
+
 ### 3. Start managing servers
+
+> [!NOTE]
+> `PROD` in the examples below is just an example **alias** (`alias = "prod"` in the
+> hosts file from step 1) - it's not a magic name. If a host doesn't have an alias
+> configured, refer to it by its full `user@host` key instead, e.g. "Connect to
+> admin@203.0.113.10 and..." or "Connect to deploy@myserver.example.com and...".
+>
+> Depending on which LLM/client you're using, it may not automatically realize it
+> should reach for this MCP server - if it tries to answer without connecting, or
+> claims it can't access remote servers, explicitly tell it to use the SSH MCP
+> tools (e.g. "use the ssh MCP to connect to PROD and...").
 
 In Claude, just say:
 
-> "Connect to prod and show me the disk usage"
+> "Connect to PROD and tell me about the machine - hardware, status, everything"
+
+> "Connect to the GPU box and tell me how many graphics cards it has and how much
+> total VRAM"
 
 > "Edit /etc/nginx/nginx.conf and change worker_connections to 2048"
 
 > "Find all .log files larger than 100MB in /var/log"
+
+It handles multi-step jobs just as easily - install packages, edit configs, open
+firewall ports, and restart services, all in one request:
+
+> "Install PostgreSQL, set it to listen on all interfaces, add a pg_hba.conf rule
+> for remote connections, open port 5432 in the firewall, and create a database
+> called analytics"
+
+> "Set up a full LAMP stack, download the latest WordPress, configure
+> wp-config.php with a new database, and get the site running at
+> /var/www/wordpress"
+
+> "Get a Let's Encrypt certificate for example.com, configure nginx to serve it
+> over HTTPS, and redirect all HTTP traffic to it"
+
+> "My Node app in /opt/api keeps crashing - check the logs, find out why, and set
+> it up as a systemd service that restarts automatically"
+
+> "Audit PROD's security - check what ports are open, what's actually listening on
+> them, whether the firewall rules match, and flag anything that looks like it
+> shouldn't be exposed to the internet"
 
 ---
 
@@ -163,7 +346,7 @@ port = 22
 alias = "web"
 ```
 
-Then just: *"Connect to web"*
+Then just: *"Connect to WEB"*
 
 Supports **password**, **SSH key**, and **encrypted keys with passphrase**.
 
@@ -220,9 +403,9 @@ ssh_task_kill(pid=12345, force=True)
 Every tool supports `use_sudo`. Password is handled automatically.
 
 ```python
-ssh_file_write(path="/etc/app/config.yaml", content="...", use_sudo=True)
+ssh_file_write(file_path="/etc/app/config.yaml", content="...", use_sudo=True)
 ssh_dir_mkdir(path="/opt/myapp", use_sudo=True)
-ssh_archive_extract(archive="/backup.tar.gz", dest="/", use_sudo=True)
+ssh_archive_extract(archive_path="/backup.tar.gz", destination_path="/", use_sudo=True)
 ```
 
 ---
@@ -306,7 +489,7 @@ Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operat
 
 | Tool | Description |
 |------|-------------|
-| `ssh_cmd_run` | Execute command with I/O and runtime timeouts |
+| `ssh_cmd_run` | Execute command with I/O, wait, and runtime timeouts |
 | `ssh_cmd_kill` | Terminate running command |
 | `ssh_cmd_check_status` | Check command status |
 | `ssh_cmd_output` | Retrieve output from command |

@@ -157,12 +157,29 @@ Connected to prod.example.com. Here's the system information:
 
 ### Server Not Starting
 
-1. **Check paths** - Ensure all paths in config are absolute
-2. **Test manually** - Run the command in a terminal:
+1. **Check paths** - Ensure all paths in config are absolute. On Windows, use
+   properly escaped backslashes in JSON (`\\`, not a single `\`) - e.g.
+   `"C:\\Users\\yourname\\.mcp_ssh_hosts.toml"`.
+2. **Python not on `PATH`** - the most common cause of `"command":
+   "cygnus-ssh-mcp"` silently failing to start, or the tool list never appearing.
+   Find the full path to the installed executable instead:
+   `where cygnus-ssh-mcp` (Windows) or `which cygnus-ssh-mcp` (macOS/Linux), and
+   use that directly as `command`:
+   ```json
+   {
+     "mcpServers": {
+       "ssh": {
+         "command": "C:\\Users\\yourname\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\cygnus-ssh-mcp.exe",
+         "args": ["--config", "C:\\Users\\yourname\\.mcp_ssh_hosts.toml"]
+       }
+     }
+   }
+   ```
+3. **Test manually** - Run the command in a terminal:
    ```bash
    /path/to/.venv/bin/python /path/to/mcp_ssh_server.py --config /path/to/hosts.toml
    ```
-3. **Check logs** - Look for errors in Claude Desktop logs
+4. **Check logs** - Look for errors in Claude Desktop logs
 
 ### Tools Not Appearing
 

@@ -20,6 +20,11 @@ permissions to `0o600` (owner read/write only) immediately. You don't need to cr
 this file yourself before adding your first host - `ssh_conn_add_host` (or hand-editing
 the file, if you prefer) both just work against whatever file already exists.
 
+**If a file already exists at the resolved path, it is never overwritten or reset** -
+auto-creation is skipped entirely in that case (`if not self.config_path.exists()`
+in `SshHostManager._ensure_config_file`), so restarting the server, upgrading the
+package, or reinstalling it can never wipe out hosts you've already configured.
+
 ## File Format
 
 The TOML file uses section names in `user@hostname` format:

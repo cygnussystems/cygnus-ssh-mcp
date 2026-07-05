@@ -44,6 +44,23 @@ options:
   --config CONFIG  Path to TOML host configuration file
 ```
 
+## Uninstalling / Upgrading
+
+```bash
+pip uninstall cygnus-ssh-mcp
+pip install --upgrade cygnus-ssh-mcp
+```
+
+If you installed with `uv tool install cygnus-ssh-mcp` instead of pip, use
+`uv tool uninstall cygnus-ssh-mcp` / `uv tool upgrade cygnus-ssh-mcp`. `uvx` doesn't
+persist an install at all - it re-fetches the latest version on every run, so
+there's nothing to uninstall and no separate upgrade step.
+
+Uninstalling only removes the Python package - your host config file
+(`~/.mcp_ssh_hosts.toml`) and any Claude Desktop config changes are left in place,
+since they may contain saved credentials or configuration you want to keep. Remove
+them yourself if you no longer need them.
+
 ## Claude Desktop Configuration
 
 After installation, add to your `claude_desktop_config.json`:
