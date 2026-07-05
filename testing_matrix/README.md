@@ -12,8 +12,8 @@ Local Windows PC (Orchestrator)
 +----------------------------------------------------+
 |  Runner Machines (each runs tests against 3 targets) |
 +------------------+-----------------+---------------+
-| Linux VM (.27)   | Win Server (.28)| macOS (.53)   |
-| test/testpwd     | test/testpwd    | claude/pwd    |
+| Linux VM (.27)   | Win Server (.9) | macOS (.53)   |
+| test/testpwd     | claude/pwd      | claude/pwd    |
 +------------------+-----------------+---------------+
 ```
 
@@ -92,7 +92,7 @@ Each runner machine needs:
 | Runner | Python | Status |
 |--------|--------|--------|
 | Linux (192.168.1.27) | Python 3.11 | Ready |
-| Windows (192.168.1.28) | Not installed | Needs setup |
+| Windows (192.168.1.9) | Unknown | Needs setup/verification (replaces the old .28 win-test VM, which no longer exists) |
 | macOS (192.168.1.53) | Python 3.9.6 | Needs upgrade to 3.10+ |
 
 ## Files
@@ -113,7 +113,7 @@ Runner: LINUX (test@192.168.1.27)
   -> WINDOWS  ... 135 passed in 199s
   -> MACOS    ... 135 passed in 201s
 
-Runner: WINDOWS (test@192.168.1.28)
+Runner: WINDOWS (claude@192.168.1.9)
   -> LINUX    ... 135 passed in 198s
   -> WINDOWS  ... 135 passed in 200s
   -> MACOS    ... 135 passed in 199s

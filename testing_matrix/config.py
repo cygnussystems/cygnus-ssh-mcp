@@ -18,12 +18,15 @@ RUNNERS = {
         'path_sep': '/',
     },
     'windows': {
-        'alias': 'win-test',
-        'host': '192.168.1.28',
+        'alias': 'win-server-2016',
+        'host': '192.168.1.9',
         'port': 22,
-        'user': 'test',
-        'password': 'testpwd',
-        'home': 'C:\\Users\\test',
+        'user': 'claude',
+        'password': 'claudepwd',
+        'home': 'C:\\Users\\claude',
+        # NOTE: python path unverified on win-server-2016 (the old win-test VM this
+        # replaced had Python at this path, but win-server-2016 hasn't been checked
+        # as a runner - it was only ever used as a target before 2026-07-05).
         'python': 'C:\\Program Files\\Python312\\python.exe',  # Full path for SSH sessions (no quotes, use & in PS)
         'venv_activate': '.\\venv\\Scripts\\Activate.ps1',
         'path_sep': '\\',
@@ -50,10 +53,10 @@ TARGETS = {
         'password': 'testpwd',
     },
     'windows': {
-        'host': '192.168.1.28',
+        'host': '192.168.1.9',
         'port': 22,
-        'user': 'test',
-        'password': 'testpwd',
+        'user': 'claude',
+        'password': 'claudepwd',
     },
     'macos': {
         'host': '192.168.1.53',

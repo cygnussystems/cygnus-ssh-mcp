@@ -213,6 +213,61 @@ chmod +x {script_path}
 
 
 @pytest.mark.asyncio
+async def test_ssh_task_kill_force_kill_used_reflects_actual_need(mcp_test_environment):
+    """Test that force_kill_used reflects whether the SIGKILL fallback was actually
+    NEEDED, not just whether force=True was PASSED. Regression test: before this
+    fix, kill_task echoed back whatever `force` the caller passed as
+    `force_kill_used`, so a caller could never tell a clean SIGTERM kill from one
+    that needed the SIGKILL fallback. `sleep` doesn't trap SIGTERM (default action
+    is to terminate), so a plain SIGTERM should always be enough here - even with
+    force=True passed (asking the tool to fall back to SIGKILL if needed),
+    force_kill_used must come back False since the fallback was never actually used.
+    """
+    print_test_header("Testing ssh_task_kill's force_kill_used reflects actual need, not just the force param")
+    logger.info("Starting force_kill_used accuracy regression test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            launch_result = await client.call_tool("ssh_task_launch", {
+                "command": "sleep 30"
+            })
+            launch_json = json.loads(extract_result_text(launch_result))
+            pid = launch_json['pid']
+            logger.info(f"Launched easily-killable task with PID: {pid}")
+
+            time.sleep(0.5)
+
+            kill_result = await client.call_tool("ssh_task_kill", {
+                "pid": pid,
+                "signal": 15,
+                "force": True,
+                "wait_seconds": 1.0
+            })
+            kill_json = json.loads(extract_result_text(kill_result))
+            logger.info(f"task_kill result: {kill_json}")
+
+            assert kill_json['result'] == 'killed', f"Unexpected kill result: {kill_json}"
+            assert kill_json['force_kill_used'] is False, (
+                f"Expected force_kill_used=False since plain SIGTERM was enough to "
+                f"kill a plain 'sleep' process - got {kill_json['force_kill_used']!r} "
+                f"(this is the exact bug: force_kill_used used to just echo back "
+                f"force=True regardless of whether SIGKILL was actually needed)"
+            )
+
+            logger.info("force_kill_used correctly reflected that SIGKILL was never needed")
+        except Exception as e:
+            logger.error(f"Error in force_kill_used accuracy test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for force_kill_used accuracy test cleaned up")
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
 async def test_task_not_in_history(mcp_test_environment):
     """Test that background tasks don't appear in command history."""
     print_test_header("Testing task not appearing in command history")

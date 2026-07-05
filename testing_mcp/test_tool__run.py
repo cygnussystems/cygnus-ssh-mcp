@@ -7,7 +7,8 @@ from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
     mcp_test_environment, extract_result_text,
     echo_command, multiline_echo_command, failing_command, get_expected_exit_code_error,
-    sleep_then_echo, long_running_command, skip_on_windows, windows_only, IS_WINDOWS
+    sleep_then_echo, long_running_command, skip_on_windows, windows_only, IS_WINDOWS,
+    success_with_stderr_command
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -988,5 +989,58 @@ async def test_ssh_cwd_not_found_does_not_pollute_history(mcp_test_environment):
         finally:
             await disconnect_ssh(client)
             logger.info("SSH connection for cwd_not_found history test cleaned up")
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_run_captures_stderr_on_success(mcp_test_environment):
+    """Test that a successful (exit 0) command still returns its stderr output.
+    Regression test: ssh_cmd_run used to drop stderr entirely on success - a
+    command that exits 0 can still have written to stderr (warnings, progress
+    meters, non-fatal messages), and before this fix that content was silently
+    discarded rather than surfaced in the response's `stderr` field.
+    """
+    print_test_header("Testing ssh_cmd_run captures stderr on a successful command")
+    logger.info("Starting stderr-on-success regression test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            marker = "stderr_on_success_marker_20260705"
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": success_with_stderr_command(marker),
+                "io_timeout": 10.0
+            })
+            result_json = json.loads(extract_result_text(run_result))
+            assert result_json['status'] == 'success', f"Unexpected status: {result_json}"
+            assert result_json['exit_code'] == 0, f"Expected exit code 0, got {result_json['exit_code']}"
+            assert 'stderr' in result_json, "Successful response should include a 'stderr' field"
+            assert marker in result_json['stderr'], (
+                f"Expected stderr content to be captured even on a successful command, "
+                f"got stderr={result_json['stderr']!r} (this is the exact bug: stderr "
+                f"used to be dropped entirely when exit_code was 0)"
+            )
+
+            # ssh_cmd_output's stream='stderr' param should retrieve the same content later.
+            handle_id = result_json['id']
+            output_result = await client.call_tool("ssh_cmd_output", {
+                "handle_id": handle_id,
+                "stream": "stderr"
+            })
+            output_lines = json.loads(extract_result_text(output_result))
+            assert any(marker in line for line in output_lines), (
+                f"Expected ssh_cmd_output(stream='stderr') to retrieve the same stderr "
+                f"content, got: {output_lines}"
+            )
+
+            logger.info("stderr was correctly captured and retrievable for a successful command")
+        except Exception as e:
+            logger.error(f"Error in stderr-on-success test: {e}")
+            raise
+        finally:
+            await disconnect_ssh(client)
+            logger.info("SSH connection for stderr-on-success test cleaned up")
 
     print_test_footer()

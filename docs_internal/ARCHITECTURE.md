@@ -363,4 +363,11 @@ used to corrupt non-ASCII content on Windows by shelling out to PowerShell
 command-execution stdout path, which decodes bytes as UTF-8 while the actual bytes
 on the wire are in Windows' OEM console code page - fixed 2026-07-05 by rerouting
 both through an SFTP read + local Python matching instead (same mechanism
-`ssh_file_read` already used), verified live against `win-server-2016`.
+`ssh_file_read` already used), verified live against `win-server-2016`; and
+`ssh_cmd_check_status` used to misreport a `ssh_cmd_kill`'d background-monitored
+command as `'completed'` instead of `'killed'` on Windows specifically - a
+`taskkill`'d process's death is reported back over the SSH channel as a real
+(if meaningless) numeric exit-status, unlike Linux where a signal-killed process
+reports none at all, so the status-priority check picked the wrong branch when
+both `exit_code` and `kill_confirmed` ended up set (fixed by checking
+`kill_confirmed` first).

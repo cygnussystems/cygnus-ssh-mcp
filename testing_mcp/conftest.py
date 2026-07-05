@@ -363,6 +363,16 @@ def multiline_printf_command(lines: list) -> str:
         return f"printf '{escaped}'"
 
 
+def success_with_stderr_command(stderr_message: str) -> str:
+    """Return a command that exits 0 (success) but also writes to stderr - for
+    testing that stderr is still captured/returned on a successful command, not
+    just on failures."""
+    if IS_WINDOWS:
+        return f"powershell -Command \"[Console]::Error.WriteLine('{stderr_message}'); exit 0\""
+    else:
+        return f"echo '{stderr_message}' >&2"
+
+
 def silent_failing_command() -> str:
     """Return a command that fails but produces no output (for testing error cases)."""
     if IS_WINDOWS:

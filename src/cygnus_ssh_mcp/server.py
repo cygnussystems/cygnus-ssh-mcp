@@ -1294,12 +1294,19 @@ async def ssh_cmd_check_status(
                 monitoring_ended = handle_info.get('end_ts') is not None
                 kill_confirmed = handle_info.get('kill_confirmed', False)
 
-                if is_complete:
-                    status = 'completed'
-                elif kill_confirmed:
+                if kill_confirmed:
                     # runtime_timeout's own kill succeeded, or ssh_cmd_kill found it
-                    # already gone - exit_code is unknown but nothing is left to wait for.
+                    # already gone - report 'killed' even if background monitoring
+                    # also raced in an exit_code from the same kill (verified live on
+                    # Windows: taskkill-ing a process still reports a numeric
+                    # exit-status of 1 back over the channel, unlike Linux where a
+                    # signal-killed process reports no exit-status at all - so
+                    # is_complete could otherwise also be True here, and checking it
+                    # first would misreport a confirmed, deliberate kill as an
+                    # ordinary 'completed' with a meaningless exit code).
                     status = 'killed'
+                elif is_complete:
+                    status = 'completed'
                 elif monitoring_ended:
                     # e.g. a prior io_timeout - we stopped watching, but that doesn't
                     # mean the remote command is still running. Live-check via

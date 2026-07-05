@@ -22,6 +22,9 @@ from conftest import (
     TEST_WORKSPACE,
     PATH_SEP,
     IS_WINDOWS,
+    windows_only,
+    echo_command,
+    cleanup_file_command,
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -410,6 +413,224 @@ async def test_ssh_task_launch_no_hang(mcp_test_environment):
                 pytest.fail("ssh_task_launch timed out - Bug 3 regression!")
 
         finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+# =============================================================================
+# Bug 4: PowerShell CLIXML progress-stream pollution in ssh_cmd_run's stderr
+# =============================================================================
+@pytest.mark.asyncio
+@windows_only
+async def test_ssh_cmd_run_stderr_has_no_clixml_pollution(mcp_test_environment):
+    """Test that ssh_cmd_run's stderr field on Windows never contains PowerShell's
+    CLIXML progress-stream boilerplate (Bug fix 2026-07-04). Regression test:
+    PowerShell serializes its own module-autoload progress stream ("Preparing
+    modules for first use") to CLIXML on stderr whenever there's no interactive
+    host to render it - true for every ssh_cmd_run invocation, since the
+    PID-capture wrapper every Windows command runs through goes via a
+    non-interactive `-EncodedCommand` powershell invocation. Verified live
+    2026-07-04: this polluted stderr even on a plain command that never wrote to
+    stderr itself. Fixed at the shared root (`ps_encode.py` prepends
+    `$ProgressPreference = 'SilentlyContinue'` to every script it encodes).
+    """
+    print_test_header("Testing ssh_cmd_run's stderr has no CLIXML pollution on Windows (Bug 4)")
+    logger.info("Starting CLIXML stderr-pollution regression test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Connection failed"
+
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": echo_command("hello"),
+                "io_timeout": 10.0
+            })
+            result_json = json.loads(extract_result_text(run_result))
+            assert result_json['status'] == 'success', f"Unexpected status: {result_json}"
+
+            stderr_output = result_json.get('stderr') or ""
+            assert 'CLIXML' not in stderr_output, (
+                f"stderr contains CLIXML progress-stream boilerplate - got: "
+                f"{stderr_output!r} (this is the exact bug: PowerShell's "
+                f"module-autoload progress stream used to leak into every "
+                f"command's stderr)"
+            )
+
+            logger.info("stderr is clean of CLIXML pollution")
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+# =============================================================================
+# Bug 5: ssh_file_write echoing back a `mode` that was never actually applied
+# =============================================================================
+@pytest.mark.asyncio
+@windows_only
+async def test_ssh_file_write_mode_is_none_on_windows(mcp_test_environment):
+    """Test that ssh_file_write's response does not echo back a `mode` value on
+    Windows, where chmod is a no-op (Bug fix 2026-07-04). Regression test: the
+    chmod *call* was already gated behind `os_type != 'windows'`, but the response
+    dict still unconditionally echoed back whatever `mode` was requested, looking
+    like it took effect even though nothing happened. Now reports None regardless
+    of what was requested.
+    """
+    print_test_header("Testing ssh_file_write's mode field is None on Windows (Bug 5)")
+    logger.info("Starting mode-echo regression test")
+
+    async with Client(mcp) as client:
+        test_file = remote_temp_path("mode_echo_test") + ".txt"
+        try:
+            assert await make_connection(client), "Connection failed"
+
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": "mode echo regression test",
+                "mode": 0o600
+            })
+            result_json = json.loads(extract_result_text(write_result))
+            assert result_json['success'] is True, f"Unexpected result: {result_json}"
+            assert result_json['mode'] is None, (
+                f"Expected mode=None on Windows (chmod is a no-op there) - got "
+                f"{result_json['mode']!r} (this is the exact bug: the response "
+                f"used to echo back whatever mode was requested, looking like it "
+                f"took effect)"
+            )
+
+            logger.info("mode correctly reported as None on Windows")
+        finally:
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+# =============================================================================
+# Bug 6: Unicode corruption in Windows search/context tools (PowerShell console
+# OEM code page vs. UTF-8) - fixed by rerouting through SFTP + local Python matching
+# =============================================================================
+@pytest.mark.asyncio
+@windows_only
+async def test_windows_search_tools_preserve_unicode(mcp_test_environment):
+    """Test that ssh_file_find_lines_with_pattern, ssh_file_get_context_around_line,
+    and ssh_dir_search_files_content don't corrupt non-ASCII content on Windows
+    (Bug fix 2026-07-05). Regression test: all three used to shell out to
+    PowerShell (Select-String/Get-Content) and read the result through the normal
+    command-execution stdout path, which decodes bytes as UTF-8 while the actual
+    bytes on the wire are in Windows' OEM console code page - corrupting any
+    non-ASCII matched line content (verified live: "café" came back as "cafǸ").
+    Fixed by rerouting all three through an SFTP read + local Python matching
+    instead (same mechanism ssh_file_read already used).
+    """
+    print_test_header("Testing Windows search tools preserve Unicode content (Bug 6)")
+    logger.info("Starting Windows Unicode-in-search regression test")
+
+    async with Client(mcp) as client:
+        test_file = remote_temp_path("unicode_search_test") + ".txt"
+        try:
+            assert await make_connection(client), "Connection failed"
+            unicode_line = "café 漢字 test line"
+
+            await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": f"line one\n{unicode_line}\nline three\nanother café mention here\nline five"
+            })
+
+            find_result = await client.call_tool("ssh_file_find_lines_with_pattern", {
+                "file_path": test_file,
+                "pattern": "café"
+            })
+            find_json = json.loads(extract_result_text(find_result))
+            assert find_json['total_matches'] == 2, f"Unexpected find result: {find_json}"
+            assert any(unicode_line in m['content'] for m in find_json['matches']), (
+                f"Expected uncorrupted unicode content in matches, got: {find_json['matches']}"
+            )
+
+            context_result = await client.call_tool("ssh_file_get_context_around_line", {
+                "file_path": test_file,
+                "match_line": unicode_line,
+                "context": 1
+            })
+            context_json = json.loads(extract_result_text(context_result))
+            assert context_json['match_found'] is True, f"Unexpected context result: {context_json}"
+            matched_content = next(
+                b['content'] for b in context_json['context_block']
+                if b['line_number'] == context_json['match_line_number']
+            )
+            assert matched_content == unicode_line, (
+                f"Expected uncorrupted unicode content, got: {matched_content!r} "
+                f"(this is the exact bug: 'café' used to come back as 'cafǸ')"
+            )
+
+            search_result = await client.call_tool("ssh_dir_search_files_content", {
+                "dir_path": TEST_WORKSPACE,
+                "pattern": "café"
+            })
+            search_json = json.loads(extract_result_text(search_result))
+            matching_this_file = [m for m in search_json if m['file'] == test_file]
+            assert len(matching_this_file) == 2, f"Unexpected search result: {search_json}"
+            assert any(unicode_line in m['content'] for m in matching_this_file), (
+                f"Expected uncorrupted unicode content in dir search, got: {matching_this_file}"
+            )
+
+            logger.info("All three Windows search tools preserved Unicode content correctly")
+        finally:
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_file_command(test_file), "io_timeout": 5.0})
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+# =============================================================================
+# Bug 7: ssh_dir_search_files_content's case_sensitive=True never actually
+# enabled case-sensitive matching on Windows (Select-String's default silently won)
+# =============================================================================
+@pytest.mark.asyncio
+@windows_only
+async def test_ssh_dir_search_files_content_case_sensitive_on_windows(mcp_test_environment):
+    """Test that case_sensitive=True (the default) actually enables case-sensitive
+    matching on Windows (Bug fix 2026-07-05). Regression test: the old
+    Select-String-based implementation defaults to case-INsensitive matching, and
+    case_sensitive=True passed no flag to override that default - so a
+    case-sensitive search silently behaved as case-insensitive. Now fixed via
+    local Python matching that actually respects the flag.
+    """
+    print_test_header("Testing ssh_dir_search_files_content respects case_sensitive=True on Windows (Bug 7)")
+    logger.info("Starting Windows case-sensitivity regression test")
+
+    async with Client(mcp) as client:
+        test_dir = remote_temp_path("test_search_case_sensitive")
+        try:
+            assert await make_connection(client), "Connection failed"
+
+            await client.call_tool("ssh_dir_mkdir", {"path": test_dir})
+            await client.call_tool("ssh_file_write", {
+                "file_path": f"{test_dir}{PATH_SEP}test.txt",
+                "content": "Hello WORLD\nhello world\nHELLO World"
+            })
+
+            # Explicit case_sensitive=True (also the default) - "hello" (lowercase)
+            # should only match the one line that's actually all-lowercase.
+            result = await client.call_tool("ssh_dir_search_files_content", {
+                "dir_path": test_dir,
+                "pattern": "hello",
+                "case_sensitive": True
+            })
+            matches = json.loads(extract_result_text(result))
+
+            assert len(matches) == 1, (
+                f"Expected exactly 1 case-sensitive match for 'hello', got "
+                f"{len(matches)}: {matches} (this is the exact bug: "
+                f"case_sensitive=True never actually enabled case-sensitive "
+                f"matching, so all 3 differently-cased lines matched)"
+            )
+            assert matches[0]['content'] == 'hello world', f"Unexpected match: {matches[0]}"
+
+            logger.info("case_sensitive=True correctly excluded differently-cased lines")
+        finally:
+            await client.call_tool("ssh_dir_remove", {"path": test_dir, "recursive": True})
             await disconnect_ssh(client)
 
     print_test_footer()
