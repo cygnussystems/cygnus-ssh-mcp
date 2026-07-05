@@ -1819,9 +1819,15 @@ async def ssh_file_find_lines_with_pattern(
 
     Regex flavor differs by platform when `regex=True`: POSIX extended regex
     (`grep -E`) on Linux/macOS - avoid PCRE-only syntax like `\\d`, use `[0-9]` or
-    `[[:digit:]]` instead; .NET regex (PowerShell `Select-String`) on Windows. When
-    `regex=False` (default), the pattern is matched as a literal fixed string on
-    every platform.
+    `[[:digit:]]` instead; Python's `re` module on Windows (matched locally after
+    an SFTP read, not via PowerShell - see below). When `regex=False` (default),
+    the pattern is matched as a literal fixed string on every platform.
+
+    On Windows, this reads the whole file via SFTP and matches locally in Python,
+    rather than shelling out to PowerShell/Select-String - matched line content
+    could otherwise come back corrupted for non-ASCII text, since Windows' console
+    encodes stdout in its OEM code page rather than UTF-8 (the same problem
+    ssh_file_read's SFTP approach avoids).
 
     Returns:
         `{'total_matches': int, 'matches': [{'line_number': int, 'content': str}, ...]}`.
@@ -1850,6 +1856,9 @@ async def ssh_file_get_context_around_line(
     line-editing tools (ssh_file_replace_line and siblings), `match_line` must match
     exactly one line in the file (whitespace-trimmed, literal text, not a pattern) -
     use ssh_file_find_lines_with_pattern first if you're not sure the line is unique.
+
+    Reads the file via SFTP and matches locally (same as ssh_file_find_lines_with_pattern) -
+    Unicode/non-ASCII content is safe on all platforms, including Windows.
 
     Returns:
         On a unique match: `{'match_found': True, 'match_line_number': int,
@@ -2793,8 +2802,16 @@ async def ssh_dir_search_files_content(
 
     Regex flavor differs by platform when `regex=True`: POSIX extended regex
     (`grep -E`) on Linux/macOS - avoid PCRE-only syntax like `\\d`, use `[0-9]` or
-    `[[:digit:]]` instead; .NET regex (PowerShell `Select-String`) on Windows. When
-    `regex=False` (default), the pattern is matched as a literal fixed string.
+    `[[:digit:]]` instead; Python's `re` module on Windows (matched locally after
+    an SFTP read per file, not via PowerShell - see below). When `regex=False`
+    (default), the pattern is matched as a literal fixed string.
+
+    On Windows, filenames are enumerated via PowerShell but each file's content is
+    read via SFTP and matched locally in Python, rather than piping matched line
+    content back through PowerShell/Select-String - that content could otherwise
+    come back corrupted for non-ASCII text, since Windows' console encodes stdout
+    in its OEM code page rather than UTF-8 (the same problem ssh_file_read's SFTP
+    approach avoids).
 
     Returns:
         List of `{'file': str, 'line': int, 'content': str}` - one entry per matching

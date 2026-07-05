@@ -266,7 +266,7 @@ handle's `id` to look it up by.
 | Operation | Linux | macOS | Windows |
 |---|---|---|---|
 | Permission stat | `stat -c '%a %u %g'` | `stat -f '%Lp %u %g'` (BSD `-f` flag) | `Get-Acl` → owner name only, no octal bits, no group concept |
-| Pattern search | `grep -F`/`-E` (POSIX ERE) | same as Linux | `Select-String -SimpleMatch` / plain (.NET regex - different flavor from POSIX ERE) |
+| Pattern search | `grep -F`/`-E` (POSIX ERE) | same as Linux | SFTP read + local Python `re` matching (not `Select-String` - avoids OEM code page corruption of matched content, see 3.8 note below; different regex flavor from POSIX ERE) |
 | Recursive find w/ metadata | GNU `find -printf '%p\t%y\n'` | BSD `find -exec stat -f %HT` + manual type-letter translation (no `-printf` on BSD find) | `Get-ChildItem` + `PSIsContainer` check |
 | Directory size | `du -sb` (GNU `-b` for raw bytes) | `find -type f -exec stat -f %z + \| awk` (no `-b` flag on BSD `du`) | `Get-ChildItem -Recurse -File \| Measure-Object -Sum Length` |
 | Archive create | `tar -czf` (tar.gz) | `tar -czf` (tar.gz) | `Compress-Archive` (`.zip`, extension auto-corrected if a `.tar.gz` was requested) |
@@ -348,22 +348,19 @@ part of this repo checkout) when one exists.
 1. **Sudo'd commands can't be reliably killed** - PID capture only reaches the outer
    wrapper shell, not the privileged child (section 3.1). Same root cause affects
    both `ssh_cmd_kill` and `runtime_timeout`'s kill attempt for sudo'd commands.
-2. **Unicode corruption in `ssh_file_get_context_around_line`/`ssh_dir_search_files_content`
-   on Windows** - both shell out via PowerShell (`Get-Content`/`Select-String`) and
-   read the result through the normal command-execution stdout path, which decodes
-   bytes as UTF-8 while the actual bytes on the wire are in Windows' OEM console
-   code page (the same known limitation `ssh_file_read`'s SFTP-based approach was
-   built to avoid, just never extended to these two). Verified live: `café 漢字`
-   came back corrupted as `cafǸ` / garbled bytes.
-
-(Since fixed, kept out of this list - see git history / the local `planning/`
-folder: the non-sudo `ssh_task_launch` `nohup` question from section 2.2, verified
-2026-07-05 to need no fix.)
 
 Since fixed (kept out of this list, see git history / the local `planning/` folder
-for detail): `ssh_cmd_run` used to drop stderr entirely on a successful command
-(`output`/`stderr` are now two separate fields, and `ssh_cmd_output` gained a
-`stream` parameter); `cwd_not_found` used to pollute `ssh_cmd_history` with the
-validation wrapper's own sentinel PID/exit code (the handle is now removed from
-history entirely); `ssh_task_kill`'s `force_kill_used` field used to be ambiguous
-(it now accurately reflects whether the SIGKILL fallback was actually needed).
+for detail): the non-sudo `ssh_task_launch` `nohup` question from section 2.2
+(verified 2026-07-05 to need no fix); `ssh_cmd_run` used to drop stderr entirely on
+a successful command (`output`/`stderr` are now two separate fields, and
+`ssh_cmd_output` gained a `stream` parameter); `cwd_not_found` used to pollute
+`ssh_cmd_history` with the validation wrapper's own sentinel PID/exit code (the
+handle is now removed from history entirely); `ssh_task_kill`'s `force_kill_used`
+field used to be ambiguous (it now accurately reflects whether the SIGKILL fallback
+was actually needed); `ssh_file_get_context_around_line`/`ssh_dir_search_files_content`
+used to corrupt non-ASCII content on Windows by shelling out to PowerShell
+(`Get-Content`/`Select-String`) and reading the result through the normal
+command-execution stdout path, which decodes bytes as UTF-8 while the actual bytes
+on the wire are in Windows' OEM console code page - fixed 2026-07-05 by rerouting
+both through an SFTP read + local Python matching instead (same mechanism
+`ssh_file_read` already used), verified live against `win-server-2016`.

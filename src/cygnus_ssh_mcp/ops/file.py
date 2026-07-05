@@ -1,4 +1,5 @@
 import os
+import re
 import tempfile
 import shlex
 import logging
@@ -1043,59 +1044,46 @@ class SshFileOperations_Win(SshFileOperations):
     def find_lines_with_pattern(self, remote_file: str, pattern: str,
                                regex: bool = False, sudo: bool = False) -> dict:
         """
-        Search for a pattern in a remote file using PowerShell Select-String.
+        Search for a pattern in a remote file, via SFTP read + local Python matching
+        (not PowerShell/Select-String) - shelling out and reading the result through
+        the normal command-execution stdout path would decode Windows' OEM console
+        code page bytes as UTF-8, corrupting any non-ASCII matched line content
+        (verified live: "café" came back as "cafǸ"). Reading the whole file via SFTP
+        first sidesteps the console entirely, same reasoning as ssh_file_read.
+
+        Regex flavor is now Python's `re` (previously .NET, via Select-String) -
+        update any docs/callers relying on the old .NET-specific syntax.
         """
         self.logger.info(f"Searching for pattern '{pattern}' in {remote_file} (regex={regex}, sudo={sudo})")
 
-        # Escape pattern for PowerShell
-        ps_pattern = pattern.replace("'", "''").replace('"', '`"')
-        ps_file = remote_file.replace("'", "''")
-
-        # -SimpleMatch for literal string, otherwise regex
-        match_option = "" if regex else "-SimpleMatch"
-
-        # PowerShell Select-String command - output format: LineNumber:Line
-        script = (
-            f"Select-String -Path '{ps_file}' -Pattern '{ps_pattern}' {match_option} -ErrorAction SilentlyContinue | "
-            'ForEach-Object { Write-Output "$($_.LineNumber):$($_.Line)" }'
-        )
-        cmd = powershell_encoded_command(script)
+        try:
+            content = self.read_file(remote_file)
+        except SshError as e:
+            self.logger.error(f"Failed to read {remote_file} for pattern search: {e}")
+            return {"total_matches": 0, "matches": [], "error": str(e)}
 
         try:
-            handle = self.ssh_client.run(cmd, sudo=False)  # Windows doesn't use sudo
-            output_str = handle.get_full_output()
+            compiled_pattern = re.compile(pattern) if regex else None
+        except re.error as e:
+            return {"total_matches": 0, "matches": [], "error": f"Invalid regex pattern: {e}"}
 
-            matches = []
-            for line in (output_str or "").splitlines():
-                if ":" in line:
-                    parts = line.split(":", 1)
-                    if len(parts) == 2:
-                        line_num_str, content = parts
-                        try:
-                            line_num = int(line_num_str)
-                            matches.append({"line_number": line_num, "content": content})
-                        except ValueError:
-                            self.logger.warning(f"Could not parse line number from output: '{line}'")
+        matches = []
+        for line_num, line in enumerate(content.splitlines(), start=1):
+            is_match = compiled_pattern.search(line) is not None if regex else pattern in line
+            if is_match:
+                matches.append({"line_number": line_num, "content": line})
 
-            return {
-                "total_matches": len(matches),
-                "matches": matches
-            }
-        except CommandFailed as e:
-            if e.exit_code == 1:  # No matches
-                return {"total_matches": 0, "matches": []}
-            stderr_info = f" Stderr: {e.stderr.strip()}" if hasattr(e, 'stderr') and e.stderr else ""
-            error_message = f"Select-String failed with exit code {e.exit_code}.{stderr_info}"
-            self.logger.error(f"{error_message}")
-            return {"total_matches": 0, "matches": [], "error": error_message}
-        except Exception as e:
-            self.logger.error(f"Error in find_lines_with_pattern: {e}", exc_info=True)
-            return {"total_matches": 0, "matches": [], "error": str(e)}
+        return {
+            "total_matches": len(matches),
+            "matches": matches
+        }
 
     def get_context_around_line(self, remote_file: str, match_line: str,
                                context: int = 3, sudo: bool = False) -> dict:
         """
-        Get lines before and after a line that matches exactly using PowerShell.
+        Get lines before and after a line that matches exactly, via SFTP read +
+        local Python matching (see find_lines_with_pattern for why - same Windows
+        console-encoding corruption this avoids).
         """
         self.logger.info(f"Getting context around line in {remote_file} (context={context}, sudo={sudo})")
 
@@ -1116,38 +1104,23 @@ class SshFileOperations_Win(SshFileOperations):
         start_line = max(1, match_line_number - context)
         end_line = match_line_number + context
 
-        ps_file = remote_file.replace("'", "''")
-        # PowerShell: Get content with line range
-        script = (
-            f"$lines = Get-Content -Path '{ps_file}' -TotalCount {end_line} | Select-Object -Skip {start_line - 1}; "
-            f"$lineNum = {start_line}; "
-            '$lines | ForEach-Object { Write-Output "$($lineNum):$_"; $lineNum++ }'
-        )
-        cmd = powershell_encoded_command(script)
-
         try:
-            handle = self.ssh_client.run(cmd, sudo=False)
-            output = handle.get_full_output()
-
-            context_block = []
-            for line in output.splitlines():
-                if ":" in line:
-                    parts = line.split(":", 1)
-                    if len(parts) == 2:
-                        try:
-                            line_num = int(parts[0])
-                            context_block.append({"line_number": line_num, "content": parts[1]})
-                        except ValueError:
-                            pass
-
-            return {
-                "match_found": True,
-                "match_line_number": match_line_number,
-                "context_block": context_block
-            }
-        except Exception as e:
-            self.logger.error(f"Error getting context: {e}", exc_info=True)
+            content = self.read_file(remote_file)
+        except SshError as e:
+            self.logger.error(f"Failed to read {remote_file} for context: {e}")
             return {"match_found": False, "error": str(e)}
+
+        all_lines = content.splitlines()
+        context_block = [
+            {"line_number": i, "content": all_lines[i - 1]}
+            for i in range(start_line, min(end_line, len(all_lines)) + 1)
+        ]
+
+        return {
+            "match_found": True,
+            "match_line_number": match_line_number,
+            "context_block": context_block
+        }
 
     def mkdir(self, path: str, sudo: bool = False, mode: int = 0o755) -> None:
         """Create a remote directory on Windows using PowerShell."""

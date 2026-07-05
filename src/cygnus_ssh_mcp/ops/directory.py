@@ -1200,51 +1200,56 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                             regex: bool = False,
                             case_sensitive: bool = True,
                             sudo: bool = False) -> List[Dict[str, Any]]:
-        """Search file contents using PowerShell Select-String."""
+        """Search file contents: enumerate candidate files via PowerShell (paths
+        only - no file content crosses the console here), then read each one via
+        SFTP and match locally in Python. Reading matched line content back through
+        PowerShell/Select-String's stdout would decode Windows' OEM console code
+        page bytes as UTF-8, corrupting any non-ASCII content (verified live:
+        "café" came back corrupted) - ssh_file_read's SFTP approach avoids exactly
+        this, and this reuses the same idea for search.
+
+        Regex flavor is now Python's `re` (previously .NET, via Select-String).
+        Also fixes a latent bug: the old Select-String-based version never
+        correctly enabled case-sensitive matching (Select-String defaults to
+        case-INsensitive, and `case_sensitive=True` - this method's own default -
+        passed no flag to override that, silently doing case-insensitive search
+        even when explicitly asked for case-sensitive).
+        """
         self.logger.info(f"Searching for '{pattern}' in files under {path}")
 
         ps_path = path.replace("'", "''")
-        ps_pattern = pattern.replace("'", "''")
-
-        case_flag = "" if case_sensitive else "-CaseSensitive:$false"
-        match_flag = "" if regex else "-SimpleMatch"
-
         try:
-            script = (
+            list_script = (
                 f"Get-ChildItem -Path '{ps_path}' -Recurse -File -ErrorAction SilentlyContinue | "
-                f"Select-String -Pattern '{ps_pattern}' {match_flag} {case_flag} -ErrorAction SilentlyContinue | "
-                'ForEach-Object { "$($_.Path):$($_.LineNumber):$($_.Line)" }'
+                'ForEach-Object { $_.FullName }'
             )
-            cmd = powershell_encoded_command(script)
-            handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
+            list_cmd = powershell_encoded_command(list_script)
+            handle = self.ssh_client.run(list_cmd, io_timeout=300, runtime_timeout=1800)
+            candidate_files = [line.strip() for line in handle.tail(handle.total_lines) if line.strip()]
+
+            compiled_pattern = None
+            if regex:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                compiled_pattern = re.compile(pattern, flags)
 
             results = []
-            # Regex to parse Windows paths: drive_letter:\path:line_num:content
-            # Example: C:\Temp\test.txt:1:Hello World
-            win_path_pattern = re.compile(r'^([A-Za-z]:[^:]+):(\d+):(.*)$')
-
-            for line in handle.tail(handle.total_lines):
-                if not line.strip():
+            for file_path in candidate_files:
+                try:
+                    content = self.ssh_client.file_ops.read_file(file_path)
+                except Exception as e:
+                    self.logger.debug(f"Skipping unreadable file {file_path}: {e}")
                     continue
 
-                match = win_path_pattern.match(line)
-                if match:
-                    file_path, line_num_str, content = match.groups()
-                    try:
-                        line_num = int(line_num_str)
-                    except ValueError:
-                        line_num = -1
-                    results.append({'file': file_path, 'line': line_num, 'content': content.rstrip()})
-                else:
-                    # Fallback: try simple split (for UNC paths or other edge cases)
-                    parts = line.split(':', 2)
-                    if len(parts) >= 3:
-                        file_path, line_num_str, content = parts
-                        try:
-                            line_num = int(line_num_str)
-                        except ValueError:
-                            line_num = -1
-                        results.append({'file': file_path, 'line': line_num, 'content': content.rstrip()})
+                for line_num, line in enumerate(content.splitlines(), start=1):
+                    if regex:
+                        is_match = compiled_pattern.search(line) is not None
+                    elif case_sensitive:
+                        is_match = pattern in line
+                    else:
+                        is_match = pattern.lower() in line.lower()
+
+                    if is_match:
+                        results.append({'file': file_path, 'line': line_num, 'content': line})
 
             self.logger.info(f"Found {len(results)} matches")
             return results
