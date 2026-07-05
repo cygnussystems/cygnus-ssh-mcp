@@ -121,11 +121,14 @@ parallel. Use separate connections, or `ssh_task_launch`, for real concurrency.
 - **Linux**, sudo path: `nohup bash -c '...' > log 2>&1 &` (`ops/task.py:385,400`).
   `nohup` protects against SIGHUP specifically.
 - **Linux**, non-sudo path (`ops/task.py:410-412`): **no `nohup`** - just
-  `bash -c '...' > log 2>&1 &` inside a non-interactive script. Whether this
-  actually survives the launching channel closing depends on bash/sshd
-  session-teardown behavior that hasn't been empirically verified in this codebase
-  yet, unlike the sudo path which explicitly protects itself - worth a live
-  disconnect/reconnect test if this needs hardening.
+  `bash -c '...' > log 2>&1 &` inside a non-interactive script. Verified live
+  2026-07-05 (full disconnect/reconnect against `linux-test`, Debian 12/OpenSSH
+  9.2): the task survived and was still confirmed `running` well before its own
+  runtime would have elapsed naturally. `nohup` on the sudo path turns out to be
+  redundant rather than the non-sudo path being under-protected - backgrounding
+  within a one-shot non-interactive script already detaches the child from the
+  launching session's job control on this environment. Not verified against other
+  OS/sshd combinations.
 - **Windows**: spawned via `Invoke-CimMethod -ClassName Win32_Process -MethodName
   Create` (WMI), *not* `Start-Process`. This was a deliberately hard-won fix:
   `Start-Process`-launched children inherit membership in the SSH session's Windows
@@ -342,12 +345,20 @@ Real, currently-unfixed gaps, kept short here - detailed write-ups (repro steps,
 suggested fixes) live in the maintainer's local `planning/` folder (gitignored, not
 part of this repo checkout) when one exists.
 
-1. **The non-sudo `ssh_task_launch` path on Linux** lacks the `nohup` the sudo path
-   has (section 2.2) - whether it reliably survives a full session disconnect isn't
-   empirically verified yet.
-2. **Sudo'd commands can't be reliably killed** - PID capture only reaches the outer
+1. **Sudo'd commands can't be reliably killed** - PID capture only reaches the outer
    wrapper shell, not the privileged child (section 3.1). Same root cause affects
    both `ssh_cmd_kill` and `runtime_timeout`'s kill attempt for sudo'd commands.
+2. **Unicode corruption in `ssh_file_get_context_around_line`/`ssh_dir_search_files_content`
+   on Windows** - both shell out via PowerShell (`Get-Content`/`Select-String`) and
+   read the result through the normal command-execution stdout path, which decodes
+   bytes as UTF-8 while the actual bytes on the wire are in Windows' OEM console
+   code page (the same known limitation `ssh_file_read`'s SFTP-based approach was
+   built to avoid, just never extended to these two). Verified live: `café 漢字`
+   came back corrupted as `cafǸ` / garbled bytes.
+
+(Since fixed, kept out of this list - see git history / the local `planning/`
+folder: the non-sudo `ssh_task_launch` `nohup` question from section 2.2, verified
+2026-07-05 to need no fix.)
 
 Since fixed (kept out of this list, see git history / the local `planning/` folder
 for detail): `ssh_cmd_run` used to drop stderr entirely on a successful command
