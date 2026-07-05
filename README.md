@@ -11,7 +11,8 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Tests](https://img.shields.io/badge/tests-145%2B%20passing-brightgreen.svg)]()
 
-*Give Claude full control of your Linux, macOS, and Windows servers with 46 specialized tools*
+*Give Claude, OpenCode, or any MCP-compatible AI assistant full control of your
+Linux, macOS, and Windows servers with 46 specialized tools*
 
 [Prerequisites](#prerequisites-ssh-on-your-target-servers) · [Installation](#installation) · [Quick Start](#quick-start) · [Features](#features) · [Documentation](https://cygnussystems.github.io/cygnus-ssh-mcp/)
 
@@ -21,7 +22,24 @@
 
 ## Why cygnus-ssh-mcp?
 
-Most SSH MCP servers let you run commands. **cygnus-ssh-mcp** lets you *manage servers*.
+**cygnus-ssh-mcp is an MCP server - usable from Claude Desktop, Claude Code,
+OpenCode, or any other MCP-compatible client - that connects your AI assistant
+directly to your remote servers over SSH, exposing 46 purpose-built tools instead
+of one generic command-runner.** It turns natural-language requests into real
+systems administration - connecting by alias, editing files, managing background
+processes, handling sudo - across Linux, macOS, and Windows targets alike.
+
+Doing that properly means solving a pile of genuinely hard, per-platform problems
+that a naive `ssh` wrapper never has to face - and that this project hit and fixed
+the hard way. Getting a *real* PID back from a Windows
+target instead of a meaningless local channel number. Recovering the actual exit
+code when Win32-OpenSSH silently flattens it to `1`. Reading file contents via SFTP
+instead of `Get-Content`, because PowerShell's console encodes stdout in its OEM
+code page and corrupts anything non-ASCII. Killing a `sudo`'d background process
+without either leaving its privileged child orphaned or blindly firing SIGKILL at
+the wrong PID. None of this shows up until you actually run these tools against
+real Linux, macOS, and Windows targets under real conditions - which is exactly how
+every one of these was found and fixed here, not guessed at from documentation.
 
 | What you get | Basic SSH MCP | cygnus-ssh-mcp |
 |--------------|:-------------:|:--------------:|
@@ -89,8 +107,8 @@ pip install --upgrade cygnus-ssh-mcp
 > package manager) - `uvx <package>` downloads a package into a disposable,
 > isolated cache and runs it immediately, without installing it into your system
 > Python, a project, or anywhere `pip` can see. Nothing lingers afterward for you
-> to manage. It's the easiest option if you just want Claude Desktop to launch this
-> server without thinking about Python environments at all.
+> to manage. It's the easiest option if you just want your MCP client to launch
+> this server without thinking about Python environments at all.
 
 ```bash
 uvx cygnus-ssh-mcp
@@ -119,7 +137,7 @@ commands with anything set up via `uv`/`uvx`, they can't see each other.
 You don't need to create anything by hand - the first time the server starts, it
 automatically creates an empty host config file at `~/.mcp_ssh_hosts.toml` (secure
 `0o600` permissions) if nothing is there yet. Just open that file (or use
-`ssh_conn_add_host` from within Claude) and add entries like:
+`ssh_conn_add_host` from within your AI assistant) and add entries like:
 
 ```toml
 # Minimal (password auth) - only required fields
@@ -173,11 +191,17 @@ auth (`keyfile`) with no `password` field at all - in that case, either set
 > `dir %USERPROFILE%\.mcp_ssh_hosts.toml*` (Windows) - either should show exactly
 > one file, with no extra extension after `.toml`.
 
-### 2. Add to Claude Desktop
+### 2. Add to your MCP client
+
+Most MCP clients (Claude Desktop, Claude Code, OpenCode, Cursor, Cline, Windsurf,
+and others) use the same `mcpServers` JSON shape shown below - only the config
+file's name and location differ per client. Claude Desktop is used as the concrete
+example here; see the Claude Code note further down for one client that differs,
+or check your own client's docs for its config file's path.
 
 > [!WARNING]
 > **Python must be on `PATH` for `"command": "cygnus-ssh-mcp"` (below) to work at
-> all.** This is the most common reason Claude Desktop fails to start the server
+> all.** This is the most common reason an MCP client fails to start the server
 > (or the tool list never appears) - and with Python often installed in several
 > different places on one machine, it's easy to hit. Check first with:
 > ```bash
@@ -200,7 +224,7 @@ auth (`keyfile`) with no `password` field at all - in that case, either set
 > }
 > ```
 
-Edit your `claude_desktop_config.json`:
+For Claude Desktop, edit `claude_desktop_config.json`:
 
 ```json
 {
@@ -279,7 +303,7 @@ warning above - applies the same way to both clients.
 > claims it can't access remote servers, explicitly tell it to use the SSH MCP
 > tools (e.g. "use the ssh MCP to connect to PROD and...").
 
-In Claude, just say:
+Just say:
 
 > "Connect to PROD and tell me about the machine - hardware, status, everything"
 
