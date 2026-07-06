@@ -104,7 +104,7 @@ class SshOsOperations(ABC):
                 self.logger.error(f"Host did not come back online within {timeout} seconds.")
                 raise CommandTimeout(timeout)  # Raise timeout error specifically
 
-    def hardware_info(self):
+    def hardware_info(self, parent_tool=None):
         """
         Get comprehensive hardware-related information.
 
@@ -119,9 +119,9 @@ class SshOsOperations(ABC):
             - load_avg: 1, 5, and 15 minute load averages
         """
         cmd = self._cmd_hardware_info()
-        return self._execute_status_command(cmd, self._hardware_key_map)
+        return self._execute_status_command(cmd, self._hardware_key_map, parent_tool=parent_tool)
 
-    def os_info(self):
+    def os_info(self, parent_tool=None):
         """
         Get operating system information.
 
@@ -134,9 +134,9 @@ class SshOsOperations(ABC):
             - architecture: System architecture
         """
         cmd = self._cmd_os_info()
-        return self._execute_status_command(cmd, self._os_key_map)
+        return self._execute_status_command(cmd, self._os_key_map, parent_tool=parent_tool)
 
-    def network_info(self):
+    def network_info(self, parent_tool=None):
         """
         Get network-related information including all interfaces and their IP addresses.
 
@@ -146,7 +146,7 @@ class SshOsOperations(ABC):
             - interfaces: List of dicts with interface details (name, ip_addresses, etc.)
         """
         cmd = self._cmd_network_info()
-        result = self._execute_status_command(cmd, self._network_key_map)
+        result = self._execute_status_command(cmd, self._network_key_map, parent_tool=parent_tool)
 
         # Parse interface information
         interfaces = []
@@ -163,7 +163,7 @@ class SshOsOperations(ABC):
         result['interfaces'] = interfaces
         return result
 
-    def disk_info(self):
+    def disk_info(self, parent_tool=None):
         """
         Get disk-related information (usage, free space, filesystem type, etc.).
 
@@ -174,9 +174,9 @@ class SshOsOperations(ABC):
             - filesystem: Filesystem type (e.g. ext4, xfs)
         """
         cmd = self._cmd_disk_info()
-        return self._execute_status_command(cmd, self._disk_key_map)
+        return self._execute_status_command(cmd, self._disk_key_map, parent_tool=parent_tool)
 
-    def user_status(self):
+    def user_status(self, parent_tool=None):
         """
         Get user-related information including OS type.
 
@@ -188,11 +188,16 @@ class SshOsOperations(ABC):
             - os_type: Operating system type (e.g., "linux", "macos")
         """
         cmd = self._cmd_user_status()
-        return self._execute_status_command(cmd, self._user_key_map)
+        return self._execute_status_command(cmd, self._user_key_map, parent_tool=parent_tool)
 
-    def full_status(self):
+    def full_status(self, parent_tool=None):
         """
         Return a combined snapshot of system state by calling individual methods.
+
+        Args:
+            parent_tool: Name of the MCP tool that triggered this (for history
+                labeling - every sub-command run here is tagged
+                origin='connection_probe').
 
         Returns:
             Dict containing all system status information. Includes an 'errors' key
@@ -212,7 +217,7 @@ class SshOsOperations(ABC):
 
         for name, (func, key_map) in components.items():
             try:
-                component_info = func()
+                component_info = func(parent_tool=parent_tool)
                 if 'error' in component_info:
                     errors[name] = component_info['error']
                     # Add 'n/a' for expected keys if component failed, using the map
@@ -262,13 +267,15 @@ class SshOsOperations(ABC):
         'FILESYSTEM': 'filesystem'
     }
 
-    def _execute_status_command(self, cmd, key_map):
+    def _execute_status_command(self, cmd, key_map, parent_tool=None):
         """
         Execute a status command and parse its output.
 
         Args:
             cmd: The command to execute.
             key_map: Mapping of output keys to result keys.
+            parent_tool: Name of the MCP tool that triggered this (for history
+                labeling - tagged origin='connection_probe').
 
         Returns:
             Dict containing parsed status information or {'error': ...}.
@@ -281,7 +288,10 @@ class SshOsOperations(ABC):
 
         try:
             # Use run_ops directly instead of self.ssh_client.run to avoid circular dependency potential
-            handle = self.ssh_client.run_ops.execute_command(cmd.strip(), io_timeout=5, runtime_timeout=10)
+            handle = self.ssh_client.run_ops.execute_command(
+                cmd.strip(), io_timeout=5, runtime_timeout=10,
+                origin='connection_probe', parent_tool=parent_tool
+            )
 
             # Proceed with parsing if exit code is 0 (which it must be if CommandFailed wasn't raised)
             output = "".join(handle.tail(handle.total_lines))  # Get all lines
@@ -329,7 +339,7 @@ class SshOsOperations(ABC):
 
         return status_info
 
-    def status(self) -> Dict[str, Any]:
+    def status(self, parent_tool=None) -> Dict[str, Any]:
         """
         Return a combined snapshot of system state.
         DEPRECATED: Prefer calling individual methods (user_status, hardware_info, etc.)
@@ -339,7 +349,7 @@ class SshOsOperations(ABC):
             Dict containing all system status information.
         """
         self.logger.debug("Called deprecated status() method, redirecting to full_status().")
-        return self.full_status()
+        return self.full_status(parent_tool=parent_tool)
 
 
 class SshOsOperations_Linux(SshOsOperations):

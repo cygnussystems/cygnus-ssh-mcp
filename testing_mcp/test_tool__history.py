@@ -5,7 +5,7 @@ from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
     extract_result_text, echo_command, IS_WINDOWS, noop_success_command,
     multiline_printf_command, silent_failing_command, skip_on_windows,
-    TEST_WORKSPACE, PATH_SEP, cleanup_file_command
+    TEST_WORKSPACE, PATH_SEP, cleanup_file_command, success_with_stderr_command
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -803,6 +803,125 @@ async def test_ssh_file_write_sudo_labeled_as_internal_and_filterable(mcp_test_e
                 })
             except Exception:
                 pass
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_connection_probes_labeled_as_internal_and_filterable(mcp_test_environment):
+    """Test that ssh_conn_connect's own system-info/cwd probes are labeled
+    origin='connection_probe' in ssh_cmd_history, not left as origin='user'.
+
+    Regression test: GPT-5.5's 2026-07-06 regression rerun found that while
+    ssh_file_write's sudo plumbing was correctly labeled (see
+    test_ssh_file_write_sudo_labeled_as_internal_and_filterable above),
+    ssh_conn_connect's own probes were NOT - a separate code path
+    (ops/os_ops.py's full_status()/_execute_status_command, and the initial
+    cwd lookup in server.py's ssh_conn_connect/ssh_conn_status) that called
+    execute_command()/run() directly without ever passing origin/parent_tool,
+    entirely missed by the first pass at this fix.
+    """
+    print_test_header("Testing ssh_conn_connect's probes are labeled and filterable in history")
+    logger.info("Starting connection-probe origin-labeling regression test")
+
+    async with Client(mcp) as client:
+        try:
+            await disconnect_ssh(client)
+
+            # A fresh connect (not a reused connection) forces both the cwd
+            # probe and full_status()'s 5 sub-commands to actually run.
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            # A directly user-issued command, for contrast - also ensures the
+            # filtered history below isn't trivially empty.
+            user_marker_command = echo_command("connection_probe_labeling_test_20260706")
+            user_result = await client.call_tool("ssh_cmd_run", {
+                "command": user_marker_command,
+                "io_timeout": 5.0
+            })
+            user_json = json.loads(extract_result_text(user_result))
+            assert user_json['exit_code'] == 0
+
+            full_history = await client.call_tool("ssh_cmd_history", {"include_internal": True})
+            full_history_json = json.loads(extract_result_text(full_history))
+            connect_probes = [e for e in full_history_json if e.get('parent_tool') == 'ssh_conn_connect']
+            assert connect_probes, (
+                f"Expected at least one entry tagged parent_tool='ssh_conn_connect' from the "
+                f"initial connect's system-info/cwd probes, got: {full_history_json}"
+            )
+            assert all(e.get('origin') == 'connection_probe' for e in connect_probes), (
+                f"Expected all ssh_conn_connect-triggered entries to have "
+                f"origin='connection_probe', got: {connect_probes}"
+            )
+
+            filtered_history = await client.call_tool("ssh_cmd_history", {"include_internal": False})
+            filtered_history_json = json.loads(extract_result_text(filtered_history))
+            assert not any(e.get('parent_tool') == 'ssh_conn_connect' for e in filtered_history_json), (
+                f"include_internal=False should filter out ssh_conn_connect's probes, got: "
+                f"{filtered_history_json}"
+            )
+            user_entries_filtered = [e for e in filtered_history_json if e['command'] == user_marker_command]
+            assert len(user_entries_filtered) == 1, (
+                f"The directly user-issued command should still appear with include_internal=False, "
+                f"got: {filtered_history_json}"
+            )
+
+            logger.info("ssh_conn_connect's probes correctly labeled and filterable")
+        except Exception as e:
+            logger.error(f"Error in connection-probe origin-labeling test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_cmd_history_include_output_includes_stderr(mcp_test_environment):
+    """Test that ssh_cmd_history(include_output=True) surfaces a 'stderr' field
+    alongside 'output' (stdout), not just stdout.
+
+    Regression test: GPT-5.5's 2026-07-06 regression rerun found that history
+    entries only ever showed stdout via 'output', even though stderr is often
+    the more useful stream to review after the fact (e.g. for a command that
+    wrote warnings to stderr but still exited 0).
+    """
+    print_test_header("Testing ssh_cmd_history(include_output=True) surfaces stderr too")
+    logger.info("Starting history-includes-stderr regression test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            marker = "hist_stderr_field_marker_20260706"
+            run_result = await client.call_tool("ssh_cmd_run", {
+                "command": success_with_stderr_command(marker),
+                "io_timeout": 10.0
+            })
+            run_json = json.loads(extract_result_text(run_result))
+            assert run_json['status'] == 'success', f"Unexpected status: {run_json}"
+            handle_id = run_json['id']
+
+            history_result = await client.call_tool("ssh_cmd_history", {
+                "include_output": True,
+                "output_lines": 5
+            })
+            history_json = json.loads(extract_result_text(history_result))
+            entry = next(e for e in history_json if e['id'] == handle_id)
+
+            assert 'stderr' in entry, f"Expected a 'stderr' field in the history entry, got: {entry}"
+            assert isinstance(entry['stderr'], list), f"Expected 'stderr' to be a list of lines, got: {entry['stderr']}"
+            assert any(marker in line for line in entry['stderr']), (
+                f"Expected the stderr marker to appear in the history entry's 'stderr' field, "
+                f"got: {entry['stderr']}"
+            )
+
+            logger.info("ssh_cmd_history(include_output=True) correctly surfaced stderr")
+        except Exception as e:
+            logger.error(f"Error in history-includes-stderr test: {e}", exc_info=True)
+            raise
+        finally:
             await disconnect_ssh(client)
 
     print_test_footer()

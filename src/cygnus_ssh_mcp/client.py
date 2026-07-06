@@ -344,8 +344,16 @@ class SshClient:
         """Adds a handle to history (delegates to history_manager)."""
         self.history_manager.add_command(handle.cmd, handle.pid)
 
-    def update_connection_status(self, force=False):
-        """Update cached connection status if stale (>5 minutes) or forced."""
+    def update_connection_status(self, force=False, parent_tool=None):
+        """Update cached connection status if stale (>5 minutes) or forced.
+
+        parent_tool: name of the MCP tool that triggered this, if known - passed
+        through for history labeling. Left as None (rather than guessing) when
+        the caller can't know for certain: this refresh can be triggered by any
+        of several tools (ssh_conn_connect/_status/_host_info directly, or any
+        mutating tool indirectly via _connection_metadata()), so a specific
+        wrong guess would be more misleading than an honest 'unknown'.
+        """
         with self._status_lock:
             now = time.time()
             last_update = self._connection_status.get('last_updated') or 0
@@ -358,10 +366,10 @@ class SshClient:
                 if self.os_type == 'windows':
                     # Windows: use separate commands
                     user_handle = self.run('whoami', io_timeout=5,
-                                            origin='connection_probe', parent_tool='ssh_conn_status')
+                                            origin='connection_probe', parent_tool=parent_tool)
                     user = user_handle.get_full_output().strip() if user_handle.exit_code == 0 else 'Unknown'
                     cwd_handle = self.run('cd', io_timeout=5,
-                                           origin='connection_probe', parent_tool='ssh_conn_status')
+                                           origin='connection_probe', parent_tool=parent_tool)
                     cwd = cwd_handle.get_full_output().strip() if cwd_handle.exit_code == 0 else 'Unknown'
                     self._connection_status['user'] = user
                     self._connection_status['cwd'] = cwd
@@ -372,7 +380,7 @@ class SshClient:
                     echo "CWD:$(pwd)"
                     """
                     handle = self.run(cmd, io_timeout=5,
-                                       origin='connection_probe', parent_tool='ssh_conn_status')
+                                       origin='connection_probe', parent_tool=parent_tool)
                     output = "".join(handle.tail(handle.total_lines))
 
                     # Parse output
@@ -388,9 +396,13 @@ class SshClient:
             except Exception as e:
                 self._logger.warning(f"Failed to update connection status: {e}")
 
-    def get_connection_status(self) -> dict:
-        """Return current connection status with timestamp."""
-        self.update_connection_status()  # Refresh if needed
+    def get_connection_status(self, parent_tool=None) -> dict:
+        """Return current connection status with timestamp.
+
+        parent_tool: forwarded to update_connection_status() for history
+        labeling, if known.
+        """
+        self.update_connection_status(parent_tool=parent_tool)  # Refresh if needed
         with self._status_lock:
             return {
                 **self._connection_status,
@@ -676,9 +688,13 @@ class SshClient:
         return self.os_ops.reboot(wait, timeout)
 
 
-    def full_status(self) -> Dict[str, Any]:
-        """Return a snapshot of system state using a combined command."""
-        return self.os_ops.status()
+    def full_status(self, parent_tool=None) -> Dict[str, Any]:
+        """Return a snapshot of system state using a combined command.
+
+        parent_tool: name of the MCP tool that triggered this (for history
+        labeling - every sub-command run here is tagged origin='connection_probe').
+        """
+        return self.os_ops.status(parent_tool=parent_tool)
 
 
     def history(self) -> List[Dict[str, Any]]:

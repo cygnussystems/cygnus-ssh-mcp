@@ -230,19 +230,19 @@ async def ssh_conn_connect(
 
         # Get current working directory (use OS-appropriate command)
         if mcp.ssh_client.os_type == 'windows':
-            cwd_result = mcp.ssh_client.run("cd")
+            cwd_result = mcp.ssh_client.run("cd", origin='connection_probe', parent_tool='ssh_conn_connect')
         else:
-            cwd_result = mcp.ssh_client.run("pwd")
+            cwd_result = mcp.ssh_client.run("pwd", origin='connection_probe', parent_tool='ssh_conn_connect')
         cwd = cwd_result.get_full_output().strip() if cwd_result.exit_code == 0 else "Unknown"
 
         # Update the connection status with the current working directory
-        mcp.ssh_client.update_connection_status(force=True)
-        
+        mcp.ssh_client.update_connection_status(force=True, parent_tool='ssh_conn_connect')
+
         # Get detailed system information
-        status = mcp.ssh_client.get_connection_status()
+        status = mcp.ssh_client.get_connection_status(parent_tool='ssh_conn_connect')
         # Update the cwd in the connection status
         status['cwd'] = cwd
-        system_info = mcp.ssh_client.full_status()
+        system_info = mcp.ssh_client.full_status(parent_tool='ssh_conn_connect')
         
         result = {
             'status': 'success',
@@ -533,13 +533,13 @@ async def ssh_conn_status() -> dict:
         raise SshError("No active SSH connection")
         
     try:
-        status = mcp.ssh_client.get_connection_status()
+        status = mcp.ssh_client.get_connection_status(parent_tool='ssh_conn_status')
 
         # Get current working directory (use OS-appropriate command)
         if mcp.ssh_client.os_type == 'windows':
-            cwd_result = mcp.ssh_client.run("cd")
+            cwd_result = mcp.ssh_client.run("cd", origin='connection_probe', parent_tool='ssh_conn_status')
         else:
-            cwd_result = mcp.ssh_client.run("pwd")
+            cwd_result = mcp.ssh_client.run("pwd", origin='connection_probe', parent_tool='ssh_conn_status')
         cwd = cwd_result.get_full_output().strip() if cwd_result.exit_code == 0 else "Unknown"
 
         return {
@@ -567,8 +567,8 @@ async def ssh_conn_host_info() -> dict:
         raise SshError("No active SSH connection")
         
     try:
-        status = mcp.ssh_client.get_connection_status()
-        system_info = mcp.ssh_client.full_status()
+        status = mcp.ssh_client.get_connection_status(parent_tool='ssh_conn_host_info')
+        system_info = mcp.ssh_client.full_status(parent_tool='ssh_conn_host_info')
         return {
             'connection': status,
             'system': system_info
@@ -742,8 +742,8 @@ async def ssh_host_disconnect() -> dict:
             }
             
         logger.info("Disconnecting active SSH connection")
-        host = mcp.ssh_client.get_connection_status().get('host', 'unknown')
-        user = mcp.ssh_client.get_connection_status().get('user', 'unknown')
+        host = mcp.ssh_client.get_connection_status(parent_tool='ssh_host_disconnect').get('host', 'unknown')
+        user = mcp.ssh_client.get_connection_status(parent_tool='ssh_host_disconnect').get('user', 'unknown')
         
         mcp.ssh_client.close()
         mcp.ssh_client = None
@@ -1493,7 +1493,10 @@ async def ssh_cmd_history(
         - origin: 'user' for a directly user-requested command, or an internal-plumbing label
           ('tool_internal', 'connection_probe', 'sudo_probe') for a helper command issued by another tool
         - parent_tool: Name of the MCP tool that triggered this command, when origin != 'user'
-        - output: Command output snippet (if include_output=True)
+        - output: Stdout snippet (if include_output=True) - stderr is NOT included here, even for
+          a failed command; see the separate 'stderr' field
+        - stderr: Stderr snippet (if include_output=True) - often the more useful stream for a
+          failed command; retrieved the same way ssh_cmd_output(stream='stderr') would
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1532,10 +1535,13 @@ async def ssh_cmd_history(
 
             if include_output:
                 try:
-                    output = mcp.ssh_client.output(entry['id'], lines=output_lines)
-                    history_entry['output'] = output
+                    history_entry['output'] = mcp.ssh_client.output(entry['id'], lines=output_lines)
                 except Exception as e:
                     history_entry['output'] = f"Unable to retrieve output: {str(e)}"
+                try:
+                    history_entry['stderr'] = mcp.ssh_client.output(entry['id'], lines=output_lines, stream='stderr')
+                except Exception as e:
+                    history_entry['stderr'] = f"Unable to retrieve output: {str(e)}"
 
             results.append(history_entry)
 
