@@ -444,9 +444,13 @@ class SshFileOperations(ABC):
             return {"match_found": False, "error": str(e)}
 
     def replace_line_by_content(self, remote_file: str, match_line: str, new_lines: list,
-                               sudo: bool = False, force: bool = False) -> dict:
+                               sudo: bool = False, force: bool = False,
+                               parent_tool: str = 'ssh_file_replace_line') -> dict:
         """
         Replace a unique line (by exact content, ignoring leading/trailing whitespace) with new lines.
+        parent_tool: name of the calling MCP tool (ssh_file_replace_line or
+        ssh_file_replace_line_multi both call this) - for history labeling of the
+        sudo helper commands this may issue.
         """
         self.logger.info(f"Replacing line by content in {remote_file} (sudo={sudo}, force={force})")
         
@@ -528,9 +532,10 @@ class SshFileOperations(ABC):
         if sudo and not is_windows:
             remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
-                                                       sudo=sudo, force=force, 
-                                                       original_content_for_check=content if can_check_duplicates else None)
+                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func,
+                                                       sudo=sudo, force=force,
+                                                       original_content_for_check=content if can_check_duplicates else None,
+                                                       parent_tool=parent_tool)
                 if isinstance(op_result, dict) and not op_result.get("success", False):
                     return op_result
                 if op_result.get("message") == "No changes needed":
@@ -562,7 +567,8 @@ class SshFileOperations(ABC):
                 return {"success": False, "error": str(e)}
 
     def insert_lines_after_match(self, remote_file: str, match_line: str, lines_to_insert: list,
-                                sudo: bool = False, force: bool = False) -> dict:
+                                sudo: bool = False, force: bool = False,
+                                parent_tool: str = 'ssh_file_insert_lines_after_match') -> dict:
         """
         Insert lines after a unique line match (ignoring leading/trailing whitespace).
         """
@@ -644,9 +650,10 @@ class SshFileOperations(ABC):
         if sudo and not is_windows:
             remote_temp_path = f"/tmp/insert_after_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
+                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func,
                                                        sudo=sudo, force=force,
-                                                       original_content_for_check=content if can_check_duplicates else None)
+                                                       original_content_for_check=content if can_check_duplicates else None,
+                                                       parent_tool=parent_tool)
                 if isinstance(op_result, dict) and not op_result.get("success", False):
                     return op_result
                 if op_result.get("message") == "No changes needed":
@@ -678,7 +685,8 @@ class SshFileOperations(ABC):
                 return {"success": False, "error": str(e)}
 
     def delete_line_by_content(self, remote_file: str, match_line: str,
-                              sudo: bool = False, force: bool = False) -> dict:
+                              sudo: bool = False, force: bool = False,
+                              parent_tool: str = 'ssh_file_delete_line_by_content') -> dict:
         """
         Delete a line matching a unique content string (ignoring leading/trailing whitespace).
         """
@@ -756,9 +764,10 @@ class SshFileOperations(ABC):
         if sudo and not is_windows:
             remote_temp_path = f"/tmp/delete_line_{os.path.basename(remote_file)}_{int(time.time())}"
             try:
-                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func, 
+                op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func,
                                                        sudo=sudo, force=force,
-                                                       original_content_for_check=content if can_check_duplicates else None)
+                                                       original_content_for_check=content if can_check_duplicates else None,
+                                                       parent_tool=parent_tool)
                 if isinstance(op_result, dict) and not op_result.get("success", False):
                     return op_result
                 if op_result.get("message") == "No changes needed":
@@ -894,15 +903,19 @@ class SshFileOperations(ABC):
                 self.logger.debug(f"Cleaning up local temp file: {local_temp_path}")
                 os.unlink(local_temp_path)
 
-    def _replace_content_sudo(self, remote_file: str, remote_temp_path: str, 
+    def _replace_content_sudo(self, remote_file: str, remote_temp_path: str,
                             modify_func: Callable[[str], str], sudo: bool, # Added sudo parameter
                             force: bool = False,
-                            original_content_for_check: Optional[str] = None) -> dict:
+                            original_content_for_check: Optional[str] = None,
+                            parent_tool: Optional[str] = None) -> dict:
         """
-        Internal helper for sudo-based file modification.
+        Internal helper for sudo-based file modification, shared by
+        replace_line_by_content/insert_lines_after_match/delete_line_by_content.
         Uses a temporary remote file for atomicity. Ensures LF line endings in the temp file.
         If original_content_for_check is provided, it's used to determine if changes occurred.
         If not (e.g. due to read failure + force), it relies on modify_func applied to "" or actual content.
+        parent_tool: name of the actual MCP tool that triggered this (for history labeling) -
+        passed through by the caller, since this helper is shared across several tools.
         """
         local_temp_fd, local_temp_path = tempfile.mkstemp(text=True)
         os.close(local_temp_fd)
@@ -940,7 +953,8 @@ class SshFileOperations(ABC):
             if not (force and original_text == "" and original_content_for_check is None):
                 stat_cmd = self._cmd_stat_permissions(remote_file)
                 try:
-                    stat_handle = self.ssh_client.run(stat_cmd, io_timeout=10, sudo=False) 
+                    stat_handle = self.ssh_client.run(stat_cmd, io_timeout=10, sudo=False,
+                                                       origin='tool_internal', parent_tool=parent_tool)
                     stat_output = stat_handle.get_full_output().strip() 
                     parts = stat_output.split()
                     if len(parts) == 3:
@@ -953,20 +967,20 @@ class SshFileOperations(ABC):
 
             mv_cmd = f"mv {shlex.quote(remote_temp_path)} {shlex.quote(remote_file)}"
             self.logger.info(f"Executing sudo mv: {mv_cmd}")
-            self.ssh_client.run(mv_cmd, sudo=True) 
+            self.ssh_client.run(mv_cmd, sudo=True, origin='tool_internal', parent_tool=parent_tool)
 
             if owner and group:
                 chown_cmd = f"chown {owner}:{group} {shlex.quote(remote_file)}"
                 try:
                     self.logger.info(f"Executing sudo chown: {chown_cmd}")
-                    self.ssh_client.run(chown_cmd, sudo=True)
+                    self.ssh_client.run(chown_cmd, sudo=True, origin='tool_internal', parent_tool=parent_tool)
                 except Exception as chown_err: 
                     self.logger.warning(f"Failed to sudo chown {remote_file} to {owner}:{group}: {chown_err}")
             if perms:
                 chmod_cmd = f"chmod {perms} {shlex.quote(remote_file)}"
                 try:
                     self.logger.info(f"Executing sudo chmod: {chmod_cmd}")
-                    self.ssh_client.run(chmod_cmd, sudo=True)
+                    self.ssh_client.run(chmod_cmd, sudo=True, origin='tool_internal', parent_tool=parent_tool)
                 except Exception as chmod_err: 
                     self.logger.warning(f"Failed to sudo chmod {remote_file} to {perms}: {chmod_err}")
 
@@ -994,13 +1008,15 @@ class SshFileOperations(ABC):
             
             try:
                 self.logger.debug(f"Attempting to clean up remote temp file: {remote_temp_path}")
-                if remote_temp_path: 
-                    self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=False) 
+                if remote_temp_path:
+                    self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=False,
+                                         origin='tool_internal', parent_tool=parent_tool)
             except Exception as cleanup_err:
                 self.logger.warning(f"Failed to cleanup remote temp file {remote_temp_path} (non-sudo): {cleanup_err}. Attempting with sudo if main op was sudo.")
                 if sudo and remote_temp_path: # Now 'sudo' is correctly defined in this scope
                     try:
-                        self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=True)
+                        self.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", io_timeout=10, runtime_timeout=15, sudo=True,
+                                             origin='tool_internal', parent_tool=parent_tool)
                     except Exception as sudo_cleanup_err:
                          self.logger.error(f"Failed to cleanup remote temp file {remote_temp_path} even with sudo: {sudo_cleanup_err}")
 

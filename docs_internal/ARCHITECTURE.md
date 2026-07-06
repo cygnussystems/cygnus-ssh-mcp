@@ -255,6 +255,21 @@ real PID and this sentinel exit code - its handle used to still end up in
 (`CommandHistoryManager.remove_command`), since the caller was never even given the
 handle's `id` to look it up by.
 
+**Related (fixed 2026-07-06):** several other tools issue their own internal helper
+commands through the same `SshClient.run()` path (`ssh_file_write`'s sudo mv/mkdir/
+chmod/chown dance in `server.py`; `ops/file.py`'s `_replace_content_sudo` shared by
+the line-editing tools; `client.py`'s OS-detection/status/sudo-verification probes;
+`transfer_directory`'s temp-archive plumbing) - these used to be indistinguishable
+from a directly user-issued `ssh_cmd_run` in `ssh_cmd_history`. `CommandHandle` now
+carries `origin` (`'user'` default, or `'tool_internal'`/`'connection_probe'`/
+`'sudo_probe'`) and `parent_tool` (the MCP tool name that triggered it), threaded
+through `run()` → `execute_command()` → `_create_command_handle()` →
+`CommandHistoryManager.add_command()`. `ssh_cmd_history`'s new `include_internal`
+param (default `True`, preserving existing behavior) filters these out when `False`.
+`ops/directory.py`'s ~35 call sites were deliberately left untagged (`origin='user'`)
+- each is a `ssh_dir_*`/`ssh_archive_*` tool's own primary action, not hidden
+plumbing.
+
 ### 3.7 Sudo handling
 
 - **Linux/macOS**: tries passwordless sudo first (`sudo -n whoami`); if that fails,

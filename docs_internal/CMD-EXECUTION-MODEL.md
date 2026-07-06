@@ -225,6 +225,39 @@ printed right before the wrapper exits.
   fix both at once, but changes the shared kill path also used by the already-tested
   `ssh_task_kill`, so it was deliberately not bundled into this fix.
 
+## Streaming stdout/stderr without corrupting partial lines (fixed 2026-07-06)
+
+Every `chan.recv(4096)`/`chan.recv_stderr(4096)` call site in `ops/run.py` used to
+treat each raw chunk as if it only ever contained complete lines:
+`line if line.endswith('\n') else line + '\n'`. If a chunk arrived with no `\n` in it
+at all - plausible whenever the remote flushes output byte-by-byte or in small
+fragments (verified live with `curl`'s unbuffered stderr, e.g. its progress-meter
+header) - this synthesized a **fake** newline onto what was actually just an
+in-progress fragment, not a completed line. Over many tiny fragments this produced
+one synthetic newline per fragment (`"curl: (7) Failed..."` arriving as
+`"c\nu\nr\nl\n:\n..."`).
+
+Fixed by adding two shared helpers to the base `SshRunOperations` class:
+- `_feed_output_chunk(handle, chunk, is_stderr)` - accumulates a per-handle pending
+  partial-line buffer (`CommandHandle._pending_stdout`/`_pending_stderr`) and only
+  emits genuinely newline-terminated lines; a trailing fragment with no `\n` yet
+  stays buffered instead of getting a synthetic newline.
+- `_flush_pending_output(handle)` - once a command is confirmed fully done, emits
+  whatever's left in either buffer exactly as-is (no fake newline - correctly
+  handles output that just doesn't end in a newline, e.g. a shell prompt).
+
+All 4 base-class chunk-processing sites now route through `_feed_output_chunk`;
+`_drain_remaining_output` calls the flush at the end (covering both completion
+paths that call it - `_monitor_command`'s sync loop and
+`_continue_monitoring_in_background`'s daemon-thread loop); `_kill_on_runtime_timeout`
+got its own explicit flush too, since it never called `_drain_remaining_output` and
+would otherwise silently drop whatever was pending at kill time. Both platform-
+specific `_capture_pid` overrides (Linux, Windows) were reworked to feed
+incrementally rather than accumulating raw bytes and splitting once at the end -
+Windows's marker-detection loop in particular now runs against the pending-buffer-
+aware accumulated text, since it must still find a marker that could itself be split
+across small reads while forwarding non-marker lines only once genuinely complete.
+
 ## `cmd` vs `task` tools — why `task` doesn't have these bugs
 
 | | `ssh_cmd_run` family | `ssh_task_launch` family |

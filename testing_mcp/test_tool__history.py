@@ -4,7 +4,8 @@ import logging
 from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
     extract_result_text, echo_command, IS_WINDOWS, noop_success_command,
-    multiline_printf_command, silent_failing_command
+    multiline_printf_command, silent_failing_command, skip_on_windows,
+    TEST_WORKSPACE, PATH_SEP, cleanup_file_command
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -717,5 +718,91 @@ async def test_ssh_cmd_clear_history_no_connection():
         except Exception as e:
             logger.error(f"Error in SSH clear history no connection test: {e}", exc_info=True)
             raise
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+@skip_on_windows
+async def test_ssh_file_write_sudo_labeled_as_internal_and_filterable(mcp_test_environment):
+    """Test that ssh_file_write(use_sudo=True)'s internal mv/chown/chmod/stat
+    plumbing is labeled origin='tool_internal' in ssh_cmd_history, and that
+    include_internal=False filters those entries out while a directly-run
+    ssh_cmd_run command (origin='user') still appears.
+
+    Regression test for the history-pollution issue found by GPT-5.5's
+    2026-07-06 command-stress test: previously there was no way to distinguish
+    a user-issued command from an internal helper command run by another tool.
+    Linux/macOS-only: Windows ignores use_sudo entirely (no sudo concept), so
+    this plumbing path never executes there.
+    """
+    print_test_header("Testing ssh_file_write(use_sudo=True) plumbing is labeled and filterable in history")
+    logger.info("Starting history origin-labeling regression test")
+
+    test_file = f"{TEST_WORKSPACE}{PATH_SEP}history_origin_labeling_test_20260706.txt"
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            await client.call_tool("ssh_cmd_clear_history", {})
+
+            write_result = await client.call_tool("ssh_file_write", {
+                "file_path": test_file,
+                "content": "origin labeling test content",
+                "use_sudo": True
+            })
+            write_json = json.loads(extract_result_text(write_result))
+            assert write_json['success'], f"Failed to write file with use_sudo: {write_json}"
+
+            # A directly user-issued command, for contrast.
+            user_marker_command = echo_command("history_origin_labeling_test_20260706_user_command")
+            user_result = await client.call_tool("ssh_cmd_run", {
+                "command": user_marker_command,
+                "io_timeout": 5.0
+            })
+            user_json = json.loads(extract_result_text(user_result))
+            assert user_json['exit_code'] == 0
+
+            # include_internal defaults to True: both the plumbing and the user command appear.
+            full_history = await client.call_tool("ssh_cmd_history", {"include_internal": True})
+            full_history_json = json.loads(extract_result_text(full_history))
+            internal_entries = [e for e in full_history_json if e.get('origin') == 'tool_internal']
+            assert internal_entries, (
+                f"Expected at least one origin='tool_internal' entry from ssh_file_write's "
+                f"sudo mv/chown/chmod/stat plumbing, got: {full_history_json}"
+            )
+            assert all(e.get('parent_tool') == 'ssh_file_write' for e in internal_entries), (
+                f"Expected internal entries to record parent_tool='ssh_file_write', got: {internal_entries}"
+            )
+            user_entries_full = [e for e in full_history_json if e['command'] == user_marker_command]
+            assert len(user_entries_full) == 1, f"Expected exactly one user command entry, got: {full_history_json}"
+            assert user_entries_full[0]['origin'] == 'user'
+
+            # include_internal=False: the plumbing is filtered out, the user command remains.
+            filtered_history = await client.call_tool("ssh_cmd_history", {"include_internal": False})
+            filtered_history_json = json.loads(extract_result_text(filtered_history))
+            assert not any(e.get('origin') == 'tool_internal' for e in filtered_history_json), (
+                f"include_internal=False should filter out tool_internal entries, got: {filtered_history_json}"
+            )
+            user_entries_filtered = [e for e in filtered_history_json if e['command'] == user_marker_command]
+            assert len(user_entries_filtered) == 1, (
+                f"The directly user-issued command should still appear with include_internal=False, "
+                f"got: {filtered_history_json}"
+            )
+
+            logger.info("ssh_file_write sudo plumbing correctly labeled and filterable")
+        except Exception as e:
+            logger.error(f"Error in history origin-labeling test: {e}", exc_info=True)
+            raise
+        finally:
+            try:
+                await client.call_tool("ssh_cmd_run", {
+                    "command": cleanup_file_command(test_file),
+                    "use_sudo": True
+                })
+            except Exception:
+                pass
+            await disconnect_ssh(client)
 
     print_test_footer()

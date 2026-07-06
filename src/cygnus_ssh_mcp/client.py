@@ -161,7 +161,7 @@ class SshClient:
     def _detect_linux_distro(self):
         """Detect Linux distribution subtype."""
         try:
-            result = self.run('cat /etc/os-release')
+            result = self.run('cat /etc/os-release', origin='connection_probe', parent_tool='ssh_conn_connect')
             if 'debian' in result.lower():
                 self.os_subtype = 'debian'
             elif 'centos' in result.lower():
@@ -357,9 +357,11 @@ class SshClient:
                 # Get basic info using OS-appropriate commands
                 if self.os_type == 'windows':
                     # Windows: use separate commands
-                    user_handle = self.run('whoami', io_timeout=5)
+                    user_handle = self.run('whoami', io_timeout=5,
+                                            origin='connection_probe', parent_tool='ssh_conn_status')
                     user = user_handle.get_full_output().strip() if user_handle.exit_code == 0 else 'Unknown'
-                    cwd_handle = self.run('cd', io_timeout=5)
+                    cwd_handle = self.run('cd', io_timeout=5,
+                                           origin='connection_probe', parent_tool='ssh_conn_status')
                     cwd = cwd_handle.get_full_output().strip() if cwd_handle.exit_code == 0 else 'Unknown'
                     self._connection_status['user'] = user
                     self._connection_status['cwd'] = cwd
@@ -369,7 +371,8 @@ class SshClient:
                     echo "USER:$(whoami)"
                     echo "CWD:$(pwd)"
                     """
-                    handle = self.run(cmd, io_timeout=5)
+                    handle = self.run(cmd, io_timeout=5,
+                                       origin='connection_probe', parent_tool='ssh_conn_status')
                     output = "".join(handle.tail(handle.total_lines))
 
                     # Parse output
@@ -404,7 +407,8 @@ class SshClient:
                 return getattr(self, '_is_elevated', False)
             else:
                 # For Linux/macOS, check passwordless sudo
-                handle = self.run('sudo -n true 2>/dev/null && echo true || echo false', io_timeout=5)
+                handle = self.run('sudo -n true 2>/dev/null && echo true || echo false', io_timeout=5,
+                                   origin='sudo_probe', parent_tool='ssh_conn_verify_sudo')
                 return 'true' in handle.last_nonblank()
         except Exception as e:
             self._logger.warning(f"Failed to verify sudo access: {e}")
@@ -413,7 +417,8 @@ class SshClient:
 
 
     def run(self, cmd: str, io_timeout: float = 60.0, runtime_timeout: Optional[float] = None,
-           sudo: bool = False, cwd: Optional[str] = None, wait_timeout: Optional[float] = None) -> CommandHandle:
+           sudo: bool = False, cwd: Optional[str] = None, wait_timeout: Optional[float] = None,
+           origin: str = 'user', parent_tool: Optional[str] = None) -> CommandHandle:
         """
         Execute a command synchronously, streaming output into a CommandHandle.
         This method BLOCKS until the command finishes, fails, or times out.
@@ -424,9 +429,12 @@ class SshClient:
         cwd (optional): run the command in this directory for this call only - no state is
         remembered across calls (each call is a fresh remote process regardless). Fails closed:
         if the directory doesn't exist, the command never runs at all (raises CwdNotFound).
+        origin/parent_tool (optional): label this as internal plumbing rather than a
+        directly user-requested command - see ssh_cmd_history's include_internal filter.
         Returns the CommandHandle upon completion or raises CommandFailed, CommandTimeout, CommandRuntimeTimeout, SudoRequired, CwdNotFound.
         """
-        return self.run_ops.execute_command(cmd, io_timeout, runtime_timeout, sudo, cwd, wait_timeout=wait_timeout)
+        return self.run_ops.execute_command(cmd, io_timeout, runtime_timeout, sudo, cwd,
+                                              wait_timeout=wait_timeout, origin=origin, parent_tool=parent_tool)
 
 
     def launch(self, cmd: str, sudo: bool = False, stdout_log: Optional[str] = None,
@@ -596,54 +604,54 @@ class SshClient:
         return self.file_ops.get_context_around_line(remote_file, match_line, context, sudo)
     
     def replace_line_by_content(self, remote_file: str, match_line: str, new_lines: list,
-                               sudo: bool = False, force: bool = False) -> dict:
+                               sudo: bool = False, force: bool = False, **kwargs) -> dict:
         """
         Replace a unique line (by exact content) with new lines.
-        
+
         Args:
             remote_file: Path to remote file
             match_line: Exact line content to match and replace
             new_lines: List of new lines to insert in place of the match
             sudo: Whether to use sudo for the operation
             force: Whether to proceed if original file cannot be read (sudo only)
-            
+
         Returns:
             Dictionary with operation status
         """
-        return self.file_ops.replace_line_by_content(remote_file, match_line, new_lines, sudo, force)
-    
+        return self.file_ops.replace_line_by_content(remote_file, match_line, new_lines, sudo, force, **kwargs)
+
     def insert_lines_after_match(self, remote_file: str, match_line: str, lines_to_insert: list,
-                                sudo: bool = False, force: bool = False) -> dict:
+                                sudo: bool = False, force: bool = False, **kwargs) -> dict:
         """
         Insert lines after a unique line match.
-        
+
         Args:
             remote_file: Path to remote file
             match_line: Exact line content to match
             lines_to_insert: List of lines to insert after the match
             sudo: Whether to use sudo for the operation
             force: Whether to proceed if original file cannot be read (sudo only)
-            
+
         Returns:
             Dictionary with operation status
         """
-        return self.file_ops.insert_lines_after_match(remote_file, match_line, lines_to_insert, sudo, force)
-    
+        return self.file_ops.insert_lines_after_match(remote_file, match_line, lines_to_insert, sudo, force, **kwargs)
+
     def delete_line_by_content(self, remote_file: str, match_line: str,
-                              sudo: bool = False, force: bool = False) -> dict:
+                              sudo: bool = False, force: bool = False, **kwargs) -> dict:
         """
         Delete a line matching a unique content string.
-        
+
         Args:
             remote_file: Path to remote file
             match_line: Exact line content to match and delete
             sudo: Whether to use sudo for the operation
             force: Whether to proceed if original file cannot be read (sudo only)
-            
+
         Returns:
             Dictionary with operation status
         """
-        return self.file_ops.delete_line_by_content(remote_file, match_line, sudo, force)
+        return self.file_ops.delete_line_by_content(remote_file, match_line, sudo, force, **kwargs)
     
     def copy_file(self, source_path: str, destination_path: str, 
                  append_timestamp: bool = False, sudo: bool = False) -> dict:
@@ -889,7 +897,8 @@ class SshClient:
                 # Determine remote temp path
                 if self.os_type == 'windows':
                     # Use PowerShell to get TEMP path (CMD doesn't understand $env:TEMP)
-                    handle = self.run(_powershell_encoded_command('Write-Output $env:TEMP'), io_timeout=10)
+                    handle = self.run(_powershell_encoded_command('Write-Output $env:TEMP'), io_timeout=10,
+                                       origin='tool_internal', parent_tool='ssh_dir_transfer')
                     temp_dir = handle.get_full_output().strip()
                     remote_temp_archive = f"{temp_dir}\\ssh_dir_transfer_{timestamp}{archive_ext}"
                 else:
@@ -931,7 +940,8 @@ class SshClient:
                 # Determine remote temp archive path
                 if self.os_type == 'windows':
                     # Use PowerShell to get TEMP path (CMD doesn't understand $env:TEMP)
-                    handle = self.run(_powershell_encoded_command('Write-Output $env:TEMP'), io_timeout=10)
+                    handle = self.run(_powershell_encoded_command('Write-Output $env:TEMP'), io_timeout=10,
+                                       origin='tool_internal', parent_tool='ssh_dir_transfer')
                     temp_dir = handle.get_full_output().strip()
                     remote_temp_archive = f"{temp_dir}\\ssh_dir_transfer_{timestamp}{archive_ext}"
                 else:
@@ -951,7 +961,8 @@ class SshClient:
 
                 # For sudo, make archive readable before download
                 if sudo and self.os_type != 'windows':
-                    self.run(f"chmod 644 {shlex.quote(remote_temp_archive)}", sudo=True)
+                    self.run(f"chmod 644 {shlex.quote(remote_temp_archive)}", sudo=True,
+                             origin='tool_internal', parent_tool='ssh_dir_transfer')
 
                 # Create local temp file for download
                 fd, local_temp_archive = tempfile.mkstemp(suffix=archive_ext, prefix='ssh_dir_transfer_')
@@ -1013,10 +1024,12 @@ class SshClient:
                     if self.os_type == 'windows':
                         ps_path = remote_temp_archive.replace("'", "''")
                         self.run(_powershell_encoded_command(f"Remove-Item -Path '{ps_path}' -Force -ErrorAction SilentlyContinue"),
-                                io_timeout=10, runtime_timeout=30)
+                                io_timeout=10, runtime_timeout=30,
+                                origin='tool_internal', parent_tool='ssh_dir_transfer')
                     else:
                         self.run(f"rm -f {shlex.quote(remote_temp_archive)}",
-                                io_timeout=10, runtime_timeout=30, sudo=sudo)
+                                io_timeout=10, runtime_timeout=30, sudo=sudo,
+                                origin='tool_internal', parent_tool='ssh_dir_transfer')
                     self._logger.debug(f"Cleaned up remote temp archive: {remote_temp_archive}")
                 except Exception as e:
                     self._logger.warning(f"Failed to clean up remote temp archive: {e}")

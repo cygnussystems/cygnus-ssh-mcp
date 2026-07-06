@@ -85,7 +85,7 @@ class CommandHandle:
     """Tracks the state and output of a single SSH command execution.
     For launched commands, tracks the PID.
     """
-    def __init__(self, handle_id, cmd, tail_keep=None, pid=None, sudo=False):
+    def __init__(self, handle_id, cmd, tail_keep=None, pid=None, sudo=False, origin='user', parent_tool=None):
         self.id = handle_id
         self.cmd = cmd
         self.pid = pid
@@ -94,10 +94,21 @@ class CommandHandle:
                            # know it needs to elevate, since it has no other way to
                            # find out (unlike ssh_cmd_kill/ssh_task_kill, where the
                            # caller passes use_sudo explicitly on the kill call itself).
+        self.origin = origin  # 'user' (default), 'tool_internal', 'connection_probe', or
+                               # 'sudo_probe' - lets ssh_cmd_history distinguish commands
+                               # the user actually asked for from plumbing issued internally
+                               # by other tools (e.g. ssh_file_write's mv/chown/chmod dance).
+        self.parent_tool = parent_tool  # Name of the MCP tool that triggered this command,
+                                         # when origin != 'user' (e.g. 'ssh_file_write').
         self._tail_keep = tail_keep
-        
+
         self._buf = deque(maxlen=self._tail_keep)      # For stdout
         self._stderr_buf = deque(maxlen=self._tail_keep) # For stderr
+
+        self._pending_stdout = ''  # Buffers an in-progress, not-yet-newline-terminated
+        self._pending_stderr = ''  # line fragment across recv() chunks (see ops/run.py's
+                                    # _feed_output_chunk/_flush_pending_output) so a chunk
+                                    # boundary never synthesizes a fake newline mid-line.
         
         self.start_ts = datetime.now(UTC)
         self.end_ts = None
@@ -207,7 +218,9 @@ class CommandHandle:
             'stderr_truncated': self.stderr_truncated,
             'cwd': self.cwd,
             'kill_confirmed': self.kill_confirmed,
-            'sudo': self.sudo
+            'sudo': self.sudo,
+            'origin': self.origin,
+            'parent_tool': self.parent_tool
         }
 
     def chunk(self, start, length=50): # Stdout

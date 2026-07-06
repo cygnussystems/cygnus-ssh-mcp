@@ -989,6 +989,8 @@ async def ssh_cmd_run(
       to the current connection's lifetime.
 
     You can access command history using 'ssh_cmd_history' to see previous commands and their output.
+    Commands run this way always appear there with origin='user' - pass include_internal=False to
+    ssh_cmd_history to hide unrelated internal plumbing from other tools (e.g. ssh_file_write's sudo dance).
 
     Working directory: each call is an independent remote process (like a GitHub Actions step
     or Ansible task, not a continuous shell) - nothing is remembered between calls, including
@@ -1471,7 +1473,11 @@ async def ssh_cmd_history(
         include_output: Annotated[bool, Field(description="Include command output snippets")] = False,
         output_lines: Annotated[int, Field(description="Number of output lines to include (0 for none)", ge=0)] = 3,
         reverse: Annotated[bool, Field(description="Return in reverse order (newest first)")] = False,
-        pattern: Annotated[Optional[str], Field(description="Filter commands containing this pattern")] = None
+        pattern: Annotated[Optional[str], Field(description="Filter commands containing this pattern")] = None,
+        include_internal: Annotated[bool, Field(description="Include internal/plumbing commands issued by other tools "
+            "(e.g. ssh_file_write's sudo mv/chown/chmod dance, ssh_conn_connect's OS-detection probe, "
+            "ssh_conn_verify_sudo's sudo check, ssh_dir_transfer's temp-archive handling). Set False to see "
+            "only commands the user directly asked for via ssh_cmd_run/ssh_task_launch.")] = True
 ) -> list:
     """
     Retrieve command execution history with optional output snippets.
@@ -1484,6 +1490,9 @@ async def ssh_cmd_history(
         - exit_code: Exit status
         - start_time: Execution start timestamp
         - end_time: Execution end timestamp
+        - origin: 'user' for a directly user-requested command, or an internal-plumbing label
+          ('tool_internal', 'connection_probe', 'sudo_probe') for a helper command issued by another tool
+        - parent_tool: Name of the MCP tool that triggered this command, when origin != 'user'
         - output: Command output snippet (if include_output=True)
     """
     if not mcp.ssh_client:
@@ -1491,10 +1500,14 @@ async def ssh_cmd_history(
 
     try:
         history = mcp.ssh_client.history()
-        
+
         # Filter by pattern if specified
         if pattern is not None:
             history = [entry for entry in history if pattern in entry.get('cmd', '')]
+
+        # Filter out internal/plumbing commands unless explicitly requested
+        if not include_internal:
+            history = [entry for entry in history if entry.get('origin', 'user') == 'user']
 
         # Apply limit if specified
         if limit is not None:
@@ -1512,7 +1525,9 @@ async def ssh_cmd_history(
                 'exit_code': entry.get('exit_code'),
                 'start_time': entry.get('start_ts'),
                 'end_time': entry.get('end_ts'),
-                'pid': entry.get('pid')
+                'pid': entry.get('pid'),
+                'origin': entry.get('origin', 'user'),
+                'parent_tool': entry.get('parent_tool')
             }
 
             if include_output:
@@ -2065,7 +2080,8 @@ async def ssh_file_replace_line_multi(
         parsed_new_lines = NewLinesModel.parse(new_lines)
         logger.info(f"Processed new_lines parameter: {parsed_new_lines}")
 
-        result = mcp.ssh_client.replace_line_by_content(file_path, match_line, parsed_new_lines, use_sudo, force)
+        result = mcp.ssh_client.replace_line_by_content(file_path, match_line, parsed_new_lines, use_sudo, force,
+                                                          parent_tool='ssh_file_replace_line_multi')
         result['connection'] = _connection_metadata()
         return result
     except Exception as e:
@@ -2398,9 +2414,9 @@ async def ssh_file_write(
                             mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
 
                         if use_sudo and not is_windows:
-                            mcp.ssh_client.run(mkdir_cmd, sudo=True)
+                            mcp.ssh_client.run(mkdir_cmd, sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
                         else:
-                            mcp.ssh_client.run(mkdir_cmd)
+                            mcp.ssh_client.run(mkdir_cmd, origin='tool_internal', parent_tool='ssh_file_write')
                         logger.info(f"Created parent directories for {file_path}")
                     except Exception as e:
                         # Ignore if directory already exists
@@ -2443,20 +2459,21 @@ async def ssh_file_write(
                             copy_cmd = f"Copy-Item -Path '{remote_temp_path}' -Destination '{file_path}' -Force"
                         else:
                             copy_cmd = f"Get-Content -Path '{remote_temp_path}' | Add-Content -Path '{file_path}'"
-                        mcp.ssh_client.run(powershell_encoded_command(copy_cmd))
+                        mcp.ssh_client.run(powershell_encoded_command(copy_cmd), origin='tool_internal', parent_tool='ssh_file_write')
                         # Clean up temp file
-                        mcp.ssh_client.run(powershell_encoded_command(f"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue"))
+                        mcp.ssh_client.run(powershell_encoded_command(f"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue"),
+                                            origin='tool_internal', parent_tool='ssh_file_write')
                     else:
                         if not append:
                             # For overwrite with sudo, use cat with sudo redirection
                             cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
-                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
                         else:
                             # For append with sudo, use cat with sudo append redirection
                             cat_cmd = f"cat {shlex.quote(remote_temp_path)} >> {shlex.quote(file_path)}"
-                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
+                            mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
                         # Clean up the temporary file
-                        mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
+                        mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", origin='tool_internal', parent_tool='ssh_file_write')
                 elif not append:
                     # For overwrite without sudo, simply upload the file
                     mcp.ssh_client.put(local_temp_path, file_path)
@@ -2508,14 +2525,15 @@ async def ssh_file_write(
                                 remote_temp_path = f"C:\\Windows\\Temp\\ssh_file_write_{base_name}_{int(time.time())}"
                                 mcp.ssh_client.put(local_temp_path, remote_temp_path)
                                 copy_cmd = f"Copy-Item -Path '{remote_temp_path}' -Destination '{file_path}' -Force"
-                                mcp.ssh_client.run(powershell_encoded_command(copy_cmd))
-                                mcp.ssh_client.run(powershell_encoded_command(f"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue"))
+                                mcp.ssh_client.run(powershell_encoded_command(copy_cmd), origin='tool_internal', parent_tool='ssh_file_write')
+                                mcp.ssh_client.run(powershell_encoded_command(f"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue"),
+                                                    origin='tool_internal', parent_tool='ssh_file_write')
                             else:
                                 remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
                                 mcp.ssh_client.put(local_temp_path, remote_temp_path)
                                 cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
-                                mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True)
-                                mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}")
+                                mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
+                                mcp.ssh_client.run(f"rm -f {shlex.quote(remote_temp_path)}", origin='tool_internal', parent_tool='ssh_file_write')
                         else:
                             mcp.ssh_client.put(local_temp_path, file_path)
             except FileNotFoundError as e:
@@ -2532,11 +2550,11 @@ async def ssh_file_write(
                         else:
                             mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
                         if use_sudo and not is_windows:
-                            mcp.ssh_client.run(mkdir_cmd, sudo=True)
+                            mcp.ssh_client.run(mkdir_cmd, sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
                         else:
-                            mcp.ssh_client.run(mkdir_cmd)
+                            mcp.ssh_client.run(mkdir_cmd, origin='tool_internal', parent_tool='ssh_file_write')
                         logger.info(f"Created parent directories for {file_path}")
-                        
+
                         # Now try the upload again
                         if not append:
                             mcp.ssh_client.put(local_temp_path, file_path)
@@ -2555,18 +2573,18 @@ async def ssh_file_write(
             # Set file permissions if specified (no-op on Windows, which has no chmod)
             if mode is not None and mcp.ssh_client.os_type != 'windows':
                 chmod_cmd = f"chmod {mode:o} {shlex.quote(file_path)}"
-                mcp.ssh_client.run(chmod_cmd, sudo=use_sudo)
-                
+                mcp.ssh_client.run(chmod_cmd, sudo=use_sudo, origin='tool_internal', parent_tool='ssh_file_write')
+
             # If sudo was used, we may need to check ownership
             if use_sudo:
                 # Get the current user to set ownership properly
-                whoami_result = mcp.ssh_client.run("whoami")
+                whoami_result = mcp.ssh_client.run("whoami", origin='tool_internal', parent_tool='ssh_file_write')
                 current_user = whoami_result.get_full_output().strip()
                 if current_user and current_user != "root":
                     # Set ownership to the current user if we're not root
                     chown_cmd = f"chown {current_user} {shlex.quote(file_path)}"
                     try:
-                        mcp.ssh_client.run(chown_cmd, sudo=True)
+                        mcp.ssh_client.run(chown_cmd, sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
                     except Exception as e:
                         logger.warning(f"Failed to set ownership of {file_path}: {e}")
             

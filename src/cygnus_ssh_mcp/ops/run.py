@@ -109,6 +109,43 @@ class SshRunOperations(ABC):
             and self.CWD_INVALID_MARKER in handle.get_full_stderr()
         )
 
+    def _feed_output_chunk(self, handle, chunk, is_stderr=False):
+        """Decode a raw recv() chunk (or accept an already-decoded str) and emit
+        only genuinely newline-terminated lines to the handle, buffering any
+        trailing partial line (handle._pending_stdout/_pending_stderr) until a
+        later chunk completes it or _flush_pending_output is called. Never
+        synthesizes a fake newline onto a fragment that just hasn't finished
+        arriving yet - the root cause of the character-split output bug that
+        this method (and every recv() call site) now routes through.
+        """
+        if not chunk:
+            return
+        text = chunk.decode('utf-8', errors='replace') if isinstance(chunk, (bytes, bytearray)) else chunk
+        pending_attr = '_pending_stderr' if is_stderr else '_pending_stdout'
+        add = handle.add_stderr_output if is_stderr else handle.add_output
+        text = getattr(handle, pending_attr) + text
+        lines = text.splitlines(keepends=True)
+        if lines and not lines[-1].endswith('\n'):
+            setattr(handle, pending_attr, lines.pop())
+        else:
+            setattr(handle, pending_attr, '')
+        for line in lines:
+            add(line)
+
+    def _flush_pending_output(self, handle):
+        """Emit whatever partial line is still buffered for either stream, as-is
+        (no synthetic newline added - correctly handles output that just doesn't
+        end in a newline, e.g. a prompt). Called once a command is confirmed
+        fully done. Safe to call more than once (no-op once both buffers are
+        empty).
+        """
+        if handle._pending_stdout:
+            handle.add_output(handle._pending_stdout)
+            handle._pending_stdout = ''
+        if handle._pending_stderr:
+            handle.add_stderr_output(handle._pending_stderr)
+            handle._pending_stderr = ''
+
     PID_MARKER = None  # Set by subclasses that can capture a real remote PID (see _Linux)
 
     def _wrap_for_pid_capture(self, cmd: str) -> str:
@@ -124,7 +161,8 @@ class SshRunOperations(ABC):
     def execute_command(self, cmd: str, io_timeout: float = 60.0,
                         runtime_timeout: Optional[float] = None,
                         sudo: bool = False, cwd: Optional[str] = None,
-                        wait_timeout: Optional[float] = None) -> CommandHandle:
+                        wait_timeout: Optional[float] = None,
+                        origin: str = 'user', parent_tool: Optional[str] = None) -> CommandHandle:
         """
         Execute a command synchronously with timeout management.
 
@@ -140,6 +178,12 @@ class SshRunOperations(ABC):
             wait_timeout: Total elapsed wait in seconds, regardless of output activity -
                 unlike io_timeout, fires even if the command is actively producing
                 output. Same non-killing handoff behavior as io_timeout.
+            origin: 'user' (default) for a directly user-requested command, or an
+                internal-plumbing label ('tool_internal', 'connection_probe',
+                'sudo_probe') for helper commands issued by other tools - see
+                ssh_cmd_history's include_internal filter.
+            parent_tool: Name of the MCP tool that triggered this command, when
+                origin != 'user'.
 
         Returns:
             CommandHandle with command results
@@ -164,7 +208,7 @@ class SshRunOperations(ABC):
 
         try:
             # Create command handle
-            handle = self._create_command_handle(cmd, sudo=sudo)
+            handle = self._create_command_handle(cmd, sudo=sudo, origin=origin, parent_tool=parent_tool)
             handle.requested_cwd = cwd
 
             # Handle sudo/elevation if needed
@@ -201,9 +245,9 @@ class SshRunOperations(ABC):
             # Always release the lock
             self.ssh_client._busy_lock.release()
 
-    def _create_command_handle(self, cmd, sudo=False):
+    def _create_command_handle(self, cmd, sudo=False, origin='user', parent_tool=None):
         """Create and track a new CommandHandle."""
-        handle = self.ssh_client.history_manager.add_command(cmd, sudo=sudo)
+        handle = self.ssh_client.history_manager.add_command(cmd, sudo=sudo, origin=origin, parent_tool=parent_tool)
         if handle._tail_keep is None:
             handle.set_tail_keep(self.tail_keep)
         else:
@@ -229,18 +273,14 @@ class SshRunOperations(ABC):
             if chan.recv_ready():
                 data = chan.recv(4096)
                 if data:
-                    decoded_data = data.decode('utf-8', errors='replace')
-                    self.logger.debug(f"Initial stdout data: '{decoded_data.strip()}'")
-                    for line in decoded_data.splitlines(keepends=True):
-                        handle.add_output(line if line.endswith('\n') else line + '\n')
+                    self.logger.debug(f"Initial stdout data: '{data.decode('utf-8', errors='replace').strip()}'")
+                    self._feed_output_chunk(handle, data, is_stderr=False)
 
             if chan.recv_stderr_ready():
                 data_stderr = chan.recv_stderr(4096)
                 if data_stderr:
-                    decoded_stderr = data_stderr.decode('utf-8', errors='replace')
-                    self.logger.debug(f"Initial stderr data: '{decoded_stderr.strip()}'")
-                    for line in decoded_stderr.splitlines(keepends=True):
-                        handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+                    self.logger.debug(f"Initial stderr data: '{data_stderr.decode('utf-8', errors='replace').strip()}'")
+                    self._feed_output_chunk(handle, data_stderr, is_stderr=True)
 
         except socket.timeout:
             self.logger.debug("Timeout reading initial stdout/stderr (expected for some commands)")
@@ -282,19 +322,15 @@ class SshRunOperations(ABC):
                 if chan.recv_ready():
                     data = chan.recv(4096)
                     if data:
-                        decoded_data = data.decode('utf-8', errors='replace')
-                        self.logger.debug(f"STDOUT data: '{decoded_data.strip()}'")
-                        for line in decoded_data.splitlines(keepends=True):
-                            handle.add_output(line if line.endswith('\n') else line + '\n')
+                        self.logger.debug(f"STDOUT data: '{data.decode('utf-8', errors='replace').strip()}'")
+                        self._feed_output_chunk(handle, data, is_stderr=False)
                         last_data_time = time.monotonic()
 
                 if chan.recv_stderr_ready():
                     stderr_data = chan.recv_stderr(4096)
                     if stderr_data:
-                        decoded_stderr = stderr_data.decode('utf-8', errors='replace')
-                        self.logger.warning(f"[STDERR]: {decoded_stderr.strip()}")
-                        for line in decoded_stderr.splitlines(keepends=True):
-                            handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+                        self.logger.warning(f"[STDERR]: {stderr_data.decode('utf-8', errors='replace').strip()}")
+                        self._feed_output_chunk(handle, stderr_data, is_stderr=True)
                         last_data_time = time.monotonic()
 
             # Check I/O Timeout (silence-based, soft - hands off, does not kill)
@@ -319,20 +355,25 @@ class SshRunOperations(ABC):
         self._drain_remaining_output(chan, handle)
 
     def _drain_remaining_output(self, chan, handle):
-        """Read whatever's left in the channel's buffers after it's confirmed done."""
+        """Read whatever's left in the channel's buffers after it's confirmed
+        done, then flush any still-pending partial line (no synthetic newline
+        added). Covers both completion paths that call this method:
+        _monitor_command's synchronous loop and _continue_monitoring_in_background's
+        daemon-thread loop.
+        """
         while chan.recv_ready():
             data = chan.recv(4096)
             if not data:
                 break
-            for line in data.decode('utf-8', errors='replace').splitlines(keepends=True):
-                handle.add_output(line if line.endswith('\n') else line + '\n')
+            self._feed_output_chunk(handle, data, is_stderr=False)
 
         while chan.recv_stderr_ready():
             data = chan.recv_stderr(4096)
             if not data:
                 break
-            for line in data.decode('utf-8', errors='replace').splitlines(keepends=True):
-                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+            self._feed_output_chunk(handle, data, is_stderr=True)
+
+        self._flush_pending_output(handle)
 
     def _kill_on_runtime_timeout(self, chan, handle):
         """Kill the remote process and close the channel - the only path in this whole
@@ -358,6 +399,10 @@ class SshRunOperations(ABC):
         except Exception as e_kill:
             self.logger.warning(f"Error trying to stop process on runtime timeout: {e_kill}")
         finally:
+            # This path never calls _drain_remaining_output (the channel is being
+            # killed, not drained) - flush whatever partial line was pending at
+            # this instant explicitly, or it would silently be dropped.
+            self._flush_pending_output(handle)
             try:
                 chan.close()
             except Exception as e_close:
@@ -413,13 +458,11 @@ class SshRunOperations(ABC):
                     if chan.recv_ready():
                         data = chan.recv(4096)
                         if data:
-                            for line in data.decode('utf-8', errors='replace').splitlines(keepends=True):
-                                handle.add_output(line if line.endswith('\n') else line + '\n')
+                            self._feed_output_chunk(handle, data, is_stderr=False)
                     if chan.recv_stderr_ready():
                         stderr_data = chan.recv_stderr(4096)
                         if stderr_data:
-                            for line in stderr_data.decode('utf-8', errors='replace').splitlines(keepends=True):
-                                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+                            self._feed_output_chunk(handle, stderr_data, is_stderr=True)
 
             self._drain_remaining_output(chan, handle)
 
@@ -559,12 +602,19 @@ class SshRunOperations_Linux(SshRunOperations):
         first, instead of paramiko's local channel id. Falls back to the channel
         id (degraded - kill/status by PID won't target the right process, but the
         call still proceeds) if the marker doesn't arrive within PID_CAPTURE_TIMEOUT.
+
+        Stdout is fed through _feed_output_chunk incrementally as it arrives (no
+        marker to look for there). Stderr accumulates in a raw local buffer only
+        until the very first line is resolved (found to be the marker, or not) -
+        after that point (or if the marker never arrives at all), remaining
+        stderr is fed through the same incremental path as everything else, so
+        an in-progress last line never gets a synthetic newline.
         """
         handle.pid = chan.get_id()  # fallback default; overwritten below if marker found
-        stderr_buf = ''
-        stdout_chunks = []
+        stderr_prefix = ''  # raw bytes not yet resolved as marker-or-not
         deadline = time.monotonic() + self.PID_CAPTURE_TIMEOUT
         marker_found = False
+        marker_resolved = False  # True once the first stderr line has been checked
 
         try:
             while time.monotonic() < deadline and not marker_found:
@@ -576,19 +626,25 @@ class SshRunOperations_Linux(SshRunOperations):
                 if chan.recv_ready():
                     data = chan.recv(4096)
                     if data:
-                        stdout_chunks.append(data)
+                        self._feed_output_chunk(handle, data, is_stderr=False)
                 if chan.recv_stderr_ready():
                     data_stderr = chan.recv_stderr(4096)
                     if data_stderr:
-                        stderr_buf += data_stderr.decode('utf-8', errors='replace')
-                        if '\n' in stderr_buf:
-                            first_line, _, rest = stderr_buf.partition('\n')
+                        if marker_resolved:
+                            self._feed_output_chunk(handle, data_stderr, is_stderr=True)
+                            continue
+                        stderr_prefix += data_stderr.decode('utf-8', errors='replace')
+                        if '\n' in stderr_prefix:
+                            first_line, _, rest = stderr_prefix.partition('\n')
                             if first_line.startswith(self.PID_MARKER):
                                 pid_str = first_line[len(self.PID_MARKER):].strip()
                                 if pid_str.isdigit():
                                     handle.pid = int(pid_str)
                                     marker_found = True
-                                stderr_buf = rest
+                                marker_resolved = True
+                                stderr_prefix = ''
+                                if rest:
+                                    self._feed_output_chunk(handle, rest, is_stderr=True)
         except Exception as e:
             self.logger.warning(f"Error during PID marker capture: {e}")
 
@@ -600,14 +656,11 @@ class SshRunOperations_Linux(SshRunOperations):
                 f"channel id {handle.pid} (kill/status by PID will not target the right process)"
             )
 
-        # Flush whatever else was already read into the handle's buffers
-        if stdout_chunks:
-            decoded_data = b''.join(stdout_chunks).decode('utf-8', errors='replace')
-            for line in decoded_data.splitlines(keepends=True):
-                handle.add_output(line if line.endswith('\n') else line + '\n')
-        if stderr_buf:
-            for line in stderr_buf.splitlines(keepends=True):
-                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+        # Whatever never got resolved as a marker-or-not line (timed out before
+        # any newline arrived, or the very first line simply wasn't the marker)
+        # still needs to reach the handle.
+        if stderr_prefix:
+            self._feed_output_chunk(handle, stderr_prefix, is_stderr=True)
 
     def _handle_sudo(self, cmd: str) -> tuple:
         """Handle sudo command preparation for Linux."""
@@ -729,10 +782,16 @@ exit $proc.ExitCode
         paramiko's local channel id. Falls back to the channel id (degraded -
         kill/status by PID won't target the right process, but the call still
         proceeds) if the marker doesn't arrive within PID_CAPTURE_TIMEOUT.
+
+        Unlike Linux, the marker isn't necessarily the very first stderr line
+        (PowerShell startup noise can precede it) - so this keeps scanning
+        complete lines until the marker is found, forwarding every non-marker
+        line through the same incremental path as everything else, only once
+        it's genuinely newline-terminated (never a synthetic newline on a
+        still-arriving fragment).
         """
         handle.pid = chan.get_id()  # fallback default; overwritten below if marker found
         stderr_buf = ''
-        stdout_chunks = []
         deadline = time.monotonic() + self.PID_CAPTURE_TIMEOUT
         marker_found = False
 
@@ -746,7 +805,7 @@ exit $proc.ExitCode
                 if chan.recv_ready():
                     data = chan.recv(4096)
                     if data:
-                        stdout_chunks.append(data)
+                        self._feed_output_chunk(handle, data, is_stderr=False)
                 if chan.recv_stderr_ready():
                     data_stderr = chan.recv_stderr(4096)
                     if data_stderr:
@@ -761,8 +820,8 @@ exit $proc.ExitCode
                                 stderr_buf = rest
                             else:
                                 # Not the marker line (e.g. PowerShell startup noise) -
-                                # keep it, flush to the handle's stderr buffer below.
-                                handle.add_stderr_output(line + '\n')
+                                # forward it now that it's genuinely complete.
+                                self._feed_output_chunk(handle, line + '\n', is_stderr=True)
                                 stderr_buf = rest
         except Exception as e:
             self.logger.warning(f"Error during PID marker capture: {e}")
@@ -775,14 +834,11 @@ exit $proc.ExitCode
                 f"channel id {handle.pid} (kill/status by PID will not target the right process)"
             )
 
-        # Flush whatever else was already read into the handle's buffers
-        if stdout_chunks:
-            decoded_data = b''.join(stdout_chunks).decode('utf-8', errors='replace')
-            for line in decoded_data.splitlines(keepends=True):
-                handle.add_output(line if line.endswith('\n') else line + '\n')
+        # Whatever's left - a trailing partial line not yet newline-terminated,
+        # or (if the marker never arrived at all) everything read - still needs
+        # to reach the handle.
         if stderr_buf:
-            for line in stderr_buf.splitlines(keepends=True):
-                handle.add_stderr_output(line if line.endswith('\n') else line + '\n')
+            self._feed_output_chunk(handle, stderr_buf, is_stderr=True)
 
     def _extract_and_strip_exit_code_marker(self, handle) -> Optional[int]:
         """Find the real exit code marker in the handle's captured stderr, remove
