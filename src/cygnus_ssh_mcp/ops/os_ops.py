@@ -353,12 +353,22 @@ class SshOsOperations(ABC):
 
 
 class SshOsOperations_Linux(SshOsOperations):
-    """Linux implementation of OS operations using /proc, /sys, and GNU coreutils."""
+    """Linux implementation of OS operations using /proc, /sys, and GNU coreutils.
+
+    All _cmd_* methods below wrap their script in `sh -c` (not `bash -c` as
+    originally written) - live-verified against Alpine (BusyBox, no bash
+    installed at all) that this broke every one of these on a bash-less
+    target, even though none of the scripts actually use bash-specific syntax
+    (just $(...) substitution, $(( )) arithmetic, POSIX [ ] tests - all
+    supported by dash/ash/BusyBox sh identically). This class is also reused
+    as-is by 'flex' dispatch for os_ops (see client.py's _create_operations),
+    where bash is even less guaranteed to be present.
+    """
 
     def _cmd_hardware_info(self) -> str:
         """Return command to get hardware info using /proc and free."""
         return r"""
-        bash -c '
+        sh -c '
           echo "CPU:$(grep -c ^processor /proc/cpuinfo)"
           echo "CPU_MODEL:$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | sed "s/^[ \t]*//;s/[ \t]*$//")"
           echo "CPU_MHZ:$(grep -m1 "cpu MHz" /proc/cpuinfo | cut -d: -f2 | sed "s/^[ \t]*//;s/[ \t]*$//")"
@@ -372,7 +382,7 @@ class SshOsOperations_Linux(SshOsOperations):
     def _cmd_os_info(self) -> str:
         """Return command to get OS info using /etc/os-release."""
         return r"""
-        bash -c '
+        sh -c '
           if [ -f /etc/os-release ]; then
             echo "OS_NAME:$(grep "^NAME=" /etc/os-release | cut -d= -f2 | tr -d \")"
             echo "OS_VERSION:$(grep "^VERSION=" /etc/os-release | cut -d= -f2 | tr -d \")"
@@ -394,7 +404,7 @@ class SshOsOperations_Linux(SshOsOperations):
     def _cmd_network_info(self) -> str:
         """Return command to get network info using /sys/class/net and ip."""
         return r"""
-        bash -c '
+        sh -c '
           echo "HOSTNAME:$(hostname)"
           # Get all interfaces and their IPs
           for iface in $(ls /sys/class/net); do
@@ -407,7 +417,7 @@ class SshOsOperations_Linux(SshOsOperations):
     def _cmd_disk_info(self) -> str:
         """Return command to get disk info using df."""
         return r"""
-        bash -c '
+        sh -c '
           echo "DISK_TOTAL:$(df -h / | awk "NR==2{print \$2}")"
           echo "DISK_FREE:$(df -h / | awk "NR==2{print \$4}")"
           echo "FILESYSTEM:$(df -T / | awk "NR==2{print \$2}")"
@@ -415,24 +425,37 @@ class SshOsOperations_Linux(SshOsOperations):
         """
 
     def _cmd_user_status(self) -> str:
-        """Return command to get user status using GNU date."""
+        """Return command to get user status.
+
+        Uses `date +%Y-%m-%dT%H:%M:%S%z` rather than GNU date's
+        `--iso-8601=seconds` long option - live-verified against Alpine that
+        BusyBox date doesn't support the long option at all (silently empty
+        TIME field), while the `+FORMAT` form works identically everywhere
+        (matches SshOsOperations_Mac's already-portable equivalent).
+        """
         return r"""
-        bash -c '
+        sh -c '
           echo "USER:$(whoami)"
           echo "CWD:$(pwd)"
-          echo "TIME:$(date --iso-8601=seconds)"
+          echo "TIME:$(date +%Y-%m-%dT%H:%M:%S%z)"
           echo "OS_TYPE:$(uname -s)"
         '
         """
 
 
 class SshOsOperations_Mac(SshOsOperations):
-    """macOS implementation of OS operations using sysctl, sw_vers, and BSD tools."""
+    """macOS implementation of OS operations using sysctl, sw_vers, and BSD tools.
+
+    Also reused as-is for 'flex' dispatch (see client.py's _create_operations) -
+    uses `sh -c`, not `bash -c`, for the same reason as SshOsOperations_Linux:
+    no bash-specific syntax in these scripts, and a 'flex' target (e.g. a
+    minimal FreeBSD install) is not guaranteed to have bash at all.
+    """
 
     def _cmd_hardware_info(self) -> str:
         """Return command to get hardware info using sysctl and vm_stat."""
         return r"""
-        bash -c '
+        sh -c '
           echo "CPU:$(sysctl -n hw.ncpu)"
           echo "CPU_MODEL:$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo n/a)"
           echo "CPU_MHZ:$(sysctl -n hw.cpufrequency 2>/dev/null | awk "{print \$1/1000000}" || echo n/a)"
@@ -455,7 +478,7 @@ class SshOsOperations_Mac(SshOsOperations):
     def _cmd_os_info(self) -> str:
         """Return command to get OS info using sw_vers."""
         return r"""
-        bash -c '
+        sh -c '
           echo "OS_NAME:$(sw_vers -productName)"
           echo "OS_VERSION:$(sw_vers -productVersion)"
           echo "OS_RELEASE:$(sw_vers -buildVersion)"
@@ -467,7 +490,7 @@ class SshOsOperations_Mac(SshOsOperations):
     def _cmd_network_info(self) -> str:
         """Return command to get network info using ifconfig."""
         return r"""
-        bash -c '
+        sh -c '
           echo "HOSTNAME:$(hostname)"
           # Get all interfaces and their IPs using ifconfig
           for iface in $(ifconfig -l); do
@@ -482,7 +505,7 @@ class SshOsOperations_Mac(SshOsOperations):
     def _cmd_disk_info(self) -> str:
         """Return command to get disk info using df and diskutil."""
         return r"""
-        bash -c '
+        sh -c '
           echo "DISK_TOTAL:$(df -h / | awk "NR==2{print \$2}")"
           echo "DISK_FREE:$(df -h / | awk "NR==2{print \$4}")"
           # Get filesystem type from mount or diskutil
@@ -494,7 +517,7 @@ class SshOsOperations_Mac(SshOsOperations):
     def _cmd_user_status(self) -> str:
         """Return command to get user status using BSD date."""
         return r"""
-        bash -c '
+        sh -c '
           echo "USER:$(whoami)"
           echo "CWD:$(pwd)"
           echo "TIME:$(date -u +%Y-%m-%dT%H:%M:%S%z)"

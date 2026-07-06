@@ -375,9 +375,31 @@ class SshTaskOperations_Linux(SshTaskOperations):
         return "/tmp"
 
     def _build_launch_script(self, cmd: str, stdout_log: str, stderr_log: str, sudo: bool) -> tuple:
-        """Build bash script to launch background task."""
+        """Build a shell script to launch background task.
+
+        Live-verified against Alpine (BusyBox, no bash) and FreeBSD (bash not
+        installed by default): the script used to hardcode `#!/bin/bash` and
+        run itself via a bare path, relying on the kernel's shebang-exec
+        mechanism - which fails with a confusing "not found" (not "no such
+        interpreter") when /bin/bash doesn't exist. Now invoked explicitly via
+        `sh {script_path}` (see the returned tuple's first element - the
+        actual command to run, not just the path - matching the Windows
+        override, which already returns its full execution command there
+        rather than a bare path) - `sh` is required by both 'linux' and
+        'flex' dispatch's own capability probe, so it's always trustworthy.
+        The wrapper script's OWN commands (nohup, pid=$!, echo, rm -f) are
+        already POSIX/sh-compatible - only the innermost invocation of the
+        user's actual `cmd` needs to preserve bash's fuller feature set where
+        available, so that alone still prefers bash when confirmed present
+        (or unconfirmed, e.g. real macOS/Windows never probe capabilities at
+        all - defaults preserve today's exact behavior there).
+        """
         timestamp = int(time.time())
         script_path = f"/tmp/launch_script_{timestamp}.sh"
+        # Only the innermost invocation of the user's own `cmd` needs bash's
+        # fuller feature set - default True (assume present) when unconfirmed,
+        # so real Linux/macOS behave exactly as before.
+        cmd_shell = 'bash' if self.ssh_client.capabilities.get('bash', True) else 'sh'
 
         # Build redirection part
         if stdout_log:
@@ -397,12 +419,14 @@ class SshTaskOperations_Linux(SshTaskOperations):
             if sudo_password:
                 # Use sudo -S to read password from stdin via echo
                 # Store command in environment variable to avoid nested quoting issues
-                # nohup ensures process survives script exit
-                script_content = f"""#!/bin/bash
+                # nohup ensures process survives script exit. The outer 'sh -c' here is
+                # just plumbing (a pipe + sudo invocation) - always sh, no bash needed;
+                # only the innermost "$__SUDO_CMD" invocation uses cmd_shell.
+                script_content = f"""#!/bin/sh
 # Store command in variable to avoid nested quoting issues
 export __SUDO_CMD={shlex.quote(cmd)}
 # Launch command in background with proper redirection
-nohup bash -c 'echo {shlex.quote(sudo_password)} | sudo -S -p "" bash -c "$__SUDO_CMD"' {redirect_part} &
+nohup sh -c 'echo {shlex.quote(sudo_password)} | sudo -S -p "" {cmd_shell} -c "$__SUDO_CMD"' {redirect_part} &
 # Store PID
 pid=$!
 # Output only the PID with marker
@@ -413,11 +437,11 @@ exit 0
 """
             else:
                 # Try passwordless sudo
-                script_content = f"""#!/bin/bash
+                script_content = f"""#!/bin/sh
 # Store command in variable to avoid quoting issues
 export __SUDO_CMD={shlex.quote(cmd)}
 # Launch command in background with proper redirection
-nohup sudo -n bash -c "$__SUDO_CMD" {redirect_part} &
+nohup sudo -n {cmd_shell} -c "$__SUDO_CMD" {redirect_part} &
 # Store PID
 pid=$!
 # Output only the PID with marker
@@ -427,9 +451,9 @@ rm -f {script_path}
 exit 0
 """
         else:
-            script_content = f"""#!/bin/bash
+            script_content = f"""#!/bin/sh
 # Launch command in background with proper redirection
-bash -c {shlex.quote(cmd)} {redirect_part} &
+{cmd_shell} -c {shlex.quote(cmd)} {redirect_part} &
 # Store PID
 pid=$!
 # Output only the PID with marker
@@ -440,7 +464,8 @@ exit 0
 """
 
         create_script_cmd = f"cat > {script_path} << 'EOFSCRIPT'\n{script_content}\nEOFSCRIPT\nchmod +x {script_path}"
-        return script_path, script_content, create_script_cmd
+        execution_cmd = f"sh {shlex.quote(script_path)}"
+        return execution_cmd, script_content, create_script_cmd
 
     def _cmd_check_process_running(self, pid: int) -> str:
         return f"kill -0 {pid}"

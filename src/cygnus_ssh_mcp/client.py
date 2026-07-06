@@ -23,6 +23,25 @@ log = logging.getLogger(__name__)
 # logging.basicConfig(level=logging.INFO)
 
 
+def parse_capability_probe_output(output: str) -> dict:
+    """Parse SshClient._CAPABILITY_PROBE_SCRIPT's 'key:yes'/'key:no' output
+    lines into a {key: bool} dict. Module-level (not a method) so it's
+    testable without a live connection. Lines that don't match the expected
+    'key:yes'/'key:no' shape are silently skipped, not treated as failures -
+    leaves that key absent rather than guessing.
+    """
+    capabilities = {}
+    for line in output.splitlines():
+        line = line.strip()
+        if ':' not in line:
+            continue
+        key, _, value = line.partition(':')
+        key = key.strip()
+        value = value.strip()
+        if value in ('yes', 'no'):
+            capabilities[key] = (value == 'yes')
+    return capabilities
+
 
 class SshClient:
     """
@@ -34,9 +53,18 @@ class SshClient:
                  password=None, sudo_password=None,
                  connect_timeout=10, history_limit=50, tail_keep=100):
         # Initialize platform detection
-        self.os_type = None  # 'windows', 'linux', 'macos'
-        self.os_subtype = None  # 'windows10', 'debian', 'centos', etc.
-        
+        self.os_type = None  # 'windows', 'linux', 'macos', or 'flex' (any other
+                              # responsive POSIX kernel - see _detect_os/_create_operations)
+        self.os_subtype = None  # 'windows10', 'debian', 'centos', etc. - for 'flex',
+                                 # the real kernel name reported by uname -s (e.g. 'freebsd')
+        self.capabilities = {}  # Populated by _probe_capabilities() for os_type in
+                                 # ('linux', 'flex') only - see CapabilityGate in
+                                 # ops/capability_gate.py. A key's absence (not just a
+                                 # False value) is treated as "not confirmed missing" by
+                                 # the gate, so a probe hiccup never blocks an operation
+                                 # that would otherwise have worked - only a *confirmed*
+                                 # False result blocks anything.
+
         # Initialize connection status tracking
         self._connection_status = {
             'os_type': None,
@@ -79,13 +107,22 @@ class SshClient:
         self._detect_os()
 
         # Validate supported OS
-        if self.os_type not in ('linux', 'macos', 'windows'):
-            raise SshError(f"Unsupported OS detected: {self.os_type}. Only Linux, macOS, and Windows are supported.")
+        if self.os_type not in ('linux', 'macos', 'windows', 'flex'):
+            raise SshError(f"Unsupported OS detected: {self.os_type}. Only Linux, macOS, Windows, and generic POSIX ('flex') targets are supported.")
 
         # For Windows, detect elevation status and verify PowerShell version
         if self.os_type == 'windows':
             self._detect_windows_elevation()
             self._check_windows_powershell_version()
+
+        # For anything that might not have full GNU coreutils (a real Linux
+        # host is nearly always fine; this also catches BusyBox-based embedded
+        # devices that detect as 'linux', plus the 'flex' catch-all) - probe
+        # once, cheaply, so operations can check before running instead of
+        # failing with a cryptic remote error. Not needed for macOS/Windows -
+        # already fully supported and tested.
+        if self.os_type in ('linux', 'flex'):
+            self._probe_capabilities()
 
         self._create_operations()
 
@@ -116,6 +153,18 @@ class SshClient:
                 self._detect_linux_distro()
             elif exit_status == 0 and 'Darwin' in result:
                 self.os_type = 'macos'
+            elif exit_status == 0 and result:
+                # uname succeeded but reported a kernel we don't have dedicated
+                # support for (e.g. 'FreeBSD', 'SunOS', 'NetBSD') - a real,
+                # responsive POSIX-ish target, not a detection failure. Composed
+                # from existing Linux/Mac ops classes in _create_operations
+                # (best-effort fit), gated behind _probe_capabilities() rather
+                # than assumed to behave identically to Linux/macOS.
+                self.os_type = 'flex'
+                self.os_subtype = result.lower()
+                self._logger.info(
+                    f"Detected non-standard POSIX kernel '{result}' - using 'flex' platform support"
+                )
             else:
                 # uname failed or returned unknown - try Windows detection
                 # Use 'echo %OS%' which is fast and returns 'Windows_NT' on Windows
@@ -237,6 +286,66 @@ class SshClient:
         except Exception as e:
             self._logger.warning(f"Failed to check PowerShell version: {e}")
 
+    # Feature-tests exactly what the codebase depends on (see
+    # ops/capability_gate.py for the call sites each key gates). Run under
+    # 'sh -c' explicitly, since we can't assume bash exists - one of the
+    # things being probed. Every probe writes 'key:yes' or 'key:no'; the tar
+    # check builds and extracts a real tiny archive rather than parsing
+    # --version output, since BusyBox/GNU/bsdtar version strings aren't a
+    # reliable way to tell --strip-components support apart. All checks that
+    # need *some* directory (find/stat/du/tar) use a fresh $PROBE_DIR under
+    # /tmp rather than the login shell's starting directory ('.') - live-
+    # verified this matters: '.' is often the SSH user's home directory, which
+    # can contain leftover root-owned subdirectories (e.g. from prior sudo'd
+    # test runs) that make a real, fully GNU-compatible `du -sb .` exit
+    # non-zero on "Permission denied" for an unrelated subdirectory, a false
+    # negative unrelated to whether -s/-b themselves are supported. Known
+    # remaining edge case: if /tmp itself isn't writable, $PROBE_DIR can't be
+    # created and every one of these checks reports 'no' even on a fully
+    # GNU-compatible host - not fixed further since 'tmp_writable' already
+    # surfaces that fact directly, and most of this codebase's temp-file-based
+    # operations need a writable /tmp regardless.
+    #
+    # NOTE: designed by reading BusyBox/GNU documentation, not yet
+    # live-verified against a real BusyBox target - see
+    # planning/2026-07-06-non-standard-ssh-targets-capability-scoping.md.
+    _CAPABILITY_PROBE_SCRIPT = r"""sh -c '
+PROBE_DIR="/tmp/.ssh_mcp_cap_probe_$$"
+mkdir -p "$PROBE_DIR" 2>/dev/null
+command -v bash >/dev/null 2>&1 && echo "bash:yes" || echo "bash:no"
+find "$PROBE_DIR" -maxdepth 0 -printf "" >/dev/null 2>&1 && echo "find_printf:yes" || echo "find_printf:no"
+find "$PROBE_DIR" -maxdepth 0 -depth >/dev/null 2>&1 && echo "find_depth:yes" || echo "find_depth:no"
+stat -c "%a" "$PROBE_DIR" >/dev/null 2>&1 && echo "stat_c:yes" || echo "stat_c:no"
+du -sb "$PROBE_DIR" >/dev/null 2>&1 && echo "du_sb:yes" || echo "du_sb:no"
+ps -o pgid= -p $$ >/dev/null 2>&1 && echo "ps_pgid:yes" || echo "ps_pgid:no"
+printf "a\0" | xargs -0 true >/dev/null 2>&1 && echo "xargs_0:yes" || echo "xargs_0:no"
+command -v sudo >/dev/null 2>&1 && echo "sudo:yes" || echo "sudo:no"
+[ -w /tmp ] && echo "tmp_writable:yes" || echo "tmp_writable:no"
+mkdir -p "$PROBE_DIR/src/a" 2>/dev/null && touch "$PROBE_DIR/src/a/f" 2>/dev/null && tar -cf "$PROBE_DIR/t.tar" -C "$PROBE_DIR/src" a >/dev/null 2>&1 && mkdir -p "$PROBE_DIR/out" 2>/dev/null && tar -xf "$PROBE_DIR/t.tar" -C "$PROBE_DIR/out" --strip-components=1 >/dev/null 2>&1 && echo "tar_strip_components:yes" || echo "tar_strip_components:no"
+mkdir -p "$PROBE_DIR/out2" 2>/dev/null && tar -xf "$PROBE_DIR/t.tar" -C "$PROBE_DIR/out2" --keep-old-files >/dev/null 2>&1 && echo "tar_keep_old_files:yes" || echo "tar_keep_old_files:no"
+rm -rf "$PROBE_DIR" 2>/dev/null
+'
+"""
+
+    def _probe_capabilities(self):
+        """Feature-test the specific GNU/BusyBox-coreutils capabilities this
+        codebase depends on, caching results on self.capabilities. Only called
+        for os_type in ('linux', 'flex') - see __init__. A capability that
+        can't be confirmed (probe failed entirely, or an individual line
+        wasn't parsed) is left absent from the dict rather than defaulted to
+        False - CapabilityGate (ops/capability_gate.py) only blocks on a
+        *confirmed* False, so a probe hiccup can never regress a normal Linux
+        host that would otherwise have worked fine.
+        """
+        self.capabilities = {}
+        try:
+            stdin, stdout, stderr = self._client.exec_command(self._CAPABILITY_PROBE_SCRIPT, timeout=15)
+            output = stdout.read().decode('utf-8', errors='replace')
+            self.capabilities = parse_capability_probe_output(output)
+            self._logger.info(f"Probed capabilities: {self.capabilities}")
+        except Exception as e:
+            self._logger.warning(f"Capability probe failed, proceeding with no confirmed capabilities: {e}")
+
     def _create_operations(self):
         """Create platform-specific operation classes based on detected OS."""
         from cygnus_ssh_mcp.ops.file import SshFileOperations_Linux, SshFileOperations_Mac, SshFileOperations_Win
@@ -244,13 +353,14 @@ class SshClient:
         from cygnus_ssh_mcp.ops.run import SshRunOperations_Linux, SshRunOperations_Win
         from cygnus_ssh_mcp.ops.directory import SshDirectoryOperations_Linux, SshDirectoryOperations_Mac, SshDirectoryOperations_Win
         from cygnus_ssh_mcp.ops.os_ops import SshOsOperations_Linux, SshOsOperations_Mac, SshOsOperations_Win
+        from cygnus_ssh_mcp.ops.capability_gate import CapabilityGate, LINUX_DIRECTORY_GUARDS, FLEX_DIRECTORY_GUARDS, TASK_GUARDS
 
         # Select platform-specific operations based on detected OS
         if self.os_type == 'linux':
             self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
-            self.task_ops = SshTaskOperations_Linux(self)
+            self.task_ops = CapabilityGate(SshTaskOperations_Linux(self), self, TASK_GUARDS)
             self.file_ops = SshFileOperations_Linux(self)
-            self.dir_ops = SshDirectoryOperations_Linux(self)
+            self.dir_ops = CapabilityGate(SshDirectoryOperations_Linux(self), self, LINUX_DIRECTORY_GUARDS)
             self.os_ops = SshOsOperations_Linux(self)
         elif self.os_type == 'macos':
             # macOS uses bash like Linux for run/task operations
@@ -265,6 +375,21 @@ class SshClient:
             self.file_ops = SshFileOperations_Win(self)
             self.dir_ops = SshDirectoryOperations_Win(self)
             self.os_ops = SshOsOperations_Win(self)
+        elif self.os_type == 'flex':
+            # Catch-all for any responsive POSIX kernel that isn't Linux/macOS/
+            # Windows - composed entirely from existing classes, no new ones:
+            # reuse _Linux's run/task ops (bash-family shell behavior is the
+            # same across POSIX targets, same as macOS already does) and
+            # _Mac's file/dir/os ops (BSD-flavored basics like `stat -f` vs
+            # `-c` already correct there - a closer fit for an unrecognized
+            # non-Linux kernel than GNU/Linux syntax would be). Gated behind
+            # the same capability probe as 'linux', since none of this is
+            # assumed to work perfectly out of the box.
+            self.run_ops = SshRunOperations_Linux(self, self.tail_keep)
+            self.task_ops = CapabilityGate(SshTaskOperations_Linux(self), self, TASK_GUARDS)
+            self.file_ops = SshFileOperations_Mac(self)
+            self.dir_ops = CapabilityGate(SshDirectoryOperations_Mac(self), self, FLEX_DIRECTORY_GUARDS)
+            self.os_ops = SshOsOperations_Mac(self)
         else:
             # This shouldn't happen due to the check in __init__, but defensive programming
             raise SshError(f"No operations available for OS type: {self.os_type}")

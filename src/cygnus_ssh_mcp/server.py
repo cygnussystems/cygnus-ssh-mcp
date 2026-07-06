@@ -20,6 +20,7 @@ from datetime import datetime, UTC
 from cygnus_ssh_mcp.client import SshClient
 from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, CwdNotFound
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
+from cygnus_ssh_mcp.ops.capability_gate import describe_capabilities
 import stat as stat_module
 import errno
 
@@ -201,8 +202,23 @@ async def ssh_conn_connect(
     Establish an SSH connection using a pre-configured host.
     The host can be specified by its 'user@hostname' key or by its alias.
 
+    Beyond the three fully-supported platforms (Linux, macOS, Windows), any
+    other SSH target that responds to a basic shell command connects too,
+    reported as os_type='flex' (e.g. FreeBSD/OPNsense/pfSense-style routers,
+    or other unrecognized POSIX kernels). For 'linux' and 'flex' connections,
+    a one-time capability probe checks the specific shell/coreutils features
+    this server depends on (some embedded/BusyBox-based devices lack GNU
+    extensions like `find -printf` or `tar --strip-components`) - the result
+    is returned as 'capabilities' (raw probe results) and, if anything's
+    missing, 'capability_warnings' (plain-English gaps). Tools that need a
+    missing capability fail with a clear error naming what's missing, rather
+    than a cryptic remote command failure - nothing is silently degraded.
+
     Returns:
-        Dictionary with connection status and detailed system information
+        Dictionary with connection status and detailed system information.
+        'capabilities'/'capability_warnings' are included for 'linux'/'flex'
+        connections only (empty/omitted for macOS/Windows, which are already
+        fully supported and not probed).
     """
     try:
         # Try to resolve the host by key or alias
@@ -263,6 +279,22 @@ async def ssh_conn_connect(
                 "Windows elevation: use_sudo=True requires an Administrator session. "
                 "Unlike Linux/macOS, Windows cannot elevate on-demand. "
                 f"Current session is {'elevated (Administrator)' if is_elevated else 'NOT elevated (standard user)'}."
+            )
+
+        # Report probed capabilities for 'linux'/'flex' targets, so gaps are
+        # visible upfront instead of discovered by trial and error - see
+        # SshClient._probe_capabilities. Empty for macOS/Windows (never probed).
+        if mcp.ssh_client.capabilities:
+            result['capabilities'] = mcp.ssh_client.capabilities
+            warnings = describe_capabilities(mcp.ssh_client.capabilities)
+            if warnings:
+                result['capability_warnings'] = warnings
+        if status.get('os_type') == 'flex':
+            result['flex_note'] = (
+                f"This host reports an unrecognized kernel ('{mcp.ssh_client.os_subtype}') - "
+                "not Linux, macOS, or Windows. Support is best-effort: Linux-style shell "
+                "commands are used, gated by the 'capabilities' probe above, so unsupported "
+                "operations fail with a clear error rather than a cryptic remote failure."
             )
         # Include alias info if the connection was made via alias
         if host_config.get('alias'):
@@ -558,21 +590,31 @@ async def ssh_conn_status() -> dict:
 async def ssh_conn_host_info() -> dict:
     """
     Get detailed SSH connection status and system information.
-    
+
     Returns:
         Dictionary containing full connection status and detailed system info
-        including hardware, memory, disk usage, and more.
+        including hardware, memory, disk usage, and more. For a 'linux' or
+        'flex' (non-Linux/macOS/Windows) connection, also includes
+        'capabilities' (probed GNU/BusyBox-coreutils feature support) and
+        'capability_warnings' (plain-English list of confirmed gaps) - see
+        ssh_conn_connect's docstring for what these mean.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
-        
+
     try:
         status = mcp.ssh_client.get_connection_status(parent_tool='ssh_conn_host_info')
         system_info = mcp.ssh_client.full_status(parent_tool='ssh_conn_host_info')
-        return {
+        result = {
             'connection': status,
             'system': system_info
         }
+        if mcp.ssh_client.capabilities:
+            result['capabilities'] = mcp.ssh_client.capabilities
+            warnings = describe_capabilities(mcp.ssh_client.capabilities)
+            if warnings:
+                result['capability_warnings'] = warnings
+        return result
     except Exception as e:
         logger.error(f"Failed to get host info: {e}")
         raise
