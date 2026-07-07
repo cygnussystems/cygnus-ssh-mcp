@@ -54,6 +54,16 @@ every one of these was found and fixed here, not guessed at from documentation.
 | Archive create/extract | ❌ | ✅ |
 | Full Unicode support | Varies | ✅ |
 
+Beyond Linux, macOS, and Windows, cygnus-ssh-mcp can also reach further -
+routers, NAS boxes, and other non-standard SSH targets connect too, via a
+`flex` platform type and a capability probe that detects what each device's
+shell can actually do. See [Connecting to Alternate Platforms](#connecting-to-alternate-platforms) below.
+
+> [!WARNING]
+> **Alternate-platform (`flex`) support is a work in progress.** It's been
+> verified against several real devices, but the space of routers/NAS/embedded
+> systems is huge - expect rough edges on hardware that hasn't been tried yet.
+
 ---
 
 ## Prerequisites: SSH on Your Target Servers
@@ -357,6 +367,46 @@ cygnus-ssh-mcp works from **any client** (Windows, Linux, macOS) to **any target
 
 ---
 
+## Connecting to Alternate Platforms
+
+> [!WARNING]
+> **This is a work in progress.** It's been verified against several real
+> devices below, but routers/NAS/embedded systems vary enormously - expect to
+> hit devices that don't work yet, and please open an issue if you do.
+
+Beyond Linux, macOS, and Windows, cygnus-ssh-mcp connects to **any SSH target
+that responds to a basic shell command** - routers, NAS boxes, BSD-kernel
+appliances, and other embedded Linux devices. These report `os_type: "flex"`.
+
+On connect, a one-time capability probe checks the specific shell/coreutils
+features this project's tools depend on (GNU `find -printf`, `stat -c`, `du
+-sb`, `tar --strip-components`, `ps -o pgid=`, `xargs -0`, and more) - many
+embedded/BusyBox-based devices only support a smaller flag set than full GNU
+coreutils. The results come back from `ssh_conn_connect` as `capabilities`
+and, for anything missing, `capability_warnings`. A tool that needs a missing
+capability fails with a clear error naming exactly what's unavailable and,
+where one exists, a concrete fallback - nothing silently degrades.
+
+**Verified against:**
+
+| Device | Result |
+|---|---|
+| Alpine Linux (BusyBox) | Connects as `linux`; no `bash`/GNU `find`/`ps -o pgid=` - gated tools fail with clear fallback messages, everything else works |
+| OpenWrt | Connects as `linux`; root-only, most GNU extensions absent |
+| FreeBSD | Connects as `flex`; no `bash` by default, sudo/task tooling adapted to use `sh` |
+| Synology DSM (NAS) | Connects as `linux`; full GNU coreutils and working `sudo` - behaves like a normal Linux server |
+
+**Known limitation:** some devices reject SSH shell access entirely for an
+account, even one with admin-level permissions - this shows up as every
+command (even a bare `echo`) failing immediately after a successful login. No
+capability probe can fix that; `ssh_conn_connect` explains the situation
+in that failure rather than a generic error.
+
+Full details, capability list, and current gaps:
+[docs/26-alternate-platforms.md](docs/26-alternate-platforms.md).
+
+---
+
 ## Features
 
 ### Host Configuration
@@ -579,6 +629,7 @@ Note: `use_sudo` is ignored on Windows (no sudo equivalent). For elevated operat
 - [Installation](docs/15-installation.md)
 - [Platform Compatibility](docs/20-platform-compatibility.md)
 - [Windows Support](docs/25-windows-support.md)
+- [Alternate Platforms (flex)](docs/26-alternate-platforms.md)
 - [Host Configuration](docs/30-host-configuration.md)
 - [Tools Reference](docs/40-tools-reference.md)
 - [Command Execution](docs/50-command-execution.md)

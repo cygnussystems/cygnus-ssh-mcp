@@ -18,6 +18,7 @@ highlights, and the full tool list, see the
 - **[Platform Compatibility](20-platform-compatibility.md)** — what's supported where
 - **[macOS Compatibility](MACOS_COMPATIBILITY.md)** — macOS-specific notes
 - **[Windows Support](25-windows-support.md)** — OpenSSH setup, PowerShell quirks, troubleshooting
+- **[Alternate Platforms (flex)](26-alternate-platforms.md)** — routers, NAS, BSD, and other non-standard SSH targets (work in progress)
 
 ## Using the Tools
 

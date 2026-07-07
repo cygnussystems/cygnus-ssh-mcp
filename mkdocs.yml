@@ -38,6 +38,7 @@ nav:
       - Platform Compatibility: 20-platform-compatibility.md
       - macOS Compatibility: MACOS_COMPATIBILITY.md
       - Windows Support: 25-windows-support.md
+      - Alternate Platforms (flex): 26-alternate-platforms.md
   - Using the Tools:
       - Tools Reference: 40-tools-reference.md
       - Command Execution: 50-command-execution.md

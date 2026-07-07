@@ -18,7 +18,7 @@ This SSH MCP server enables remote server management via SSH. This document desc
 | macOS | Windows Server 2016+ | Fully supported |
 | Linux | Windows Server 2016+ | Fully supported |
 | Any | Windows Server 2012 R2 | Not supported |
-| Any | BSD variants | Not supported |
+| Any | BSD variants, routers, NAS, embedded Linux | Experimental (`flex`/capability-gated) - see [Alternate Platforms](26-alternate-platforms.md) |
 
 ## Client-Side Requirements
 
@@ -92,6 +92,12 @@ SshOsOperations
 
 The correct operation class is automatically selected based on the detected OS during SSH connection.
 
+`flex` targets don't get their own classes - they reuse the Linux run/task
+operations and the Mac file/dir/os operations as-is (the same composition
+macOS itself uses), wrapped in a capability gate that blocks only the
+specific methods a confirmed-missing capability would break. See
+[Alternate Platforms](26-alternate-platforms.md) for details.
+
 ## Platform Detection
 
 When connecting, the server automatically detects the remote OS:
@@ -99,6 +105,8 @@ When connecting, the server automatically detects the remote OS:
 1. **Linux**: Detected via `uname -s` returning "Linux"
 2. **macOS**: Detected via `uname -s` returning "Darwin"
 3. **Windows**: Detected via `echo %OS%` returning "Windows_NT" or PowerShell availability
+4. **`flex`**: Any other target where `uname -s` succeeds but returns something
+   else (e.g. `FreeBSD`) - see [Alternate Platforms](26-alternate-platforms.md)
 
 The detected OS type and subtype are available in connection status:
 
@@ -124,8 +132,13 @@ The detected OS type and subtype are available in connection status:
 
 The following are explicitly not supported:
 
-- **FreeBSD, OpenBSD, NetBSD**: Different command syntax and utilities
 - **Windows Server 2012 R2 and earlier**: Requires PowerShell 5.0+
 - **Windows 8.1 and earlier**: Requires PowerShell 5.0+
-- **Embedded Linux**: May lack required utilities
-- **Solaris/illumos**: Different command syntax
+- Any device that doesn't respond to a basic shell command over SSH at all
+  (no `uname`, or the account is denied shell access entirely post-auth)
+
+**FreeBSD, embedded Linux (routers, NAS, BusyBox-based systems), and other
+non-standard POSIX targets** are handled on a best-effort basis via the
+`flex` platform and a capability-probing system - see
+[Alternate Platforms](26-alternate-platforms.md) for what's supported, what
+isn't, and the current work-in-progress caveats.
