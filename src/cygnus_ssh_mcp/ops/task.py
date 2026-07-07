@@ -483,7 +483,11 @@ exit 0
         else:
             cmd = f"kill -{signal} {pid}"
         if sudo:
-            return f"sudo -n bash -c {shlex.quote(cmd)}"
+            # bash-less+sudo targets (e.g. FreeBSD) need `sh` here instead -
+            # same bug/fix as ops/run.py's _handle_sudo: sudo execs the named
+            # shell as its target command, independent of what's calling it.
+            cmd_shell = 'bash' if self.ssh_client.capabilities.get('bash', True) else 'sh'
+            return f"sudo -n {cmd_shell} -c {shlex.quote(cmd)}"
         return cmd
 
     def _cmd_rename_log(self, old_path: str, new_path: str, pid: int) -> str:

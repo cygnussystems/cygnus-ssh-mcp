@@ -126,6 +126,69 @@ class SshClient:
 
         self._create_operations()
 
+    def _describe_os_detection_failure(self, uname_result='', uname_exit=1, uname_stderr='',
+                                        uname_probe_error=None, win_result=None, win_exit=None,
+                                        ps_result=None, ps_exit=None, win_probe_error=None):
+        """Build a diagnostic message for a completely failed OS detection -
+        rather than a generic "nothing worked", surface exactly what each
+        probe returned (or how it failed), plus a raw connectivity sanity
+        check, so a genuinely new kind of target (e.g. a vendor CLI shell
+        that's neither POSIX nor PowerShell) can be diagnosed from the error
+        alone instead of a second investigation."""
+        lines = ["Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded."]
+        if uname_probe_error is not None:
+            lines.append(f"  'uname -s' probe raised: {uname_probe_error!r}")
+        else:
+            lines.append(f"  'uname -s' -> exit={uname_exit}, stdout={uname_result!r}, stderr={uname_stderr!r}")
+        if win_probe_error is not None:
+            lines.append(f"  Windows detection probe raised: {win_probe_error!r}")
+        else:
+            lines.append(f"  'echo %OS%' -> exit={win_exit}, stdout={win_result!r}")
+            lines.append(f"  PowerShell version probe -> exit={ps_exit}, stdout={ps_result!r}")
+        # One last raw sanity check: does the shell respond to ANYTHING at
+        # all? Distinguishes "no real shell (e.g. a vendor menu/CLI)" from "a
+        # real shell that just doesn't have uname/cmd.exe in its PATH".
+        raw_stderr = ''
+        try:
+            marker = "___SSH_MCP_PROBE_ALIVE___"
+            stdin, stdout, stderr = self._client.exec_command(f'echo {marker}', timeout=5)
+            raw_out = stdout.read().decode('utf-8', errors='replace').strip()
+            raw_stderr = stderr.read().decode('utf-8', errors='replace').strip()
+            raw_exit = stdout.channel.recv_exit_status()
+            lines.append(f"  Raw 'echo {marker}' sanity check -> exit={raw_exit}, stdout={raw_out!r}, stderr={raw_stderr!r}")
+        except Exception as sanity_err:
+            lines.append(f"  Raw sanity check also failed to complete: {sanity_err!r}")
+
+        # Heuristic hint for the most common real-world cause of "every probe
+        # rejected identically, even a bare echo": the SSH login itself
+        # succeeded, but this account isn't allowed to open a shell at all -
+        # live-confirmed on a Synology SRM router (interactive PTY session,
+        # not just exec_command, was torn down immediately post-auth with the
+        # same "Permission denied, please try again.", i.e. rejected in a PAM
+        # account/session phase, not the password/auth phase). This is an
+        # account/device permission gap, not a shell-syntax or capability gap
+        # - no capability probe or command rewrite can work around it. Two
+        # concrete causes confirmed common on Synology SRM/DSM specifically:
+        # some SRM firmware only allows SSH shell access for the original/
+        # primary admin account, regardless of other accounts' admin role;
+        # and 2FA/OTP enabled on the account can fail this same way, since a
+        # non-interactive SSH session has no way to supply the OTP.
+        combined_stderr = f"{uname_stderr} {raw_stderr}".lower()
+        if 'permission denied' in combined_stderr:
+            lines.append(
+                "  Likely cause: SSH authentication succeeded, but this account isn't "
+                "permitted to open a shell or run commands at all (every probe above was "
+                "rejected identically, including a bare 'echo', immediately after login). "
+                "This is an account/device permission restriction, not a capability gap or "
+                "unsupported shell - no command rewrite can work around it. Common causes on "
+                "routers/NAS devices (e.g. Synology SRM/DSM): SSH shell access limited to the "
+                "original/primary admin account regardless of other accounts' admin role, or "
+                "2FA/OTP enabled on this account (a non-interactive SSH session has no way to "
+                "supply the OTP). Try the original/primary admin account, try an account with "
+                "2FA disabled, or check the device's own SSH/shell-access settings."
+            )
+        return "\n".join(lines)
+
     def _detect_os(self):
         """Detect the remote OS type and subtype."""
         # First verify we have an active connection
@@ -141,11 +204,15 @@ class SshClient:
             # not abort the whole detection routine.
             result = ''
             exit_status = 1
+            uname_stderr = ''
+            uname_probe_error = None
             try:
                 stdin, stdout, stderr = self._client.exec_command('uname -s', timeout=5)
                 result = stdout.read().decode('utf-8', errors='replace').strip()
+                uname_stderr = stderr.read().decode('utf-8', errors='replace').strip()
                 exit_status = stdout.channel.recv_exit_status()
             except Exception as uname_err:
+                uname_probe_error = uname_err
                 self._logger.debug(f"'uname -s' probe did not complete, assuming non-Unix: {uname_err!r}")
 
             if exit_status == 0 and 'Linux' in result:
@@ -187,9 +254,17 @@ class SshClient:
                             self.os_type = 'windows'
                             self._detect_windows_version()
                         else:
-                            raise SshError("Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded")
+                            raise SshError(self._describe_os_detection_failure(
+                                result, exit_status, uname_stderr, uname_probe_error,
+                                win_result, win_exit, ps_result, ps_exit
+                            ))
+                except SshError:
+                    raise
                 except Exception as win_err:
-                    raise SshError(f"Failed to detect OS type - neither Linux/macOS nor Windows commands succeeded: {win_err!r}")
+                    raise SshError(self._describe_os_detection_failure(
+                        result, exit_status, uname_stderr, uname_probe_error,
+                        win_probe_error=win_err
+                    ))
         except SshError:
             self.close()
             raise

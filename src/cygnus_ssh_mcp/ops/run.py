@@ -666,6 +666,11 @@ class SshRunOperations_Linux(SshRunOperations):
         """Handle sudo command preparation for Linux."""
         self.logger.info(f"Attempting passwordless sudo for: {cmd}")
         test_sudo_cmd = "sudo -n whoami"
+        # bash-less targets (e.g. FreeBSD) need `sh` here instead - live-confirmed
+        # on FreeBSD (sudo present, bash absent): "sudo -n bash -c ..." fails with
+        # "sudo: bash: command not found" since sudo execs bash as the target
+        # command, independent of any shell the caller is running under.
+        cmd_shell = 'bash' if self.ssh_client.capabilities.get('bash', True) else 'sh'
         try:
             stdin_t, stdout_t, stderr_t = self.ssh_client._client.exec_command(test_sudo_cmd, timeout=5)
             sudo_n_stderr = stderr_t.read().decode('utf-8', errors='replace')
@@ -676,11 +681,19 @@ class SshRunOperations_Linux(SshRunOperations):
 
             if sudo_n_exit_code == 0:
                 self.logger.info("Passwordless sudo successful.")
-                return f"sudo -n bash -c {shlex.quote(cmd)}", False
+                return f"sudo -n {cmd_shell} -c {shlex.quote(cmd)}", False
             elif sudo_n_exit_code == 1 and ("sudo:" in sudo_n_stderr or "password is required" in sudo_n_stderr.lower()):
                 if self.ssh_client.sudo_password:
                     self.logger.info("Sudo password provided. Using sudo with password.")
-                    return f"sudo -S -p '' bash -c {shlex.quote(cmd)} <<< {shlex.quote(self.ssh_client.sudo_password)}", True
+                    # `<<<` (here-string) is bash/zsh-only and breaks under a
+                    # plain POSIX sh login shell - live-confirmed on FreeBSD
+                    # ("sh: Syntax error: redirection unexpected"), independent
+                    # of whether bash exists on the target at all. A plain pipe
+                    # is POSIX-portable everywhere.
+                    return (
+                        f"printf '%s\\n' {shlex.quote(self.ssh_client.sudo_password)} "
+                        f"| sudo -S -p '' {cmd_shell} -c {shlex.quote(cmd)}"
+                    ), True
                 else:
                     raise SudoRequired(cmd)
             else:
