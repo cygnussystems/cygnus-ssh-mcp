@@ -127,15 +127,23 @@ class CapabilityGate:
 
 _FIND_PRINTF_MSG = (
     "This operation needs GNU find's -printf, which this host's find doesn't "
-    "support (looks like a BusyBox-style find)."
+    "support (looks like a BusyBox-style find). Fallback: ssh_dir_list_files_basic "
+    "(non-recursive filenames) plus ssh_file_stat per entry for metadata - both are "
+    "SFTP-based and unaffected by this, at the cost of one call per directory level "
+    "instead of one call for the whole tree."
 )
 _DU_SB_MSG = (
     "This operation needs du's combined -s and -b flags, which this host's "
-    "du doesn't support (looks like a BusyBox-style du)."
+    "du doesn't support (looks like a BusyBox-style du). Fallback: "
+    "ssh_cmd_run(\"du -sk <path>\") - dropping -b for -k (kilobytes instead of "
+    "exact bytes) works on most BusyBox du builds even when -sb doesn't."
 )
 _TAR_STRIP_MSG = (
     "This operation needs tar's --strip-components, which this host's tar "
-    "doesn't support (looks like a BusyBox-style tar)."
+    "doesn't support (looks like a BusyBox-style tar). No clean single-tool "
+    "fallback - extract without stripping via ssh_cmd_run (the archive's own "
+    "top-level directory will remain), then relocate its contents up one level "
+    "yourself (ssh_cmd_run/ssh_dir_copy)."
 )
 _TAR_KEEP_OLD_FILES_MSG = (
     "This operation needs tar's --keep-old-files (used whenever overwrite=False, "
@@ -144,11 +152,17 @@ _TAR_KEEP_OLD_FILES_MSG = (
 )
 _XARGS_0_MSG = (
     "This operation needs xargs's -0 (null-delimited input), which this "
-    "host's xargs doesn't support (looks like a BusyBox-style xargs)."
+    "host's xargs doesn't support (looks like a BusyBox-style xargs). Fallback: "
+    "ssh_cmd_run with 'find ... -exec <command> +' instead of "
+    "'find ... -print0 | xargs -0 <command>' - portable, and still safe with "
+    "spaces in filenames."
 )
 _PS_PGID_MSG = (
     "Killing a sudo'd command by process group needs ps's -o pgid= support, "
-    "which this host's ps doesn't have (looks like a BusyBox-style ps)."
+    "which this host's ps doesn't have (looks like a BusyBox-style ps). No "
+    "clean fallback - killing just the captured PID (not the whole process "
+    "group) can leave the sudo'd command's real child process(es) running as "
+    "orphans, which is the exact failure mode this check exists to prevent."
 )
 
 # Methods only present in SshDirectoryOperations_Linux's own overrides

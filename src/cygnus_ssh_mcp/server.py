@@ -952,6 +952,14 @@ async def ssh_task_kill(
     If force=True and the process doesn't exit after wait_seconds,
     it will be forcibly killed with SIGKILL (signal 9).
 
+    With `use_sudo=True` on a 'linux'/'flex' connection with a BusyBox-style
+    `ps` that doesn't support `-o pgid=` (check `ssh_conn_connect`/
+    `ssh_conn_host_info`'s `capabilities`), this raises a clear error instead
+    of running - there is no clean fallback, since killing just the captured
+    PID (rather than its whole process group) can leave the sudo'd command's
+    real child process(es) running as orphans, exactly the failure mode this
+    check exists to prevent. Not an issue with `use_sudo=False`.
+
     Returns:
         `{'pid', 'result', 'signal', 'force_kill_used', 'timestamp'}`. `result` is
         one of:
@@ -2723,6 +2731,12 @@ async def ssh_dir_search_glob(
     means the given `path` itself plus its immediate children only (not
     grandchildren); omit `max_depth` for unlimited recursion.
 
+    On a 'linux'/'flex' connection with a limited BusyBox-style `find` (no
+    `-printf` - check `ssh_conn_connect`/`ssh_conn_host_info`'s `capabilities`),
+    this raises a clear error instead of running. Fallback: `ssh_dir_list_files_basic`
+    (non-recursive filenames, match the pattern yourself) - SFTP-based and
+    unaffected by this, at the cost of one call per directory level.
+
     Returns:
         List of `{'path': str, 'type': str}` - `type` is a single-character code
         (`f`=file, `d`=directory, `l`=symlink) from the underlying `find`/`stat`
@@ -2747,6 +2761,12 @@ async def ssh_dir_calc_size(
     """
     Calculate the total size of a directory recursively (sum of all file sizes
     under it).
+
+    On a 'linux'/'flex' connection with a BusyBox-style `du` that doesn't
+    support `-s`+`-b` combined (check `ssh_conn_connect`/`ssh_conn_host_info`'s
+    `capabilities`), this raises a clear error instead of running. Fallback:
+    `ssh_cmd_run("du -sk <path>")` - kilobytes instead of exact bytes, but
+    works on most BusyBox `du` builds even when `-sb` doesn't.
 
     Returns:
         `{'path', 'size_bytes' (int), 'size_human' (e.g. "1.23 MB", "512.00 KB",
@@ -2816,6 +2836,12 @@ async def ssh_dir_batch_delete_files(
     only PREVIEWS which files would be deleted and deletes NOTHING; you must
     explicitly pass `dry_run=False` to actually delete.
 
+    On a 'linux'/'flex' connection with a BusyBox-style `xargs` that doesn't
+    support `-0` (check `ssh_conn_connect`/`ssh_conn_host_info`'s `capabilities`),
+    this raises a clear error instead of running. Fallback: `ssh_cmd_run` with
+    `find <path> -name '<pattern>' -exec rm -f {} +` instead - portable, and
+    still safe with spaces in filenames.
+
     Returns:
         `{'status': 'success'/'error', 'deleted_files': [str, ...] (matching file
         paths that were/would be deleted)}`, plus `'dry_run': True` ONLY when this
@@ -2851,6 +2877,12 @@ async def ssh_dir_list_advanced(
     `max_depth` uses standard `find -maxdepth` semantics: `max_depth=1` means `path`
     itself plus its immediate children only; omit for unlimited recursion.
 
+    On a 'linux'/'flex' connection with a limited BusyBox-style `find` (no
+    `-printf` - check `ssh_conn_connect`/`ssh_conn_host_info`'s `capabilities`),
+    this raises a clear error instead of running. Fallback: `ssh_dir_list_files_basic`
+    (non-recursive filenames) plus `ssh_file_stat` per entry for metadata - both are
+    SFTP-based and unaffected by this, at the cost of one call per directory level.
+
     Returns:
         List of `{'path', 'type', 'size_bytes' (int), 'modified_time' (float Unix
         timestamp), 'permissions' (string, e.g. "755"), 'user', 'group'}`. `type` is
@@ -2863,7 +2895,7 @@ async def ssh_dir_list_advanced(
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
-        
+
     try:
         results = mcp.ssh_client.list_directory_recursive(path, max_depth, use_sudo)
         return results
@@ -2897,6 +2929,12 @@ async def ssh_dir_search_files_content(
     come back corrupted for non-ASCII text, since Windows' console encodes stdout
     in its OEM code page rather than UTF-8 (the same problem ssh_file_read's SFTP
     approach avoids).
+
+    On a 'linux'/'flex' connection with a BusyBox-style `xargs` that doesn't
+    support `-0` (check `ssh_conn_connect`/`ssh_conn_host_info`'s `capabilities`),
+    this raises a clear error instead of running. Fallback: `ssh_cmd_run` with
+    `find <dir_path> -type f -exec grep -l '<pattern>' {} +` instead - portable,
+    and still safe with spaces in filenames.
 
     Returns:
         List of `{'file': str, 'line': int, 'content': str}` - one entry per matching
@@ -3022,6 +3060,17 @@ async def ssh_archive_extract(
     the destination - on Linux/macOS it extracts everything else and just logs a
     warning about the skipped files (no per-file detail returned); on Windows the
     behavior follows `Expand-Archive`'s own overwrite handling.
+
+    On a 'linux'/'flex' connection with a BusyBox-style `tar` (check
+    `ssh_conn_connect`/`ssh_conn_host_info`'s `capabilities`), this can raise a
+    clear error instead of running - unlike the wrong-format/extraction-error
+    cases below, which return an error dict, this is a raised exception. Two
+    independent gaps: missing `--strip-components` blocks extraction entirely
+    (no clean single-tool fallback - extract without stripping via `ssh_cmd_run`,
+    the archive's own top-level directory will remain, then relocate its
+    contents up one level yourself); missing `--keep-old-files` only blocks when
+    `overwrite` isn't explicitly `True` - passing `overwrite=True` avoids that
+    one specifically.
 
     Returns:
         On success: `{'status': 'success', 'success': True, 'extracted_files': [str,
