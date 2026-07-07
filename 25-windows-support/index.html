@@ -1,0 +1,2172 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The most powerful SSH MCP server for AI assistants">
+      
+      
+      
+        <link rel="canonical" href="https://cygnussystems.github.io/cygnus-ssh-mcp/25-windows-support/">
+      
+      
+        <link rel="prev" href="../MACOS_COMPATIBILITY/">
+      
+      
+        <link rel="next" href="../26-alternate-platforms/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Windows Support - cygnus-ssh-mcp</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#windows-support" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="cygnus-ssh-mcp" class="md-header__button md-logo" aria-label="cygnus-ssh-mcp" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            cygnus-ssh-mcp
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Windows Support
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/cygnussystems/cygnus-ssh-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    cygnussystems/cygnus-ssh-mcp
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../10-overview/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../20-platform-compatibility/" class="md-tabs__link">
+          
+  
+  
+  Platform Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../40-tools-reference/" class="md-tabs__link">
+          
+  
+  
+  Using the Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="cygnus-ssh-mcp" class="md-nav__button md-logo" aria-label="cygnus-ssh-mcp" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    cygnus-ssh-mcp
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/cygnussystems/cygnus-ssh-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    cygnussystems/cygnus-ssh-mcp
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../30-host-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Host Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Platform Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../20-platform-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MACOS_COMPATIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows Support
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-windows-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Windows Versions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Supported Windows Versions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-powershell-50" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why PowerShell 5.0+?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-openssh-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OpenSSH Server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-administrator-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Administrator Access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#behavioral-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Behavioral Differences
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Behavioral Differences">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#path-separators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Path Separators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archive-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archive Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permissions-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permissions Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#line-endings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Line Endings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temp-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Temp Directory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-specific-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool-Specific Notes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool-Specific Notes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-execution-ssh_cmd_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Execution (ssh_cmd_run)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#directory-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Operations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Operations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#background-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background Tasks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#system-information-ssh_conn_host_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Information (ssh_conn_host_info)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Limitations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-unicode-in-command-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Unicode in Command Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-no-per-command-elevation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. No Per-Command Elevation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-non-empty-directory-removal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Non-Empty Directory Removal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-local-powershell-falling-back-to-a-local-ssh-call" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Local PowerShell Falling Back to a Local ssh Call
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-configuration-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host Configuration Example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connection-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Refused
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permission-denied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permission Denied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#powershell-version-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PowerShell Version Error
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#commands-not-found" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands Not Found
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../26-alternate-platforms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Alternate Platforms (flex)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using the Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../40-tools-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../50-command-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../60-process-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../70-logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../80-claude-desktop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Claude Desktop Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-windows-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Windows Versions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Supported Windows Versions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-powershell-50" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why PowerShell 5.0+?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prerequisites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-openssh-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. OpenSSH Server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-administrator-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Administrator Access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#behavioral-differences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Behavioral Differences
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Behavioral Differences">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#path-separators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Path Separators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archive-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archive Format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permissions-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permissions Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#line-endings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Line Endings
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#temp-directory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Temp Directory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-specific-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool-Specific Notes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tool-Specific Notes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#command-execution-ssh_cmd_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Execution (ssh_cmd_run)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#directory-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Operations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Operations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#background-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background Tasks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#system-information-ssh_conn_host_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Information (ssh_conn_host_info)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Limitations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-unicode-in-command-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Unicode in Command Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-no-per-command-elevation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. No Per-Command Elevation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-non-empty-directory-removal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Non-Empty Directory Removal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-local-powershell-falling-back-to-a-local-ssh-call" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Local PowerShell Falling Back to a Local ssh Call
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-configuration-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host Configuration Example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connection-refused" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Refused
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permission-denied" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permission Denied
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#powershell-version-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PowerShell Version Error
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#commands-not-found" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands Not Found
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="windows-support">Windows Support<a class="headerlink" href="#windows-support" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>cygnus-ssh-mcp supports Windows Server as a target system via SSH. This document covers supported versions, requirements, and behavioral differences from Linux/macOS.</p>
+<h2 id="supported-windows-versions">Supported Windows Versions<a class="headerlink" href="#supported-windows-versions" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Windows Version</th>
+<th>PowerShell</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Windows Server 2022</td>
+<td>5.1</td>
+<td>Fully supported</td>
+</tr>
+<tr>
+<td>Windows Server 2019</td>
+<td>5.1</td>
+<td>Fully supported</td>
+</tr>
+<tr>
+<td>Windows Server 2016</td>
+<td>5.0</td>
+<td>Fully supported</td>
+</tr>
+<tr>
+<td>Windows 11</td>
+<td>5.1</td>
+<td>Fully supported</td>
+</tr>
+<tr>
+<td>Windows 10</td>
+<td>5.0+</td>
+<td>Fully supported</td>
+</tr>
+<tr>
+<td>Windows Server 2012 R2</td>
+<td>4.0</td>
+<td>Not supported (requires WMF 5.1)</td>
+</tr>
+<tr>
+<td>Windows 8.1 and earlier</td>
+<td>&lt; 5.0</td>
+<td>Not supported</td>
+</tr>
+</tbody>
+</table>
+<h3 id="why-powershell-50">Why PowerShell 5.0+?<a class="headerlink" href="#why-powershell-50" title="Permanent link">&para;</a></h3>
+<p>The following PowerShell features require version 5.0 or later:</p>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Cmdlet</th>
+<th>Used For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Archive operations</td>
+<td><code>Compress-Archive</code>, <code>Expand-Archive</code></td>
+<td>Creating/extracting archives</td>
+</tr>
+<tr>
+<td>Depth-limited listing</td>
+<td><code>Get-ChildItem -Depth</code></td>
+<td>Directory listings with max depth</td>
+</tr>
+</tbody>
+</table>
+<p>Connecting to a Windows system with PowerShell &lt; 5.0 will result in an error:</p>
+<div class="highlight"><pre><span></span><code>PowerShell 4.x detected. This tool requires PowerShell 5.0 or later.
+Windows Server 2016+, Windows 10+ have PowerShell 5.0+ built-in.
+For older Windows versions, install Windows Management Framework (WMF) 5.1.
+</code></pre></div>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<h3 id="1-openssh-server">1. OpenSSH Server<a class="headerlink" href="#1-openssh-server" title="Permanent link">&para;</a></h3>
+<p>Windows Server 2019+ includes OpenSSH as an optional feature. To enable:</p>
+<div class="highlight"><pre><span></span><code><span class="c"># Check if installed</span>
+<span class="nb">Get-WindowsCapability</span> <span class="n">-Online</span> <span class="p">|</span> <span class="nb">Where-Object</span> <span class="n">Name</span> <span class="o">-like</span> <span class="s1">&#39;OpenSSH.Server*&#39;</span>
+
+<span class="c"># Install OpenSSH Server</span>
+<span class="nb">Add-WindowsCapability</span> <span class="n">-Online</span> <span class="n">-Name</span> <span class="n">OpenSSH</span><span class="p">.</span><span class="n">Server</span><span class="p">~~~~</span><span class="n">0</span><span class="p">.</span><span class="n">0</span><span class="p">.</span><span class="n">1</span><span class="p">.</span><span class="n">0</span>
+
+<span class="c"># Start and enable the service</span>
+<span class="nb">Start-Service</span> <span class="n">sshd</span>
+<span class="nb">Set-Service</span> <span class="n">-Name</span> <span class="n">sshd</span> <span class="n">-StartupType</span> <span class="s1">&#39;Automatic&#39;</span>
+
+<span class="c"># Confirm firewall rule exists</span>
+<span class="nb">Get-NetFirewallRule</span> <span class="n">-Name</span> <span class="p">*</span><span class="n">ssh</span><span class="p">*</span>
+</code></pre></div>
+<p>For Windows Server 2016, download OpenSSH from <a href="https://github.com/PowerShell/Win32-OpenSSH/releases">Microsoft's GitHub releases</a>.</p>
+<h3 id="2-administrator-access">2. Administrator Access<a class="headerlink" href="#2-administrator-access" title="Permanent link">&para;</a></h3>
+<p>Unlike Linux where <code>sudo</code> elevates privileges per-command, Windows elevation works differently:</p>
+<ul>
+<li><strong>Elevated session</strong>: Connect as a user in the Administrators group</li>
+<li><strong>Non-elevated session</strong>: Limited to user-level operations</li>
+</ul>
+<p>The <code>use_sudo</code> parameter on tools is ignored on Windows. If an operation requires admin rights, the SSH session must be connected as an Administrator.</p>
+<h2 id="behavioral-differences">Behavioral Differences<a class="headerlink" href="#behavioral-differences" title="Permanent link">&para;</a></h2>
+<h3 id="path-separators">Path Separators<a class="headerlink" href="#path-separators" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Separator</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Linux/macOS</td>
+<td><code>/</code></td>
+<td><code>/home/user/file.txt</code></td>
+</tr>
+<tr>
+<td>Windows</td>
+<td><code>\</code></td>
+<td><code>C:\Users\user\file.txt</code></td>
+</tr>
+</tbody>
+</table>
+<p>Tools accept Windows-style paths:</p>
+<div class="highlight"><pre><span></span><code>ssh_file_write with file_path: &quot;C:\Users\admin\config.txt&quot;
+ssh_dir_list_advanced with path: &quot;C:\Program Files&quot;
+</code></pre></div>
+<h3 id="archive-format">Archive Format<a class="headerlink" href="#archive-format" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Default Format</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Linux/macOS</td>
+<td><code>.tar.gz</code></td>
+</tr>
+<tr>
+<td>Windows</td>
+<td><code>.zip</code></td>
+</tr>
+</tbody>
+</table>
+<p>The <code>ssh_archive_create</code> tool creates <code>.zip</code> files on Windows using <code>Compress-Archive</code>.</p>
+<h3 id="permissions-model">Permissions Model<a class="headerlink" href="#permissions-model" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Linux/macOS</th>
+<th>Windows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Permission format</td>
+<td>Octal (755, 644)</td>
+<td>ACLs</td>
+</tr>
+<tr>
+<td>Owner/Group</td>
+<td>UID/GID</td>
+<td>SID-based</td>
+</tr>
+<tr>
+<td>Elevation</td>
+<td><code>sudo</code> per command</td>
+<td>Session-level</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>ssh_file_stat</code> tool returns owner information but not Unix-style permission bits on Windows.</p>
+<h3 id="line-endings">Line Endings<a class="headerlink" href="#line-endings" title="Permanent link">&para;</a></h3>
+<p>Windows uses <code>\r\n</code> (CRLF) line endings. The tools handle this automatically:
+- File writes preserve the content as-is
+- File reads may include <code>\r\n</code> in output</p>
+<h3 id="temp-directory">Temp Directory<a class="headerlink" href="#temp-directory" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Default Temp Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Linux</td>
+<td><code>/tmp</code></td>
+</tr>
+<tr>
+<td>macOS</td>
+<td><code>/tmp</code> or <code>/var/folders/...</code></td>
+</tr>
+<tr>
+<td>Windows</td>
+<td><code>C:\Users\&lt;user&gt;\AppData\Local\Temp</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="tool-specific-notes">Tool-Specific Notes<a class="headerlink" href="#tool-specific-notes" title="Permanent link">&para;</a></h2>
+<h3 id="command-execution-ssh_cmd_run">Command Execution (<code>ssh_cmd_run</code>)<a class="headerlink" href="#command-execution-ssh_cmd_run" title="Permanent link">&para;</a></h3>
+<p>Commands run with <code>cmd.exe</code> semantics by default - the same as typing them at a
+<code>cmd.exe</code> prompt - regardless of the SSH server's configured <code>DefaultShell</code>. There's
+no need to manually prefix commands with <code>cmd /c</code> or <code>powershell -Command "..."</code>;
+<code>ssh_cmd_run</code> always spawns the command through an internal wrapper that handles this
+consistently:</p>
+<div class="highlight"><pre><span></span><code>ssh_cmd_run with command: &quot;dir C:\Windows&quot;
+</code></pre></div>
+<p>For PowerShell-specific syntax (cmdlets, pipelines using PowerShell semantics), invoke
+<code>powershell -Command "..."</code> explicitly yourself, same as you would at a <code>cmd.exe</code>
+prompt:</p>
+<div class="highlight"><pre><span></span><code>ssh_cmd_run with command: &quot;powershell -Command \&quot;Get-Process | Sort-Object CPU -Descending | Select-Object -First 5\&quot;&quot;
+</code></pre></div>
+<p>The wrapper captures a <strong>real remote process ID</strong> (not a local placeholder), so
+<code>runtime_timeout</code> and <code>ssh_cmd_kill</code> correctly target the actual process. It also
+recovers the <strong>real exit code</strong> via an internal marker mechanism rather than trusting
+the SSH channel's own exit status - a plain SSH exec channel through <code>cmd.exe</code>
+silently reports the wrong exit code (a known Win32-OpenSSH/<code>cmd.exe</code> interaction)
+whenever a nested child process is involved, which is exactly what running a command
+this way requires; commands that fail now correctly report their real exit code
+instead of a generic <code>1</code>.</p>
+<h3 id="directory-operations">Directory Operations<a class="headerlink" href="#directory-operations" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Linux</th>
+<th>Windows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>List files</td>
+<td><code>find</code></td>
+<td><code>Get-ChildItem</code></td>
+</tr>
+<tr>
+<td>Directory size</td>
+<td><code>du -sb</code></td>
+<td><code>Measure-Object -Sum Length</code></td>
+</tr>
+<tr>
+<td>Search content</td>
+<td><code>grep -r</code></td>
+<td><code>Select-String -Recurse</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="file-operations">File Operations<a class="headerlink" href="#file-operations" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Linux</th>
+<th>Windows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Find pattern</td>
+<td><code>grep</code></td>
+<td><code>Select-String</code></td>
+</tr>
+<tr>
+<td>File stats</td>
+<td><code>stat</code></td>
+<td><code>Get-Item</code>, <code>Get-Acl</code></td>
+</tr>
+<tr>
+<td>Copy file</td>
+<td><code>cp</code></td>
+<td><code>Copy-Item</code></td>
+</tr>
+<tr>
+<td>Move file</td>
+<td><code>mv</code></td>
+<td><code>Move-Item</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="background-tasks">Background Tasks<a class="headerlink" href="#background-tasks" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Linux</th>
+<th>Windows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Launch method</td>
+<td><code>nohup cmd &amp;</code></td>
+<td>WMI (<code>Invoke-CimMethod -ClassName Win32_Process -MethodName Create</code>)</td>
+</tr>
+<tr>
+<td>Check running</td>
+<td><code>kill -0 $pid</code></td>
+<td><code>Get-Process -Id $pid</code></td>
+</tr>
+<tr>
+<td>Terminate</td>
+<td><code>kill -15</code> / <code>kill -9</code></td>
+<td><code>taskkill /F /T</code> (kills the whole process tree)</td>
+</tr>
+</tbody>
+</table>
+<p>Windows background tasks are launched via WMI rather than <code>Start-Process</code>: a
+<code>Start-Process</code>-launched child inherits membership in the SSH session's Windows Job
+Object, and gets killed the instant that session ends, regardless of any
+"detached"/hidden-window flags. WMI process creation goes through a separate service
+process, so the task genuinely survives independently until it finishes or is
+explicitly killed. Termination uses <code>taskkill /F /T</code> (not <code>Stop-Process</code>) because
+every task PID is a <code>cmd.exe</code>/<code>powershell.exe</code> wrapper, not the real workload -
+<code>Stop-Process</code> on just the wrapper orphans the actual process; <code>/T</code> kills the whole
+tree in one call.</p>
+<h3 id="system-information-ssh_conn_host_info">System Information (<code>ssh_conn_host_info</code>)<a class="headerlink" href="#system-information-ssh_conn_host_info" title="Permanent link">&para;</a></h3>
+<p>Windows system info is gathered via CIM/WMI:</p>
+<table>
+<thead>
+<tr>
+<th>Info</th>
+<th>Linux Source</th>
+<th>Windows Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU</td>
+<td><code>/proc/cpuinfo</code></td>
+<td><code>Win32_Processor</code></td>
+</tr>
+<tr>
+<td>Memory</td>
+<td><code>free -m</code></td>
+<td><code>Win32_OperatingSystem</code></td>
+</tr>
+<tr>
+<td>OS version</td>
+<td><code>/etc/os-release</code></td>
+<td><code>Win32_OperatingSystem</code></td>
+</tr>
+<tr>
+<td>Disk</td>
+<td><code>df -h</code></td>
+<td><code>Win32_LogicalDisk</code></td>
+</tr>
+<tr>
+<td>Network</td>
+<td><code>ip addr</code></td>
+<td><code>Get-NetIPAddress</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="known-limitations">Known Limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h2>
+<h3 id="1-unicode-in-command-output">1. Unicode in Command Output<a class="headerlink" href="#1-unicode-in-command-output" title="Permanent link">&para;</a></h3>
+<p><strong>Issue</strong>: PowerShell over SSH doesn't properly encode UTF-8 output. Emojis and special characters may appear as <code>?</code> or garbled text. This is a fundamental Windows console encoding limitation—PowerShell uses the system's OEM code page (typically CP437 or CP1252) for stdout, not UTF-8.</p>
+<p><strong>Affected</strong>: Reading files via <code>ssh_cmd_run</code> with PowerShell commands like <code>Get-Content</code>.</p>
+<p><strong>Not affected</strong>: SFTP-based operations bypass the console entirely and work correctly with Unicode.</p>
+<p><strong>Solution</strong>: Use <code>ssh_file_read</code> to read file contents. This tool uses SFTP to transfer raw bytes and decodes them on the client side, completely avoiding the Windows console encoding problem. Works correctly with emojis, international characters, and any valid UTF-8 content.</p>
+<h3 id="2-no-per-command-elevation">2. No Per-Command Elevation<a class="headerlink" href="#2-no-per-command-elevation" title="Permanent link">&para;</a></h3>
+<p><strong>Issue</strong>: Windows doesn't have <code>sudo</code>. The <code>use_sudo</code> parameter is ignored.</p>
+<p><strong>Workaround</strong>: Connect as an Administrator user for operations requiring elevation.</p>
+<h3 id="3-non-empty-directory-removal">3. Non-Empty Directory Removal<a class="headerlink" href="#3-non-empty-directory-removal" title="Permanent link">&para;</a></h3>
+<p><strong>Behavior</strong>: When <code>ssh_dir_remove</code> is called with <code>recursive=False</code> on a non-empty directory, Windows will return an error immediately (same as Linux).</p>
+<h3 id="4-local-powershell-falling-back-to-a-local-ssh-call">4. Local PowerShell Falling Back to a Local <code>ssh</code> Call<a class="headerlink" href="#4-local-powershell-falling-back-to-a-local-ssh-call" title="Permanent link">&para;</a></h3>
+<p><strong>Issue</strong>: If you (or an LLM agent) run this server's <code>ssh_cmd_run</code>-equivalent shell command from a <em>local</em> Windows PowerShell prompt rather than through the MCP tool - e.g. shelling out to <code>ssh user@host "some | command with | pipes"</code> directly from PowerShell - PowerShell parses pipe/redirect characters in the command string <em>before</em> they ever reach the remote shell. This can silently split or reinterpret a command that was meant to run as one pipeline entirely on the remote host (e.g. <code>apt|dpkg</code> patterns).</p>
+<p><strong>Not an issue for</strong>: Commands sent through the MCP <code>ssh_cmd_run</code> tool itself - those go through paramiko's <code>exec_command</code>, not a local shell, so this doesn't apply.</p>
+<p><strong>Workaround</strong>: If constructing a local <code>ssh ...</code> command by hand in PowerShell, quote the entire remote command as a single string and be aware PowerShell's own parsing happens first.</p>
+<h2 id="host-configuration-example">Host Configuration Example<a class="headerlink" href="#host-configuration-example" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="c1"># Windows Server with password auth</span>
+<span class="k">[</span><span class="s2">&quot;administrator@winserver.example.com&quot;</span><span class="k">]</span>
+<span class="n">password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;SecurePassword123&quot;</span>
+<span class="n">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">22</span>
+<span class="n">alias</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;win-prod&quot;</span>
+<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Windows production server&quot;</span>
+
+<span class="c1"># Windows with SSH key</span>
+<span class="k">[</span><span class="s2">&quot;deploy@winserver.example.com&quot;</span><span class="k">]</span>
+<span class="n">keyfile</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;~/.ssh/id_ed25519&quot;</span>
+<span class="n">port</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">22</span>
+<span class="n">alias</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;win-staging&quot;</span>
+<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Windows staging server&quot;</span>
+</code></pre></div>
+<p>Note: <code>sudo_password</code> is not used for Windows connections.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="connection-refused">Connection Refused<a class="headerlink" href="#connection-refused" title="Permanent link">&para;</a></h3>
+<p>Ensure OpenSSH Server is running:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">Get-Service</span> <span class="n">sshd</span>
+<span class="nb">Start-Service</span> <span class="n">sshd</span>
+</code></pre></div>
+<h3 id="permission-denied">Permission Denied<a class="headerlink" href="#permission-denied" title="Permanent link">&para;</a></h3>
+<p>Verify the user is in the Administrators group for admin operations:</p>
+<div class="highlight"><pre><span></span><code><span class="n">net</span> <span class="n">localgroup</span> <span class="n">Administrators</span>
+</code></pre></div>
+<h3 id="powershell-version-error">PowerShell Version Error<a class="headerlink" href="#powershell-version-error" title="Permanent link">&para;</a></h3>
+<p>Check PowerShell version:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">$PSVersionTable</span><span class="p">.</span><span class="n">PSVersion</span>
+</code></pre></div>
+<p>If below 5.0, install <a href="https://www.microsoft.com/en-us/download/details.aspx?id=54616">WMF 5.1</a>.</p>
+<h3 id="commands-not-found">Commands Not Found<a class="headerlink" href="#commands-not-found" title="Permanent link">&para;</a></h3>
+<p>Ensure PowerShell is the default shell for SSH. Check <code>C:\ProgramData\ssh\sshd_config</code>:</p>
+<div class="highlight"><pre><span></span><code># Should NOT have this line, or it should point to PowerShell:
+# Subsystem powershell C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Cygnus Systems
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.instant", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

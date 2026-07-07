@@ -1,0 +1,4426 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The most powerful SSH MCP server for AI assistants">
+      
+      
+      
+        <link rel="canonical" href="https://cygnussystems.github.io/cygnus-ssh-mcp/40-tools-reference/">
+      
+      
+        <link rel="prev" href="../26-alternate-platforms/">
+      
+      
+        <link rel="next" href="../50-command-execution/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Tools Reference - cygnus-ssh-mcp</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#ssh-mcp-server-tools-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="cygnus-ssh-mcp" class="md-header__button md-logo" aria-label="cygnus-ssh-mcp" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            cygnus-ssh-mcp
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tools Reference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/cygnussystems/cygnus-ssh-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    cygnussystems/cygnus-ssh-mcp
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../10-overview/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../20-platform-compatibility/" class="md-tabs__link">
+          
+  
+  
+  Platform Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Using the Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="cygnus-ssh-mcp" class="md-nav__button md-logo" aria-label="cygnus-ssh-mcp" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    cygnus-ssh-mcp
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/cygnussystems/cygnus-ssh-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    cygnussystems/cygnus-ssh-mcp
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../30-host-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Host Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Platform Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../20-platform-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MACOS_COMPATIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../25-windows-support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../26-alternate-platforms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Alternate Platforms (flex)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using the Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tool-naming-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Naming Convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-management-ssh_conn_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Management (ssh_conn_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connection Management (ssh_conn_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_is_connected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_is_connected
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_connect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_add_host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_add_host
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_host_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_host_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_verify_sudo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_verify_sudo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-configuration-ssh_host_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host Configuration (ssh_host_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Host Configuration (ssh_host_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_use_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_use_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_remove
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_disconnect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_disconnect
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-execution-ssh_cmd_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Execution (ssh_cmd_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Command Execution (ssh_cmd_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_check_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_check_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_kill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_kill
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_history
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_clear_history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_clear_history
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#background-tasks-ssh_task_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background Tasks (ssh_task_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Background Tasks (ssh_task_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_task_launch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_task_launch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_task_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_task_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_task_kill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_task_kill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-operations-ssh_file_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Operations (ssh_file_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="File Operations (ssh_file_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_stat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_stat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_read
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_write" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_write
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_transfer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_copy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_move" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_move
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_find_lines_with_pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_find_lines_with_pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_get_context_around_line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_get_context_around_line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_replace_line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_replace_line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_replace_line_multi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_replace_line_multi
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_insert_lines_after_match" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_insert_lines_after_match
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_delete_line_by_content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_delete_line_by_content
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-operations-ssh_dir_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Operations (ssh_dir_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Directory Operations (ssh_dir_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_transfer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_mkdir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_mkdir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_remove
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_list_files_basic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_list_files_basic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_list_advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_list_advanced
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_search_glob" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_search_glob
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_search_files_content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_search_files_content
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_calc_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_calc_size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_batch_delete_files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_batch_delete_files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_copy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#archive-operations-ssh_archive_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archive Operations (ssh_archive_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Archive Operations (ssh_archive_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_archive_create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_archive_create
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_archive_extract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_archive_extract
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#use_sudo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use_sudo
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dry_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dry_run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../50-command-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../60-process-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../70-logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../80-claude-desktop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Claude Desktop Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tool-naming-convention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Naming Convention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connection-management-ssh_conn_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection Management (ssh_conn_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connection Management (ssh_conn_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_is_connected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_is_connected
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_connect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_add_host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_add_host
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_host_info" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_host_info
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_conn_verify_sudo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_conn_verify_sudo
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#host-configuration-ssh_host_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Host Configuration (ssh_host_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Host Configuration (ssh_host_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_use_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_use_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_remove
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_host_disconnect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_host_disconnect
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-execution-ssh_cmd_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command Execution (ssh_cmd_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Command Execution (ssh_cmd_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_check_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_check_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_kill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_kill
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_history
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_clear_history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_clear_history
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#background-tasks-ssh_task_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background Tasks (ssh_task_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Background Tasks (ssh_task_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_task_launch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_task_launch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_task_status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_task_status
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_task_kill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_task_kill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-operations-ssh_file_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Operations (ssh_file_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="File Operations (ssh_file_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_stat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_stat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_read" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_read
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_write" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_write
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_transfer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_copy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_move" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_move
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_find_lines_with_pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_find_lines_with_pattern
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_get_context_around_line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_get_context_around_line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_replace_line" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_replace_line
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_replace_line_multi" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_replace_line_multi
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_insert_lines_after_match" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_insert_lines_after_match
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_file_delete_line_by_content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_file_delete_line_by_content
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-operations-ssh_dir_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory Operations (ssh_dir_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Directory Operations (ssh_dir_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_transfer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_transfer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_mkdir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_mkdir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_remove" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_remove
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_list_files_basic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_list_files_basic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_list_advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_list_advanced
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_search_glob" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_search_glob
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_search_files_content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_search_files_content
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_calc_size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_calc_size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_batch_delete_files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_batch_delete_files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_dir_copy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_dir_copy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#archive-operations-ssh_archive_" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archive Operations (ssh_archive_*)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Archive Operations (ssh_archive_*)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_archive_create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_archive_create
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_archive_extract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_archive_extract
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Parameters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Parameters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#use_sudo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use_sudo
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dry_run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dry_run
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="ssh-mcp-server-tools-reference">SSH MCP Server Tools Reference<a class="headerlink" href="#ssh-mcp-server-tools-reference" title="Permanent link">&para;</a></h1>
+<p>This document provides a complete reference for all tools available in the SSH MCP Server.</p>
+<h2 id="tool-naming-convention">Tool Naming Convention<a class="headerlink" href="#tool-naming-convention" title="Permanent link">&para;</a></h2>
+<p>All tools follow a consistent naming pattern: <code>ssh_{category}_{action}</code></p>
+<table>
+<thead>
+<tr>
+<th>Prefix</th>
+<th>Category</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ssh_conn_*</code></td>
+<td>Connection management</td>
+</tr>
+<tr>
+<td><code>ssh_host_*</code></td>
+<td>Host configuration</td>
+</tr>
+<tr>
+<td><code>ssh_cmd_*</code></td>
+<td>Command execution</td>
+</tr>
+<tr>
+<td><code>ssh_task_*</code></td>
+<td>Background tasks</td>
+</tr>
+<tr>
+<td><code>ssh_file_*</code></td>
+<td>File operations</td>
+</tr>
+<tr>
+<td><code>ssh_dir_*</code></td>
+<td>Directory operations</td>
+</tr>
+<tr>
+<td><code>ssh_archive_*</code></td>
+<td>Archive operations</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="connection-management-ssh_conn_">Connection Management (<code>ssh_conn_*</code>)<a class="headerlink" href="#connection-management-ssh_conn_" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_conn_is_connected">ssh_conn_is_connected<a class="headerlink" href="#ssh_conn_is_connected" title="Permanent link">&para;</a></h3>
+<p>Check if there's an active SSH connection.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(none)</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>bool</code> - True if connected</p>
+<hr />
+<h3 id="ssh_conn_connect">ssh_conn_connect<a class="headerlink" href="#ssh_conn_connect" title="Permanent link">&para;</a></h3>
+<p>Connect to a configured SSH host.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>host_name</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Host key (<code>user@host</code>) or alias</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Connection status dictionary</p>
+<hr />
+<h3 id="ssh_conn_add_host">ssh_conn_add_host<a class="headerlink" href="#ssh_conn_add_host" title="Permanent link">&para;</a></h3>
+<p>Add a host configuration. Fails if the host already exists. Requires either
+<code>password</code> or <code>keyfile</code> (or both).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>host</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Hostname or IP address</td>
+</tr>
+<tr>
+<td><code>user</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>SSH username</td>
+</tr>
+<tr>
+<td><code>password</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>SSH password (required unless <code>keyfile</code> is given)</td>
+</tr>
+<tr>
+<td><code>port</code></td>
+<td>int</td>
+<td>No</td>
+<td>22</td>
+<td>SSH port</td>
+</tr>
+<tr>
+<td><code>sudo_password</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Sudo password (defaults to SSH password)</td>
+</tr>
+<tr>
+<td><code>alias</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Short name for quick access</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Human-readable description</td>
+</tr>
+<tr>
+<td><code>keyfile</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Path to SSH private key (required unless <code>password</code> is given)</td>
+</tr>
+<tr>
+<td><code>key_passphrase</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Passphrase for an encrypted key</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Operation status dictionary</p>
+<hr />
+<h3 id="ssh_conn_status">ssh_conn_status<a class="headerlink" href="#ssh_conn_status" title="Permanent link">&para;</a></h3>
+<p>Get current connection and system status.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(none)</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Status dictionary with connection info, user, working directory</p>
+<hr />
+<h3 id="ssh_conn_host_info">ssh_conn_host_info<a class="headerlink" href="#ssh_conn_host_info" title="Permanent link">&para;</a></h3>
+<p>Get detailed system information from connected host.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(none)</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with CPU, memory, disk, network, and OS information</p>
+<hr />
+<h3 id="ssh_conn_verify_sudo">ssh_conn_verify_sudo<a class="headerlink" href="#ssh_conn_verify_sudo" title="Permanent link">&para;</a></h3>
+<p>Check if sudo access is available.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(none)</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>available</code>, <code>passwordless</code>, <code>requires_password</code> keys</p>
+<hr />
+<h2 id="host-configuration-ssh_host_">Host Configuration (<code>ssh_host_*</code>)<a class="headerlink" href="#host-configuration-ssh_host_" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_host_use_config">ssh_host_use_config<a class="headerlink" href="#ssh_host_use_config" title="Permanent link">&para;</a></h3>
+<p>Switch which host configuration TOML file all <code>ssh_host_*</code>/<code>ssh_conn_add_host</code>
+tools operate against, for the rest of the session (not just one call) - the same
+"one active thing at a time" model <code>ssh_conn_connect</code> uses for SSH connections,
+applied to host config files instead. The alternate file must already exist (this
+does not auto-create a missing file, unlike the server's own default config file).
+Omit <code>config_path</code> to switch back to the default.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>config_path</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Path to an alternate host config TOML file. Omit/<code>""</code> to revert to the default</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>{'status': 'success'/'error', 'message'?, 'config_path'?, 'is_default'?, 'host_count'?, 'error'?}</code></p>
+<hr />
+<h3 id="ssh_host_list">ssh_host_list<a class="headerlink" href="#ssh_host_list" title="Permanent link">&para;</a></h3>
+<p>List all configured hosts from whichever config file is currently active. Never
+contains passwords, sudo passwords, or key passphrases - this is the only correct
+way to see what's configured; never read the host config TOML file directly.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(none)</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> <code>{'hosts': [{'key', 'alias'?, 'description'?}, ...], 'config_path'}</code></p>
+<hr />
+<h3 id="ssh_host_update">ssh_host_update<a class="headerlink" href="#ssh_host_update" title="Permanent link">&para;</a></h3>
+<p>Change one or more fields on an existing host (rotate a password, change the port,
+etc.) without needing to read or hand-edit the config file. Only the fields you pass
+are changed; pass an empty string <code>""</code> to explicitly clear a field. Prefer this over
+<code>ssh_host_remove</code> + <code>ssh_conn_add_host</code>, which loses every field you don't
+explicitly resupply.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>host_name</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Host key (<code>user@host</code>) or alias</td>
+</tr>
+<tr>
+<td><code>password</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>New password. Omit to keep unchanged, <code>""</code> to clear</td>
+</tr>
+<tr>
+<td><code>port</code></td>
+<td>int</td>
+<td>No</td>
+<td>None</td>
+<td>New SSH port. Omit to keep unchanged</td>
+</tr>
+<tr>
+<td><code>sudo_password</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>New sudo password. Omit to keep unchanged, <code>""</code> to clear</td>
+</tr>
+<tr>
+<td><code>alias</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>New alias. Omit to keep unchanged, <code>""</code> to clear</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>New description. Omit to keep unchanged, <code>""</code> to clear</td>
+</tr>
+<tr>
+<td><code>keyfile</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>New SSH key path. Omit to keep unchanged, <code>""</code> to clear</td>
+</tr>
+<tr>
+<td><code>key_passphrase</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>New key passphrase. Omit to keep unchanged, <code>""</code> to clear</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Operation status dictionary, including <code>updated_fields</code> (list of fields
+actually changed)</p>
+<hr />
+<h3 id="ssh_host_remove">ssh_host_remove<a class="headerlink" href="#ssh_host_remove" title="Permanent link">&para;</a></h3>
+<p>Remove a host from configuration.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>host_name</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Host key (<code>user@host</code>) or alias</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Operation status dictionary</p>
+<hr />
+<h3 id="ssh_host_disconnect">ssh_host_disconnect<a class="headerlink" href="#ssh_host_disconnect" title="Permanent link">&para;</a></h3>
+<p>Disconnect from the current host.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(none)</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Disconnection status</p>
+<hr />
+<h2 id="command-execution-ssh_cmd_">Command Execution (<code>ssh_cmd_*</code>)<a class="headerlink" href="#command-execution-ssh_cmd_" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_cmd_run">ssh_cmd_run<a class="headerlink" href="#ssh_cmd_run" title="Permanent link">&para;</a></h3>
+<p>Execute a command on the remote host and block until it completes, an <code>io_timeout</code>
+(silence), a <code>wait_timeout</code> (elapsed cap), or a <code>runtime_timeout</code> (hard cap) occurs.
+<code>io_timeout</code>/<code>wait_timeout</code> never kill the remote command - monitoring hands off to
+a background thread instead, so the command keeps running and
+<code>ssh_cmd_check_status</code>/<code>ssh_cmd_output</code>/<code>ssh_cmd_kill</code> all still work on it
+afterward. Only <code>runtime_timeout</code> ever kills. See
+<a href="../50-command-execution/">50-command-execution.md</a> for full timeout semantics.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>command</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Command to execute</td>
+</tr>
+<tr>
+<td><code>io_timeout</code></td>
+<td>float</td>
+<td>No</td>
+<td>60.0</td>
+<td>Inactivity (silence) timeout in seconds - does NOT kill the remote command</td>
+</tr>
+<tr>
+<td><code>wait_timeout</code></td>
+<td>float</td>
+<td>No</td>
+<td>None</td>
+<td>Total elapsed wait in seconds, regardless of output activity - does NOT kill the remote command, same handoff as <code>io_timeout</code></td>
+</tr>
+<tr>
+<td><code>runtime_timeout</code></td>
+<td>float</td>
+<td>No</td>
+<td>None</td>
+<td>Total wall-clock cap in seconds - DOES attempt to kill the remote command</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Run with sudo privileges</td>
+</tr>
+<tr>
+<td><code>cwd</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Run this call in this directory (Linux/macOS only). Not remembered between calls; fails closed if the directory doesn't exist</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>status</code>, <code>output</code> (stdout), <code>stderr</code>, <code>exit_code</code>, <code>id</code> (the handle ID - NOT <code>handle_id</code>, despite <code>handle_id</code> being the parameter name other <code>ssh_cmd_*</code> tools use to accept it), <code>pid</code>, <code>cwd</code>, timestamps. <code>output</code>/<code>stderr</code> are always separate, never interleaved - a command that succeeds can still have written to <code>stderr</code> (warnings, progress meters), so check it even on <code>status='success'</code>.</p>
+<p><strong>Status values:</strong> <code>success</code>, <code>command_failed</code>, <code>cwd_not_found</code>, <code>io_timeout</code>, <code>wait_timeout</code>, <code>runtime_timeout</code>, <code>sudo_required</code>, <code>busy</code>, <code>error</code></p>
+<hr />
+<h3 id="ssh_cmd_check_status">ssh_cmd_check_status<a class="headerlink" href="#ssh_cmd_check_status" title="Permanent link">&para;</a></h3>
+<p>Wait, then check the status of a command started with <code>ssh_cmd_run</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>handle_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>-</td>
+<td>Command handle ID (the <code>id</code> field from <code>ssh_cmd_run</code>'s response)</td>
+</tr>
+<tr>
+<td><code>wait_seconds</code></td>
+<td>float</td>
+<td>No</td>
+<td>5.0</td>
+<td>Seconds to wait before checking</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>status</code>, <code>exit_code</code>, <code>pid</code>, output metadata</p>
+<p><strong>Status values:</strong> <code>completed</code> (finished, <code>exit_code</code> populated - including a command
+that survived an <code>io_timeout</code>/<code>wait_timeout</code>, since background monitoring keeps watching
+for the real exit code), <code>running</code> (still being actively monitored, including a
+backgrounded command that isn't done yet), <code>killed</code> (the remote process was confirmed
+terminated - e.g. <code>runtime_timeout</code> killed it, or a prior <code>ssh_cmd_kill</code> call found it
+already gone; <code>exit_code</code> is not known, but treat this as terminal, same as <code>completed</code>),
+<code>completed_exit_code_unknown</code> (rare fallback - monitoring stopped without a confirmed exit
+code, e.g. an unexpected error, but a live check now confirms the remote process is no
+longer running - terminal, but the real exit code was never observed and cannot be
+recovered), <code>unknown_still_running</code> (rare fallback, same caveat - a live check confirms
+the remote command is still actually running - not a failure, call this tool again to
+keep checking), <code>not_found</code> (handle doesn't exist - handles don't survive reconnects)</p>
+<hr />
+<h3 id="ssh_cmd_kill">ssh_cmd_kill<a class="headerlink" href="#ssh_cmd_kill" title="Permanent link">&para;</a></h3>
+<p>Terminate a running command.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>handle_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>-</td>
+<td>Command handle ID</td>
+</tr>
+<tr>
+<td><code>signal</code></td>
+<td>int</td>
+<td>No</td>
+<td>15</td>
+<td>Signal to send (15=TERM, 9=KILL)</td>
+</tr>
+<tr>
+<td><code>force</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Force kill if process doesn't exit</td>
+</tr>
+<tr>
+<td><code>wait_seconds</code></td>
+<td>float</td>
+<td>No</td>
+<td>1.0</td>
+<td>Seconds to wait before force kill</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Kill result dictionary, including <code>force_kill_used</code> (bool) - True iff
+the SIGKILL fallback was actually attempted (the initial signal alone was not
+enough), regardless of whether the fallback itself succeeded; False if the initial
+signal alone was sufficient, the process was already gone, or <code>force=False</code>.</p>
+<hr />
+<h3 id="ssh_cmd_output">ssh_cmd_output<a class="headerlink" href="#ssh_cmd_output" title="Permanent link">&para;</a></h3>
+<p>Retrieve output from a command.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>handle_id</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>-</td>
+<td>Command handle ID</td>
+</tr>
+<tr>
+<td><code>lines</code></td>
+<td>int</td>
+<td>No</td>
+<td>None</td>
+<td>Number of lines to retrieve</td>
+</tr>
+<tr>
+<td><code>stream</code></td>
+<td>str</td>
+<td>No</td>
+<td><code>'stdout'</code></td>
+<td>Which captured stream to retrieve - <code>'stdout'</code> or <code>'stderr'</code>. Not interleaved - call twice for both</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> List of output lines from the selected stream</p>
+<hr />
+<h3 id="ssh_cmd_history">ssh_cmd_history<a class="headerlink" href="#ssh_cmd_history" title="Permanent link">&para;</a></h3>
+<p>Get command execution history.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>limit</code></td>
+<td>int</td>
+<td>No</td>
+<td>None</td>
+<td>Max entries to return</td>
+</tr>
+<tr>
+<td><code>include_output</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Include output snippets</td>
+</tr>
+<tr>
+<td><code>output_lines</code></td>
+<td>int</td>
+<td>No</td>
+<td>3</td>
+<td>Lines per output snippet</td>
+</tr>
+<tr>
+<td><code>reverse</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Reverse chronological order</td>
+</tr>
+<tr>
+<td><code>pattern</code></td>
+<td>str</td>
+<td>No</td>
+<td>None</td>
+<td>Filter by command pattern</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> List of command history entries</p>
+<hr />
+<h3 id="ssh_cmd_clear_history">ssh_cmd_clear_history<a class="headerlink" href="#ssh_cmd_clear_history" title="Permanent link">&para;</a></h3>
+<p>Clear command history.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(none)</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Clear status dictionary</p>
+<hr />
+<h2 id="background-tasks-ssh_task_">Background Tasks (<code>ssh_task_*</code>)<a class="headerlink" href="#background-tasks-ssh_task_" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_task_launch">ssh_task_launch<a class="headerlink" href="#ssh_task_launch" title="Permanent link">&para;</a></h3>
+<p>Launch a command in the background.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>command</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Command to execute</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Run with sudo</td>
+</tr>
+<tr>
+<td><code>stdout_log</code></td>
+<td>str</td>
+<td>No</td>
+<td>Auto</td>
+<td>Path for stdout log</td>
+</tr>
+<tr>
+<td><code>stderr_log</code></td>
+<td>str</td>
+<td>No</td>
+<td>Auto</td>
+<td>Path for stderr log</td>
+</tr>
+<tr>
+<td><code>log_output</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Whether to log output</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>command</code>, <code>pid</code>, <code>start_time</code>, log paths</p>
+<hr />
+<h3 id="ssh_task_status">ssh_task_status<a class="headerlink" href="#ssh_task_status" title="Permanent link">&para;</a></h3>
+<p>Check status of a background task.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pid</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>-</td>
+<td>Process ID to check</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>pid</code>, <code>status</code>, <code>running</code>, <code>timestamp</code></p>
+<hr />
+<h3 id="ssh_task_kill">ssh_task_kill<a class="headerlink" href="#ssh_task_kill" title="Permanent link">&para;</a></h3>
+<p>Terminate a background task.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pid</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>-</td>
+<td>Process ID to kill</td>
+</tr>
+<tr>
+<td><code>signal</code></td>
+<td>int</td>
+<td>No</td>
+<td>15</td>
+<td>Signal to send</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo for kill</td>
+</tr>
+<tr>
+<td><code>force</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Force kill if needed</td>
+</tr>
+<tr>
+<td><code>wait_seconds</code></td>
+<td>float</td>
+<td>No</td>
+<td>1.0</td>
+<td>Wait before force kill</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>pid</code>, <code>result</code>, <code>signal</code>, <code>force_kill_used</code> (bool - True
+iff the SIGKILL fallback was actually attempted, regardless of whether it succeeded;
+see <code>ssh_cmd_kill</code> above for the full explanation)</p>
+<p><strong>Result values:</strong> <code>killed</code>, <code>already_exited</code>, <code>failed_to_kill</code>, <code>error</code></p>
+<hr />
+<h2 id="file-operations-ssh_file_">File Operations (<code>ssh_file_*</code>)<a class="headerlink" href="#file-operations-ssh_file_" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_file_stat">ssh_file_stat<a class="headerlink" href="#ssh_file_stat" title="Permanent link">&para;</a></h3>
+<p>Get file or directory metadata.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Path to file/directory</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with size, permissions, ownership, timestamps</p>
+<hr />
+<h3 id="ssh_file_read">ssh_file_read<a class="headerlink" href="#ssh_file_read" title="Permanent link">&para;</a></h3>
+<p>Read file contents directly via SFTP.</p>
+<p>This tool reads raw bytes using SFTP and decodes them client-side, bypassing any shell or console encoding issues. <strong>Recommended for reading files on Windows</strong> where PowerShell's console encoding can corrupt Unicode characters.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Path to file to read</td>
+</tr>
+<tr>
+<td><code>encoding</code></td>
+<td>str</td>
+<td>No</td>
+<td>"utf-8"</td>
+<td>Character encoding to use</td>
+</tr>
+<tr>
+<td><code>max_size</code></td>
+<td>int</td>
+<td>No</td>
+<td>10MB</td>
+<td>Maximum file size (0 for no limit)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>content</code>, <code>size</code>, <code>encoding</code></p>
+<p><strong>Why use this instead of <code>ssh_cmd_run</code> with <code>cat</code>/<code>Get-Content</code>?</strong>
+- Works correctly with Unicode on ALL platforms including Windows
+- Bypasses Windows PowerShell's OEM code page encoding problem
+- More efficient for binary-safe file transfer
+- No shell escaping issues with special characters in content</p>
+<hr />
+<h3 id="ssh_file_write">ssh_file_write<a class="headerlink" href="#ssh_file_write" title="Permanent link">&para;</a></h3>
+<p>Create a new file or overwrite/append to an existing file with specified content.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Path to write</td>
+</tr>
+<tr>
+<td><code>content</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Content to write</td>
+</tr>
+<tr>
+<td><code>append</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Append instead of overwrite</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>int</td>
+<td>No</td>
+<td>None</td>
+<td>File permissions to set after writing (octal, e.g. <code>0o644</code>)</td>
+</tr>
+<tr>
+<td><code>create_dirs</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Create parent directories if they don't exist</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>file_path</code>, <code>bytes_written</code>, <code>mode</code>, <code>append</code></p>
+<hr />
+<h3 id="ssh_file_transfer">ssh_file_transfer<a class="headerlink" href="#ssh_file_transfer" title="Permanent link">&para;</a></h3>
+<p>Transfer files between local and remote.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>direction</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>"upload" or "download"</td>
+</tr>
+<tr>
+<td><code>local_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Local file path</td>
+</tr>
+<tr>
+<td><code>remote_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Remote file path</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo for remote operations</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Transfer status dictionary</p>
+<hr />
+<h3 id="ssh_file_copy">ssh_file_copy<a class="headerlink" href="#ssh_file_copy" title="Permanent link">&para;</a></h3>
+<p>Copy a file on the remote system.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Source file path</td>
+</tr>
+<tr>
+<td><code>destination_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Destination path</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>source</code>, <code>destination</code></p>
+<hr />
+<h3 id="ssh_file_move">ssh_file_move<a class="headerlink" href="#ssh_file_move" title="Permanent link">&para;</a></h3>
+<p>Move or rename a file or directory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Source path</td>
+</tr>
+<tr>
+<td><code>destination</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Destination path</td>
+</tr>
+<tr>
+<td><code>overwrite</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Overwrite destination if it exists</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>source</code>, <code>destination</code></p>
+<hr />
+<h3 id="ssh_file_find_lines_with_pattern">ssh_file_find_lines_with_pattern<a class="headerlink" href="#ssh_file_find_lines_with_pattern" title="Permanent link">&para;</a></h3>
+<p>Search for lines matching a pattern.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>File to search</td>
+</tr>
+<tr>
+<td><code>pattern</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Search pattern</td>
+</tr>
+<tr>
+<td><code>regex</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Treat <code>pattern</code> as a regular expression (otherwise literal text)</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>total_matches</code>, <code>matches</code> (list of line info)</p>
+<hr />
+<h3 id="ssh_file_get_context_around_line">ssh_file_get_context_around_line<a class="headerlink" href="#ssh_file_get_context_around_line" title="Permanent link">&para;</a></h3>
+<p>Get surrounding context for a line.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>File path</td>
+</tr>
+<tr>
+<td><code>match_line</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Line to find</td>
+</tr>
+<tr>
+<td><code>context</code></td>
+<td>int</td>
+<td>No</td>
+<td>3</td>
+<td>Lines of context</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>match_found</code>, <code>match_line_number</code>, <code>context_block</code></p>
+<hr />
+<h3 id="ssh_file_replace_line">ssh_file_replace_line<a class="headerlink" href="#ssh_file_replace_line" title="Permanent link">&para;</a></h3>
+<p>Replace a unique line in a file with a new line. The match must be exact (whitespace-trimmed) and unique in the file.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>File path</td>
+</tr>
+<tr>
+<td><code>match_line</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Exact line content to match and replace</td>
+</tr>
+<tr>
+<td><code>new_line</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Replacement line</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>force</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Force operation even if file can't be read (sudo only)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>lines_written</code> (or <code>error</code> on failure)</p>
+<hr />
+<h3 id="ssh_file_replace_line_multi">ssh_file_replace_line_multi<a class="headerlink" href="#ssh_file_replace_line_multi" title="Permanent link">&para;</a></h3>
+<p>Replace a unique line with one or more new lines (or delete it, with an empty list).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>File path</td>
+</tr>
+<tr>
+<td><code>match_line</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Exact line content to match and replace</td>
+</tr>
+<tr>
+<td><code>new_lines</code></td>
+<td>list[str]</td>
+<td>Yes</td>
+<td>-</td>
+<td>Lines to insert in place of the match (<code>[]</code> deletes the line)</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>force</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Force operation even if file can't be read (sudo only)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>lines_written</code> (or <code>error</code> on failure)</p>
+<hr />
+<h3 id="ssh_file_insert_lines_after_match">ssh_file_insert_lines_after_match<a class="headerlink" href="#ssh_file_insert_lines_after_match" title="Permanent link">&para;</a></h3>
+<p>Insert lines after a matching line.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>File path</td>
+</tr>
+<tr>
+<td><code>match_line</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Line to match</td>
+</tr>
+<tr>
+<td><code>lines_to_insert</code></td>
+<td>list</td>
+<td>Yes</td>
+<td>-</td>
+<td>Lines to insert</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>force</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Force operation even if file can't be read (sudo only)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>lines_inserted</code></p>
+<hr />
+<h3 id="ssh_file_delete_line_by_content">ssh_file_delete_line_by_content<a class="headerlink" href="#ssh_file_delete_line_by_content" title="Permanent link">&para;</a></h3>
+<p>Delete a line matching a unique content string.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>file_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>File path</td>
+</tr>
+<tr>
+<td><code>match_line</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Exact line content to match and delete</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>force</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Force operation even if file can't be read (sudo only)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code> (or <code>error</code> on failure - no <code>lines_deleted</code> count is returned)</p>
+<hr />
+<h2 id="directory-operations-ssh_dir_">Directory Operations (<code>ssh_dir_*</code>)<a class="headerlink" href="#directory-operations-ssh_dir_" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_dir_transfer">ssh_dir_transfer<a class="headerlink" href="#ssh_dir_transfer" title="Permanent link">&para;</a></h3>
+<p>Transfer a directory between local and remote using archive-based transfer
+(archives locally/remotely, transfers, extracts on the other side). Archive format
+is chosen automatically by remote OS: <code>tar.gz</code> on Linux/macOS, <code>zip</code> on Windows.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>direction</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td><code>"upload"</code> (local to remote) or <code>"download"</code> (remote to local)</td>
+</tr>
+<tr>
+<td><code>local_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Local directory path</td>
+</tr>
+<tr>
+<td><code>remote_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Remote directory path</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo for remote archive/extract operations (Linux/macOS only)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with <code>success</code>, <code>operation</code>, <code>local_path</code>, <code>remote_path</code>, <code>archive_format</code>, <code>files_transferred</code>, <code>bytes_transferred</code></p>
+<hr />
+<h3 id="ssh_dir_mkdir">ssh_dir_mkdir<a class="headerlink" href="#ssh_dir_mkdir" title="Permanent link">&para;</a></h3>
+<p>Create a directory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory path</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>int</td>
+<td>No</td>
+<td>0o755</td>
+<td>Directory permissions</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Status dictionary</p>
+<hr />
+<h3 id="ssh_dir_remove">ssh_dir_remove<a class="headerlink" href="#ssh_dir_remove" title="Permanent link">&para;</a></h3>
+<p>Remove a directory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory path</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>recursive</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Remove recursively</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Status dictionary</p>
+<hr />
+<h3 id="ssh_dir_list_files_basic">ssh_dir_list_files_basic<a class="headerlink" href="#ssh_dir_list_files_basic" title="Permanent link">&para;</a></h3>
+<p>List directory contents.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory path</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> List of filenames</p>
+<hr />
+<h3 id="ssh_dir_list_advanced">ssh_dir_list_advanced<a class="headerlink" href="#ssh_dir_list_advanced" title="Permanent link">&para;</a></h3>
+<p>List directory contents recursively with detailed information.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory path</td>
+</tr>
+<tr>
+<td><code>max_depth</code></td>
+<td>int</td>
+<td>No</td>
+<td>None</td>
+<td>Maximum recursion depth (None for unlimited)</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> List of file/directory metadata dictionaries</p>
+<hr />
+<h3 id="ssh_dir_search_glob">ssh_dir_search_glob<a class="headerlink" href="#ssh_dir_search_glob" title="Permanent link">&para;</a></h3>
+<p>Recursively search for files matching a filename glob pattern.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Base directory to search from</td>
+</tr>
+<tr>
+<td><code>pattern</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Glob pattern (e.g., <code>*.txt</code>)</td>
+</tr>
+<tr>
+<td><code>max_depth</code></td>
+<td>int</td>
+<td>No</td>
+<td>None</td>
+<td>Maximum recursion depth (None for unlimited)</td>
+</tr>
+<tr>
+<td><code>include_dirs</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Include matching directories in results</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> List of matching file/directory info dictionaries</p>
+<hr />
+<h3 id="ssh_dir_search_files_content">ssh_dir_search_files_content<a class="headerlink" href="#ssh_dir_search_files_content" title="Permanent link">&para;</a></h3>
+<p>Search file contents (grep-like).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dir_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory to search in</td>
+</tr>
+<tr>
+<td><code>pattern</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Text or pattern to search for</td>
+</tr>
+<tr>
+<td><code>regex</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Treat <code>pattern</code> as a regular expression</td>
+</tr>
+<tr>
+<td><code>case_sensitive</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Perform case-sensitive search</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> List of matches with file, line number, content</p>
+<hr />
+<h3 id="ssh_dir_calc_size">ssh_dir_calc_size<a class="headerlink" href="#ssh_dir_calc_size" title="Permanent link">&para;</a></h3>
+<p>Calculate directory size.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory path</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with size in bytes and human-readable format</p>
+<hr />
+<h3 id="ssh_dir_delete">ssh_dir_delete<a class="headerlink" href="#ssh_dir_delete" title="Permanent link">&para;</a></h3>
+<p>Delete a directory and contents.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory path</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+<tr>
+<td><code>dry_run</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Preview without deleting</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Status dictionary (set <code>dry_run=False</code> to actually delete)</p>
+<hr />
+<h3 id="ssh_dir_batch_delete_files">ssh_dir_batch_delete_files<a class="headerlink" href="#ssh_dir_batch_delete_files" title="Permanent link">&para;</a></h3>
+<p>Delete all files matching a pattern under a directory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Base directory to search in</td>
+</tr>
+<tr>
+<td><code>pattern</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>File pattern to match for deletion (e.g. <code>*.tmp</code>)</td>
+</tr>
+<tr>
+<td><code>dry_run</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Preview deletion without actually deleting</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Status with list of affected files</p>
+<hr />
+<h3 id="ssh_dir_copy">ssh_dir_copy<a class="headerlink" href="#ssh_dir_copy" title="Permanent link">&para;</a></h3>
+<p>Copy a directory recursively.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Source directory path</td>
+</tr>
+<tr>
+<td><code>destination_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Destination directory path</td>
+</tr>
+<tr>
+<td><code>overwrite</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Overwrite existing files</td>
+</tr>
+<tr>
+<td><code>preserve_symlinks</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Preserve symbolic links</td>
+</tr>
+<tr>
+<td><code>preserve_permissions</code></td>
+<td>bool</td>
+<td>No</td>
+<td>True</td>
+<td>Preserve file permissions</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Dictionary with copy operation details</p>
+<hr />
+<h2 id="archive-operations-ssh_archive_">Archive Operations (<code>ssh_archive_*</code>)<a class="headerlink" href="#archive-operations-ssh_archive_" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_archive_create">ssh_archive_create<a class="headerlink" href="#ssh_archive_create" title="Permanent link">&para;</a></h3>
+<p>Create a compressed archive from a directory.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory to archive</td>
+</tr>
+<tr>
+<td><code>archive_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Path for the created archive</td>
+</tr>
+<tr>
+<td><code>format</code></td>
+<td>str</td>
+<td>No</td>
+<td>"tar.gz"</td>
+<td>Archive format</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Supported formats:</strong> <code>tar.gz</code>, <code>tar</code> (Linux/macOS only). Windows always produces <code>.zip</code>
+via <code>ssh_dir_transfer</code>/internal archive helpers, regardless of <code>format</code> - there is no
+<code>format</code> choice on Windows and <code>zip</code> is not a valid value for this tool's <code>format</code> parameter.</p>
+<p><strong>Returns:</strong> Archive info dictionary</p>
+<hr />
+<h3 id="ssh_archive_extract">ssh_archive_extract<a class="headerlink" href="#ssh_archive_extract" title="Permanent link">&para;</a></h3>
+<p>Extract a tar or tar.gz archive to a directory (or a <code>.zip</code> on Windows).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Required</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>archive_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Path to the archive file</td>
+</tr>
+<tr>
+<td><code>destination_path</code></td>
+<td>str</td>
+<td>Yes</td>
+<td>-</td>
+<td>Directory to extract to</td>
+</tr>
+<tr>
+<td><code>overwrite</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Overwrite existing files</td>
+</tr>
+<tr>
+<td><code>use_sudo</code></td>
+<td>bool</td>
+<td>No</td>
+<td>False</td>
+<td>Use sudo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong> Extraction status dictionary</p>
+<hr />
+<h2 id="common-parameters">Common Parameters<a class="headerlink" href="#common-parameters" title="Permanent link">&para;</a></h2>
+<h3 id="use_sudo">use_sudo<a class="headerlink" href="#use_sudo" title="Permanent link">&para;</a></h3>
+<p>Many tools support the <code>use_sudo</code> parameter for privileged operations:
+- File operations in protected directories (<code>/etc</code>, <code>/root</code>, <code>/opt</code>)
+- Process management for other users' processes
+- Directory operations in system locations</p>
+<p>The sudo password is taken from the host configuration.</p>
+<h3 id="timeouts">Timeouts<a class="headerlink" href="#timeouts" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>io_timeout</code>: Maximum time to wait for I/O activity</li>
+<li><code>runtime_timeout</code>: Maximum total execution time</li>
+<li><code>wait_seconds</code>: Time to wait before checking/killing</li>
+</ul>
+<h3 id="dry_run">dry_run<a class="headerlink" href="#dry_run" title="Permanent link">&para;</a></h3>
+<p>Destructive operations (<code>ssh_dir_delete</code>, <code>ssh_dir_batch_delete_files</code>) default to <code>dry_run=True</code>. Set to <code>False</code> to actually perform the operation.</p>
+<hr />
+<h2 id="status-codes">Status Codes<a class="headerlink" href="#status-codes" title="Permanent link">&para;</a></h2>
+<p>Common status values returned by tools:</p>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>success</code></td>
+<td>Operation completed successfully</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>General error occurred</td>
+</tr>
+<tr>
+<td><code>command_failed</code></td>
+<td>Command exited with non-zero code</td>
+</tr>
+<tr>
+<td><code>io_timeout</code></td>
+<td>No output activity within timeout</td>
+</tr>
+<tr>
+<td><code>runtime_timeout</code></td>
+<td>Total runtime exceeded limit</td>
+</tr>
+<tr>
+<td><code>busy</code></td>
+<td>Another command is running</td>
+</tr>
+<tr>
+<td><code>killed</code></td>
+<td>Process was terminated</td>
+</tr>
+<tr>
+<td><code>already_exited</code></td>
+<td>Process already finished</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Cygnus Systems
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.instant", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

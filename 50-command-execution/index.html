@@ -1,0 +1,2484 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The most powerful SSH MCP server for AI assistants">
+      
+      
+      
+        <link rel="canonical" href="https://cygnussystems.github.io/cygnus-ssh-mcp/50-command-execution/">
+      
+      
+        <link rel="prev" href="../40-tools-reference/">
+      
+      
+        <link rel="next" href="../60-process-management/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Command Execution - cygnus-ssh-mcp</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#command-execution-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="cygnus-ssh-mcp" class="md-header__button md-logo" aria-label="cygnus-ssh-mcp" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            cygnus-ssh-mcp
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Command Execution
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/cygnussystems/cygnus-ssh-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    cygnussystems/cygnus-ssh-mcp
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../10-overview/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../20-platform-compatibility/" class="md-tabs__link">
+          
+  
+  
+  Platform Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../40-tools-reference/" class="md-tabs__link">
+          
+  
+  
+  Using the Tools
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="cygnus-ssh-mcp" class="md-nav__button md-logo" aria-label="cygnus-ssh-mcp" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    cygnus-ssh-mcp
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/cygnussystems/cygnus-ssh-mcp" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    cygnussystems/cygnus-ssh-mcp
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../15-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../30-host-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Host Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Platform Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../20-platform-compatibility/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../MACOS_COMPATIBILITY/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    macOS Compatibility
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../25-windows-support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows Support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../26-alternate-platforms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Alternate Platforms (flex)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the Tools
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Using the Tools
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../40-tools-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tools Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Execution
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command Execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_run-primary-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_run (Primary Tool)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supporting-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supporting Tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timeout-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeout Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Timeout Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#io-timeout-io_timeout-soft-silence-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        I/O Timeout (io_timeout) - soft, silence-based
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wait-timeout-wait_timeout-soft-elapsed-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wait Timeout (wait_timeout) - soft, elapsed-based
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtime-timeout-runtime_timeout-hard-the-only-one-that-kills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime Timeout (runtime_timeout) - hard, the only one that kills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeout-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeout Priority
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Codes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Status Codes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_run-response-status-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_run response status field
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_check_status-response-status-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_check_status response status field
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_kill-response-result-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_kill response result field
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Output Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#circular-buffer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Circular Buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retrieving-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retrieving Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-in-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output in History
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#long-running-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Long-Running Commands
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Long-Running Commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#strategy-1-increase-timeouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 1: Increase Timeouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#strategy-2-background-task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 2: Background Task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#strategy-3-check-and-wait" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 3: Check and Wait
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#strategy-4-periodic-check-ins-on-a-chatty-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 4: Periodic Check-Ins on a Chatty Command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#process-termination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process Termination
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Process Termination">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#graceful-kill-sigterm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graceful Kill (SIGTERM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#immediate-kill-sigkill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Immediate Kill (SIGKILL)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concurrency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Concurrency">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#single-connection-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Connection Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parallel-execution-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel Execution Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sudo-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sudo Operations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sudo Operations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-sudo-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Sudo Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-sudo-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Sudo Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verify-sudo-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify Sudo Access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command History
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Command History">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#view-recent-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        View Recent Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#search-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Search History
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#history-entry-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        History Entry Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Best Practices
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../60-process-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Process Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../70-logging/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../80-claude-desktop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Claude Desktop Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#core-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_run-primary-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_run (Primary Tool)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supporting-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supporting Tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#timeout-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeout Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Timeout Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#io-timeout-io_timeout-soft-silence-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        I/O Timeout (io_timeout) - soft, silence-based
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wait-timeout-wait_timeout-soft-elapsed-based" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wait Timeout (wait_timeout) - soft, elapsed-based
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#runtime-timeout-runtime_timeout-hard-the-only-one-that-kills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runtime Timeout (runtime_timeout) - hard, the only one that kills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#timeout-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Timeout Priority
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Status Codes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Status Codes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_run-response-status-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_run response status field
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_check_status-response-status-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_check_status response status field
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssh_cmd_kill-response-result-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ssh_cmd_kill response result field
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#output-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Output Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#circular-buffer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Circular Buffer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retrieving-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retrieving Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-in-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output in History
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#long-running-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Long-Running Commands
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Long-Running Commands">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#strategy-1-increase-timeouts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 1: Increase Timeouts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#strategy-2-background-task" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 2: Background Task
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#strategy-3-check-and-wait" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 3: Check and Wait
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#strategy-4-periodic-check-ins-on-a-chatty-command" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strategy 4: Periodic Check-Ins on a Chatty Command
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#process-termination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process Termination
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Process Termination">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#graceful-kill-sigterm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Graceful Kill (SIGTERM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#immediate-kill-sigkill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Immediate Kill (SIGKILL)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#concurrency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concurrency
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Concurrency">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#single-connection-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Connection Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parallel-execution-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel Execution Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sudo-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sudo Operations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sudo Operations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-sudo-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic Sudo Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-sudo-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Sudo Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verify-sudo-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verify Sudo Access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#command-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command History
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Command History">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#view-recent-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        View Recent Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#search-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Search History
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#history-entry-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        History Entry Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Best Practices
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="command-execution-guide">Command Execution Guide<a class="headerlink" href="#command-execution-guide" title="Permanent link">&para;</a></h1>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>The SSH MCP Server provides robust command execution capabilities with timeout handling, output management, and process control. This guide covers the command execution tools and their usage patterns.</p>
+<h2 id="core-tools">Core Tools<a class="headerlink" href="#core-tools" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_cmd_run-primary-tool">ssh_cmd_run (Primary Tool)<a class="headerlink" href="#ssh_cmd_run-primary-tool" title="Permanent link">&para;</a></h3>
+<p>The main tool for executing commands on the remote host.</p>
+<p><strong>Features:</strong>
+- Executes commands with configurable timeouts
+- Captures output with status metadata
+- Supports sudo elevation
+- Tracks execution in command history</p>
+<p><strong>Example:</strong>
+<div class="highlight"><pre><span></span><code>ssh_cmd_run(
+    command=&quot;ls -la /var/log&quot;,
+    io_timeout=30.0,
+    runtime_timeout=60.0,
+    use_sudo=False
+)
+</code></pre></div></p>
+<p><strong>Three independent timeout knobs</strong> (see <a href="#timeout-management">Timeout Management</a>
+below): <code>io_timeout</code> (silence-based), <code>wait_timeout</code> (elapsed-based, regardless of
+activity), and <code>runtime_timeout</code> (the only one that kills). All three are checked
+concurrently - whichever of <code>io_timeout</code>/<code>wait_timeout</code> fires first hands back
+control without touching the remote command; <code>runtime_timeout</code> always wins outright
+if it fires, and kills.</p>
+<h3 id="supporting-tools">Supporting Tools<a class="headerlink" href="#supporting-tools" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ssh_cmd_check_status</code></td>
+<td>Monitor running command status</td>
+</tr>
+<tr>
+<td><code>ssh_cmd_kill</code></td>
+<td>Terminate running commands</td>
+</tr>
+<tr>
+<td><code>ssh_cmd_output</code></td>
+<td>Retrieve command output</td>
+</tr>
+<tr>
+<td><code>ssh_cmd_history</code></td>
+<td>Access execution records</td>
+</tr>
+<tr>
+<td><code>ssh_cmd_clear_history</code></td>
+<td>Clear command history</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="timeout-management">Timeout Management<a class="headerlink" href="#timeout-management" title="Permanent link">&para;</a></h2>
+<p>Three independent knobs, all checked concurrently on every poll iteration. Two are
+"soft" (never kill the remote command, just hand back control); one is "hard" (the
+only one that ever kills).</p>
+<h3 id="io-timeout-io_timeout-soft-silence-based">I/O Timeout (<code>io_timeout</code>) - soft, silence-based<a class="headerlink" href="#io-timeout-io_timeout-soft-silence-based" title="Permanent link">&para;</a></h3>
+<ul>
+<li>An <strong>inactivity</strong> timeout, not a total command timeout - it only measures silence
+  since the last output</li>
+<li>Triggers when no output is received within the timeout period. A command that
+  keeps producing output, however slowly, never triggers this - see <code>wait_timeout</code>
+  below if you want a cap that applies regardless of activity</li>
+<li>Does <strong>NOT</strong> kill the remote command. Monitoring is handed off to a background
+  thread that keeps collecting output and watching for the real exit code, so the
+  command genuinely keeps running and finishing normally is still fully observable
+  later. The response has <code>status='io_timeout'</code>, <code>still_running=True</code>, and an
+  <code>id</code>/<code>pid</code> to check back with via <code>ssh_cmd_check_status</code>/<code>ssh_cmd_output</code> - or to
+  end it early with <code>ssh_cmd_kill</code> if you decide you don't want to wait for it</li>
+<li>Default: 60 seconds</li>
+<li>Use for: Commands that should produce regular output</li>
+</ul>
+<h3 id="wait-timeout-wait_timeout-soft-elapsed-based">Wait Timeout (<code>wait_timeout</code>) - soft, elapsed-based<a class="headerlink" href="#wait-timeout-wait_timeout-soft-elapsed-based" title="Permanent link">&para;</a></h3>
+<ul>
+<li>A <strong>total elapsed wait</strong> cap, regardless of output activity - unlike <code>io_timeout</code>,
+  this fires even while the command is actively producing output</li>
+<li>Same non-killing handoff behavior as <code>io_timeout</code>: the command keeps running in
+  the background, and <code>ssh_cmd_check_status</code>/<code>ssh_cmd_output</code>/<code>ssh_cmd_kill</code> all work
+  on it exactly the same way afterward</li>
+<li>Default: <code>None</code> (disabled) - only <code>io_timeout</code>/<code>runtime_timeout</code> apply unless you
+  set this explicitly</li>
+<li>Use for: Checking in periodically on a command that's chatty but long-running
+  (e.g. a <code>docker pull</code> with a constantly-updating progress bar, which would never
+  go quiet enough to trigger <code>io_timeout</code>) - lets you decide whether to keep waiting,
+  do something else, or kill it, rather than being blocked until it actually finishes</li>
+</ul>
+<h3 id="runtime-timeout-runtime_timeout-hard-the-only-one-that-kills">Runtime Timeout (<code>runtime_timeout</code>) - hard, the only one that kills<a class="headerlink" href="#runtime-timeout-runtime_timeout-hard-the-only-one-that-kills" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Limits total execution time regardless of output activity</li>
+<li>Hard stop - firing this <strong>DOES</strong> attempt to kill the remote command, on Linux,
+  macOS, and Windows (non-sudo commands; sudo'd commands are the one remaining gap -
+  see <code>docs_internal/CMD-EXECUTION-MODEL.md</code> for current coverage details). This
+  still applies even to a command that's already been handed off to background
+  monitoring after an <code>io_timeout</code>/<code>wait_timeout</code> - it's enforced there too, with an
+  internal safety ceiling applied automatically if you never set one, so a
+  background-monitored command can never run completely unbounded</li>
+<li>Default: None (no limit) - set this generously (much longer than the command
+  should ever realistically take); it's a safety net, not a UX mechanism</li>
+<li>Use for: Preventing runaway processes</li>
+</ul>
+<h3 id="timeout-priority">Timeout Priority<a class="headerlink" href="#timeout-priority" title="Permanent link">&para;</a></h3>
+<ol>
+<li>All three are checked every poll iteration; whichever of <code>io_timeout</code>/
+   <code>wait_timeout</code> triggers first ends the local wait and hands off to background
+   monitoring - neither kills anything</li>
+<li><code>runtime_timeout</code> is the one to rely on for an actual cap, since it's the only
+   one that kills the remote process - this holds true both before and after a
+   handoff to background monitoring</li>
+<li>A background thread continues monitoring wall-clock duration and output after a
+   soft timeout fires, so <code>ssh_cmd_check_status</code>/<code>ssh_cmd_output</code> continue to reflect
+   reality (including the real exit code, once the command actually finishes) rather
+   than going stale the moment this tool call returns</li>
+</ol>
+<hr />
+<h2 id="execution-flow">Execution Flow<a class="headerlink" href="#execution-flow" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>                    ┌─────────────────┐
+                    │  ssh_cmd_run()  │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │ Command starts  │
+                    │ (Handle ID      │
+                    │  assigned)      │
+                    └────────┬────────┘
+                             │
+            ┌────────────────┼────────────────┐
+            │                │                │
+    ┌───────▼───────┐ ┌──────▼──────┐ ┌───────▼───────┐
+    │   Success     │ │   Timeout   │ │    Error      │
+    │ (exit code 0) │ │ (I/O, wait, │ │ (non-zero     │
+    │               │ │  or runtime)│ │  exit code)   │
+    └───────┬───────┘ └──────┬──────┘ └───────┬───────┘
+            │                │                │
+            └────────────────┼────────────────┘
+                             │
+                    ┌────────▼────────┐
+                    │ Store in        │
+                    │ command history │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │ Return result   │
+                    │ dictionary      │
+                    └─────────────────┘
+</code></pre></div>
+<hr />
+<h2 id="status-codes">Status Codes<a class="headerlink" href="#status-codes" title="Permanent link">&para;</a></h2>
+<h3 id="ssh_cmd_run-response-status-field"><code>ssh_cmd_run</code> response <code>status</code> field<a class="headerlink" href="#ssh_cmd_run-response-status-field" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Description</th>
+<th>Exit Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>success</code></td>
+<td>Command completed</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>command_failed</code></td>
+<td>Command exited with error</td>
+<td>Non-zero</td>
+</tr>
+<tr>
+<td><code>cwd_not_found</code></td>
+<td>The <code>cwd</code> parameter didn't exist on the remote host - the command was <strong>not</strong> executed</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><code>io_timeout</code></td>
+<td>No output within <code>io_timeout</code> - remote command was <strong>not</strong> killed, genuinely still running (background monitoring keeps collecting it)</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><code>wait_timeout</code></td>
+<td><code>wait_timeout</code> elapsed regardless of activity - remote command was <strong>not</strong> killed, genuinely still running (same as <code>io_timeout</code>)</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><code>runtime_timeout</code></td>
+<td><code>runtime_timeout</code> exceeded - an attempt was made to kill the remote command</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><code>sudo_required</code></td>
+<td>Sudo access needed but not available</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><code>busy</code></td>
+<td>Another <code>ssh_cmd_run</code> is already in flight on this connection</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>Unexpected failure (e.g. connection dropped)</td>
+<td>N/A</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ssh_cmd_check_status-response-status-field"><code>ssh_cmd_check_status</code> response <code>status</code> field<a class="headerlink" href="#ssh_cmd_check_status-response-status-field" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>completed</code></td>
+<td>Confirmed finished, <code>exit_code</code> is populated - including for a command that survived an <code>io_timeout</code>/<code>wait_timeout</code>, since background monitoring keeps watching for the real exit code</td>
+</tr>
+<tr>
+<td><code>running</code></td>
+<td>Still being actively monitored, including a command that's past an <code>io_timeout</code>/<code>wait_timeout</code> but hasn't finished yet - background monitoring has definite knowledge it's still going, not just a guess</td>
+</tr>
+<tr>
+<td><code>killed</code></td>
+<td>The remote process was confirmed terminated (e.g. <code>runtime_timeout</code> killed it, or a prior <code>ssh_cmd_kill</code> call found it already gone) - <code>exit_code</code> is not known, but treat this as terminal, same as <code>completed</code></td>
+</tr>
+<tr>
+<td><code>completed_exit_code_unknown</code></td>
+<td>Rare fallback: monitoring stopped without a confirmed exit code (e.g. an unexpected error/lost connection during background monitoring) and a live check now confirms the remote process is no longer running - terminal, but the real exit code was never observed and cannot be recovered</td>
+</tr>
+<tr>
+<td><code>unknown_still_running</code></td>
+<td>Rare fallback (same caveat as <code>completed_exit_code_unknown</code>) - a live check confirms the remote command is still actually running - not a failure, call this tool again to keep checking</td>
+</tr>
+<tr>
+<td><code>not_found</code></td>
+<td>The <code>handle_id</code> doesn't exist (handles don't survive reconnects)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ssh_cmd_kill-response-result-field"><code>ssh_cmd_kill</code> response <code>result</code> field<a class="headerlink" href="#ssh_cmd_kill-response-result-field" title="Permanent link">&para;</a></h3>
+<p>Note this is a separate field (<code>result</code>, not <code>status</code>) on the <code>ssh_cmd_kill</code> response.</p>
+<table>
+<thead>
+<tr>
+<th>Result</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>killed</code></td>
+<td>Process confirmed exited after the signal (or force-kill fallback)</td>
+</tr>
+<tr>
+<td><code>not_running</code></td>
+<td>Command was already not running when kill was attempted</td>
+</tr>
+<tr>
+<td><code>already_exited</code></td>
+<td>Process had already exited before the signal was sent</td>
+</tr>
+<tr>
+<td><code>failed_to_kill</code></td>
+<td>Process still running after signal (and force-kill, if attempted)</td>
+</tr>
+<tr>
+<td><code>invalid_pid</code></td>
+<td>The tracked PID was not a real value</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>Unexpected failure while attempting the kill</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="output-management">Output Management<a class="headerlink" href="#output-management" title="Permanent link">&para;</a></h2>
+<h3 id="circular-buffer">Circular Buffer<a class="headerlink" href="#circular-buffer" title="Permanent link">&para;</a></h3>
+<ul>
+<li>stdout and stderr are captured into <strong>separate</strong> in-memory buffers with tail
+  preservation - never interleaved into one combined stream</li>
+<li>Default: 100 lines retained per stream</li>
+<li>Streaming capture with line normalization</li>
+<li><code>ssh_cmd_run</code>'s own response only ever includes <code>output</code> (stdout) and <code>stderr</code> as
+  two distinct fields - a command that succeeds can still have written to stderr
+  (warnings, progress meters, non-fatal messages), so check <code>stderr</code> even on
+  <code>status='success'</code></li>
+</ul>
+<h3 id="retrieving-output">Retrieving Output<a class="headerlink" href="#retrieving-output" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code># Get last N lines of stdout (default stream)
+ssh_cmd_output(handle_id=1001, lines=50)
+
+# Get all captured stdout
+ssh_cmd_output(handle_id=1001)
+
+# Get stderr instead
+ssh_cmd_output(handle_id=1001, stream=&quot;stderr&quot;)
+</code></pre></div>
+<h3 id="output-in-history">Output in History<a class="headerlink" href="#output-in-history" title="Permanent link">&para;</a></h3>
+<p><div class="highlight"><pre><span></span><code>ssh_cmd_history(
+    include_output=True,
+    output_lines=5  # Lines per entry
+)
+</code></pre></div>
+Note: <code>ssh_cmd_history</code>'s output snippets are stdout only.</p>
+<hr />
+<h2 id="long-running-commands">Long-Running Commands<a class="headerlink" href="#long-running-commands" title="Permanent link">&para;</a></h2>
+<p>For commands that may run for extended periods:</p>
+<h3 id="strategy-1-increase-timeouts">Strategy 1: Increase Timeouts<a class="headerlink" href="#strategy-1-increase-timeouts" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>ssh_cmd_run(
+    command=&quot;apt-get update&quot;,
+    io_timeout=120.0,      # 2 minutes between outputs
+    runtime_timeout=600.0,  # 10 minutes total
+    use_sudo=True
+)
+</code></pre></div>
+<h3 id="strategy-2-background-task">Strategy 2: Background Task<a class="headerlink" href="#strategy-2-background-task" title="Permanent link">&para;</a></h3>
+<p>For very long operations, use background tasks instead:
+<div class="highlight"><pre><span></span><code>ssh_task_launch(
+    command=&quot;long-running-script.sh&quot;,
+    use_sudo=True
+)
+# Returns immediately with PID
+# Check status later with ssh_task_status(pid=...)
+</code></pre></div></p>
+<h3 id="strategy-3-check-and-wait">Strategy 3: Check and Wait<a class="headerlink" href="#strategy-3-check-and-wait" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code># Start command
+result = ssh_cmd_run(command=&quot;make&quot;, io_timeout=5.0)
+
+if result[&#39;status&#39;] == &#39;io_timeout&#39;:
+    handle_id = result[&#39;id&#39;]  # ssh_cmd_run returns &#39;id&#39;; check_status/kill/output take it as &#39;handle_id&#39;
+
+    # Check periodically
+    while True:
+        status = ssh_cmd_check_status(
+            handle_id=handle_id,
+            wait_seconds=5.0  # Wait then check
+        )
+        if status[&#39;status&#39;] == &#39;completed&#39;:
+            break
+</code></pre></div>
+<p>Note: <code>runtime_timeout</code> firing already attempts to kill the remote command (Linux, macOS,
+and Windows; non-sudo), so there's nothing left to poll for in that case. Polling to wait
+out a long command is the <code>io_timeout</code> pattern, shown above.</p>
+<h3 id="strategy-4-periodic-check-ins-on-a-chatty-command">Strategy 4: Periodic Check-Ins on a Chatty Command<a class="headerlink" href="#strategy-4-periodic-check-ins-on-a-chatty-command" title="Permanent link">&para;</a></h3>
+<p><code>io_timeout</code> only fires on silence - a command that keeps producing output (a
+verbose <code>docker pull</code>, a build with a constant progress bar) never triggers it, so
+<code>ssh_cmd_run</code> would otherwise block for the command's entire duration. Use
+<code>wait_timeout</code> to get control back periodically regardless of activity:</p>
+<div class="highlight"><pre><span></span><code>result = ssh_cmd_run(
+    command=&quot;docker pull large/image:latest&quot;,
+    io_timeout=120.0,     # still catch genuine hangs/silence
+    wait_timeout=20.0,    # but also check in every 20s even while it&#39;s chatty
+    runtime_timeout=1800.0  # hard safety cap
+)
+
+if result[&#39;status&#39;] in (&#39;io_timeout&#39;, &#39;wait_timeout&#39;):
+    handle_id = result[&#39;id&#39;]
+    # Decide here: keep polling, do something else, or ssh_cmd_kill(handle_id) to
+    # end it early - the command is still running either way.
+</code></pre></div>
+<hr />
+<h2 id="process-termination">Process Termination<a class="headerlink" href="#process-termination" title="Permanent link">&para;</a></h2>
+<h3 id="graceful-kill-sigterm">Graceful Kill (SIGTERM)<a class="headerlink" href="#graceful-kill-sigterm" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>ssh_cmd_kill(
+    handle_id=1001,
+    signal=15,      # SIGTERM
+    force=True,     # Use SIGKILL if needed
+    wait_seconds=2.0
+)
+</code></pre></div>
+<h3 id="immediate-kill-sigkill">Immediate Kill (SIGKILL)<a class="headerlink" href="#immediate-kill-sigkill" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>ssh_cmd_kill(
+    handle_id=1001,
+    signal=9,       # SIGKILL
+    force=False     # Already using force signal
+)
+</code></pre></div>
+<hr />
+<h2 id="concurrency">Concurrency<a class="headerlink" href="#concurrency" title="Permanent link">&para;</a></h2>
+<h3 id="single-connection-behavior">Single Connection Behavior<a class="headerlink" href="#single-connection-behavior" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Only one command can execute at a time per connection</li>
+<li>Attempting concurrent execution returns <code>busy</code> status</li>
+<li>Use the execution lock to prevent conflicts</li>
+</ul>
+<h3 id="parallel-execution-options">Parallel Execution Options<a class="headerlink" href="#parallel-execution-options" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Multiple connections</strong> - Each handles one command</li>
+<li><strong>Pipeline commands</strong> - Single command with pipes</li>
+<li><strong>Background tasks</strong> - Non-blocking execution</li>
+</ol>
+<h3 id="pipeline-example">Pipeline Example<a class="headerlink" href="#pipeline-example" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code># Execute as single command
+ssh_cmd_run(
+    command=&quot;find /var/log -name &#39;*.log&#39; | xargs grep ERROR | head -20&quot;
+)
+</code></pre></div>
+<hr />
+<h2 id="sudo-operations">Sudo Operations<a class="headerlink" href="#sudo-operations" title="Permanent link">&para;</a></h2>
+<h3 id="basic-sudo-usage">Basic Sudo Usage<a class="headerlink" href="#basic-sudo-usage" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>ssh_cmd_run(
+    command=&quot;cat /etc/shadow&quot;,
+    use_sudo=True
+)
+</code></pre></div>
+<h3 id="how-sudo-works">How Sudo Works<a class="headerlink" href="#how-sudo-works" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Server retrieves sudo password from host configuration</li>
+<li>Command wrapped with <code>sudo -S -p ''</code> prefix</li>
+<li>Password piped to sudo via stdin</li>
+<li>Output captured normally</li>
+</ol>
+<h3 id="verify-sudo-access">Verify Sudo Access<a class="headerlink" href="#verify-sudo-access" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code># Check before running privileged commands
+ssh_conn_verify_sudo()
+# Returns: {&quot;available&quot;: true, &quot;passwordless&quot;: false, &quot;requires_password&quot;: true}
+</code></pre></div>
+<hr />
+<h2 id="command-history">Command History<a class="headerlink" href="#command-history" title="Permanent link">&para;</a></h2>
+<h3 id="view-recent-commands">View Recent Commands<a class="headerlink" href="#view-recent-commands" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>ssh_cmd_history(
+    limit=10,
+    reverse=True  # Most recent first
+)
+</code></pre></div>
+<h3 id="search-history">Search History<a class="headerlink" href="#search-history" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>ssh_cmd_history(
+    pattern=&quot;apt&quot;,  # Filter by command text
+    include_output=True
+)
+</code></pre></div>
+<h3 id="history-entry-structure">History Entry Structure<a class="headerlink" href="#history-entry-structure" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1001</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ls -la&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;exit_code&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;start_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2024-01-15T10:30:00Z&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;end_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2024-01-15T10:30:01Z&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;pid&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4821</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;output&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;file1.txt&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;file2.txt&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Note: there is no <code>status</code> field here - <code>exit_code</code> is <code>null</code> if the command hasn't
+completed (e.g. it's still running or hit an <code>io_timeout</code>). <code>output</code> is only present
+when <code>ssh_cmd_history(include_output=True)</code> is used.</p>
+<hr />
+<h2 id="best-practices">Best Practices<a class="headerlink" href="#best-practices" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Set appropriate timeouts</strong> based on expected command duration</li>
+<li><strong>Use runtime_timeout</strong> for commands with unpredictable output timing - it's the
+   only knob that actually kills the remote command, so it's your real safety net</li>
+<li><strong>Use wait_timeout</strong> instead of (or alongside) <code>io_timeout</code> for commands that are
+   chatty but long-running, so you still get periodic control back even though the
+   command never goes quiet</li>
+<li><strong>Check status codes</strong> before assuming success</li>
+<li><strong>Use background tasks</strong> (<code>ssh_task_launch</code>) for operations that should survive
+   you disconnecting/reconnecting, not just this call returning</li>
+<li><strong>Verify sudo access</strong> before running privileged commands</li>
+<li><strong>Clear history</strong> periodically if storing sensitive commands</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; Cygnus Systems
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.instant", "search.suggest", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
