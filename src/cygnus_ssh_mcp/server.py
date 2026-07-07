@@ -848,7 +848,8 @@ async def ssh_conn_verify_sudo() -> dict:
         passwordless = False
         try:
             # Use -n flag to prevent sudo from asking for a password
-            result = mcp.ssh_client.run("sudo -n true", io_timeout=5.0)
+            result = mcp.ssh_client.run("sudo -n true", io_timeout=5.0,
+                                         origin='sudo_probe', parent_tool='ssh_conn_verify_sudo')
             if result.exit_code == 0:
                 passwordless = True
         except Exception as e:
@@ -862,7 +863,8 @@ async def ssh_conn_verify_sudo() -> dict:
             if mcp.ssh_client.sudo_password:
                 try:
                     # This will use the sudo password via the _handle_sudo method
-                    result = mcp.ssh_client.run("true", sudo=True, io_timeout=5.0)
+                    result = mcp.ssh_client.run("true", sudo=True, io_timeout=5.0,
+                                                 origin='sudo_probe', parent_tool='ssh_conn_verify_sudo')
                     if result.exit_code == 0:
                         requires_password = True
                 except Exception as e:
@@ -874,14 +876,16 @@ async def ssh_conn_verify_sudo() -> dict:
                 try:
                     # Run a command that checks if the user is in sudoers file
                     # This won't actually execute sudo but just checks if the user is in sudoers
-                    result = mcp.ssh_client.run("sudo -l -U $(whoami) | grep -q '(ALL'", io_timeout=5.0)
+                    result = mcp.ssh_client.run("sudo -l -U $(whoami) | grep -q '(ALL'", io_timeout=5.0,
+                                                 origin='sudo_probe', parent_tool='ssh_conn_verify_sudo')
                     requires_password = result.exit_code == 0
                 except Exception as e:
                     logger.debug(f"Sudo access check failed: {e}")
 
                     # Try another approach - check if user is in sudo group
                     try:
-                        result = mcp.ssh_client.run("groups | grep -q '\\bsudo\\b'", io_timeout=5.0)
+                        result = mcp.ssh_client.run("groups | grep -q '\\bsudo\\b'", io_timeout=5.0,
+                                                     origin='sudo_probe', parent_tool='ssh_conn_verify_sudo')
                         requires_password = result.exit_code == 0
                     except Exception as e2:
                         logger.debug(f"Sudo group check failed: {e2}")

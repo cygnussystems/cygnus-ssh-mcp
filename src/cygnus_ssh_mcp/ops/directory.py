@@ -467,7 +467,8 @@ class SshDirectoryOperations(ABC):
                                      source_path: str,
                                      archive_path: str,
                                      format: str = "tar.gz",
-                                     sudo: bool = False) -> Dict[str, Any]:
+                                     sudo: bool = False,
+                                     parent_tool: Optional[str] = None) -> Dict[str, Any]:
         """
         Create a compressed archive (tar.gz or tar) from a directory.
 
@@ -476,11 +477,17 @@ class SshDirectoryOperations(ABC):
             archive_path: Where to write the archive
             format: "tar.gz" or "tar"
             sudo: Whether to use sudo for the operation
+            parent_tool: When set, tags every command this issues as internal
+                plumbing owned by that tool (e.g. 'ssh_dir_transfer') rather than
+                a direct user-issued command - see ssh_cmd_history's
+                include_internal filter. Left None for direct use (e.g.
+                ssh_archive_create), where these commands ARE the user's request.
 
         Returns:
             Dict with status and archive path
         """
         self.logger.info(f"Creating {format} archive from {source_path} to {archive_path} (sudo={sudo})")
+        history_tag = {'origin': 'tool_internal', 'parent_tool': parent_tool} if parent_tool else {}
 
         # Validate format
         if format not in ["tar.gz", "tar"]:
@@ -501,11 +508,11 @@ class SshDirectoryOperations(ABC):
             if format == "tar.gz":
                 # Create tar.gz archive (compressed)
                 cmd = f"tar -czf {shlex.quote(archive_path)} -C {shlex.quote(parent_dir)} {shlex.quote(base_name)}"
-                handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
+                handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo, **history_tag)
             else:  # tar
                 # Create tar archive (uncompressed)
                 cmd = f"tar -cf {shlex.quote(archive_path)} -C {shlex.quote(parent_dir)} {shlex.quote(base_name)}"
-                handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
+                handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo, **history_tag)
 
             if handle.exit_code != 0:
                 self.logger.error(f"Failed to create archive: {handle.tail(5)}")
@@ -516,7 +523,7 @@ class SshDirectoryOperations(ABC):
 
             # Verify the archive was created
             verify_cmd = f"[ -f {shlex.quote(archive_path)} ] && echo 'exists' || echo 'not_exists'"
-            verify_handle = self.ssh_client.run(verify_cmd, io_timeout=30, sudo=sudo)
+            verify_handle = self.ssh_client.run(verify_cmd, io_timeout=30, sudo=sudo, **history_tag)
 
             if verify_handle.last_nonblank() != 'exists':
                 self.logger.error(f"Archive was not created at {archive_path}")
@@ -527,7 +534,7 @@ class SshDirectoryOperations(ABC):
 
             # Get archive size
             size_cmd = self._cmd_file_size(archive_path)
-            size_handle = self.ssh_client.run(size_cmd, io_timeout=30, sudo=sudo)
+            size_handle = self.ssh_client.run(size_cmd, io_timeout=30, sudo=sudo, **history_tag)
 
             try:
                 archive_size = int(size_handle.last_nonblank())
@@ -554,7 +561,8 @@ class SshDirectoryOperations(ABC):
                                     archive_path: str,
                                     destination_path: str,
                                     overwrite: bool = False,
-                                    sudo: bool = False) -> Dict[str, Any]:
+                                    sudo: bool = False,
+                                    parent_tool: Optional[str] = None) -> Dict[str, Any]:
         """
         Extract a tar or tar.gz archive to a directory.
 
@@ -563,11 +571,17 @@ class SshDirectoryOperations(ABC):
             destination_path: Extract location
             overwrite: Whether to overwrite existing files
             sudo: Whether to use sudo for the operation
+            parent_tool: When set, tags every command this issues as internal
+                plumbing owned by that tool (e.g. 'ssh_dir_transfer') rather than
+                a direct user-issued command - see ssh_cmd_history's
+                include_internal filter. Left None for direct use (e.g.
+                ssh_archive_extract), where these commands ARE the user's request.
 
         Returns:
             Dict with status and list of extracted files
         """
         self.logger.info(f"Extracting archive {archive_path} to {destination_path} (overwrite={overwrite}, sudo={sudo})")
+        history_tag = {'origin': 'tool_internal', 'parent_tool': parent_tool} if parent_tool else {}
 
         # Determine archive type
         if archive_path.endswith('.tar.gz') or archive_path.endswith('.tgz'):
@@ -586,7 +600,7 @@ class SshDirectoryOperations(ABC):
         try:
             # Create destination directory if it doesn't exist
             mkdir_cmd = f"mkdir -p {shlex.quote(destination_path)}"
-            self.ssh_client.run(mkdir_cmd, io_timeout=30, sudo=sudo)
+            self.ssh_client.run(mkdir_cmd, io_timeout=30, sudo=sudo, **history_tag)
 
             # List files in the archive before extraction
             if archive_type == 'tar.gz':
@@ -594,7 +608,7 @@ class SshDirectoryOperations(ABC):
             else:  # tar
                 list_cmd = f"tar -tf {shlex.quote(archive_path)}"
 
-            list_handle = self.ssh_client.run(list_cmd, io_timeout=120, runtime_timeout=300, sudo=sudo)
+            list_handle = self.ssh_client.run(list_cmd, io_timeout=120, runtime_timeout=300, sudo=sudo, **history_tag)
 
             if list_handle.exit_code != 0:
                 self.logger.error(f"Failed to list archive contents: {list_handle.tail(5)}")
@@ -619,7 +633,7 @@ class SshDirectoryOperations(ABC):
                 if not overwrite:
                     extract_cmd += " --keep-old-files"
 
-            extract_handle = self.ssh_client.run(extract_cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
+            extract_handle = self.ssh_client.run(extract_cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo, **history_tag)
 
             # Check for non-zero exit code but handle the special case for tar --keep-old-files
             # which exits with code 1 if files already exist
@@ -1078,9 +1092,16 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                                      source_path: str,
                                      archive_path: str,
                                      format: str = "tar.gz",
-                                     sudo: bool = False) -> Dict[str, Any]:
-        """Create archive using PowerShell Compress-Archive (zip format on Windows)."""
+                                     sudo: bool = False,
+                                     parent_tool: Optional[str] = None) -> Dict[str, Any]:
+        """Create archive using PowerShell Compress-Archive (zip format on Windows).
+
+        parent_tool: when set, tags every command this issues as internal
+        plumbing owned by that tool (e.g. 'ssh_dir_transfer') - see
+        ssh_cmd_history's include_internal filter.
+        """
         self.logger.info(f"Creating archive from {source_path} to {archive_path}")
+        history_tag = {'origin': 'tool_internal', 'parent_tool': parent_tool} if parent_tool else {}
 
         # Windows native is zip; tar.gz would need external tools
         if format not in ["zip", "tar.gz", "tar"]:
@@ -1101,11 +1122,11 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
             # Archive the directory itself (not contents) so structure matches Linux tar behavior
             # Compress-Archive with a directory path includes the directory name in the archive
             cmd = powershell_encoded_command(f"Compress-Archive -Path '{ps_source}' -DestinationPath '{ps_archive}' -Force -ErrorAction Stop")
-            self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
+            self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, **history_tag)
 
             # Get archive size
             size_cmd = powershell_encoded_command(f"(Get-Item '{ps_archive}').Length")
-            size_handle = self.ssh_client.run(size_cmd, io_timeout=30)
+            size_handle = self.ssh_client.run(size_cmd, io_timeout=30, **history_tag)
             try:
                 archive_size = int(size_handle.last_nonblank())
             except (ValueError, IndexError):
@@ -1127,13 +1148,19 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                                     archive_path: str,
                                     destination_path: str,
                                     overwrite: bool = False,
-                                    sudo: bool = False) -> Dict[str, Any]:
+                                    sudo: bool = False,
+                                    parent_tool: Optional[str] = None) -> Dict[str, Any]:
         """Extract archive using PowerShell Expand-Archive.
 
         Note: This strips the first component of the archive path to match
         Linux tar behavior with --strip-components=1.
+
+        parent_tool: when set, tags the command this issues as internal
+        plumbing owned by that tool (e.g. 'ssh_dir_transfer') - see
+        ssh_cmd_history's include_internal filter.
         """
         self.logger.info(f"Extracting {archive_path} to {destination_path}")
+        history_tag = {'origin': 'tool_internal', 'parent_tool': parent_tool} if parent_tool else {}
 
         ps_archive = archive_path.replace("'", "''")
         ps_dest = destination_path.replace("'", "''")
@@ -1180,7 +1207,7 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                 f"$extracted | ForEach-Object {{ Write-Output $_ }}"
             )
             cmd = powershell_encoded_command(strip_script)
-            extract_handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800)
+            extract_handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, **history_tag)
             files = [line.strip() for line in extract_handle.tail(extract_handle.total_lines) if line.strip()]
 
             return {

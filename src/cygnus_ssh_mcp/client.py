@@ -993,36 +993,44 @@ rm -rf "$PROBE_DIR" 2>/dev/null
         return self.dir_ops.list_directory_recursive(path, max_depth, sudo)
     
     def create_archive_from_directory(self, source_path: str, archive_path: str,
-                                    format: str = "tar.gz", sudo: bool = False) -> Dict[str, Any]:
+                                    format: str = "tar.gz", sudo: bool = False,
+                                    parent_tool: Optional[str] = None) -> Dict[str, Any]:
         """
         Create a compressed archive (tar.gz or zip) from a directory.
-        
+
         Args:
             source_path: Directory to archive
             archive_path: Where to write the archive
             format: "tar.gz" or "zip"
             sudo: Whether to use sudo for the operation
-            
+            parent_tool: internal - tags issued commands as owned by this tool
+                (e.g. 'ssh_dir_transfer') rather than a direct user command
+
         Returns:
             Dict with status and archive path
         """
-        return self.dir_ops.create_archive_from_directory(source_path, archive_path, format, sudo)
-    
+        return self.dir_ops.create_archive_from_directory(source_path, archive_path, format, sudo,
+                                                            parent_tool=parent_tool)
+
     def extract_archive_to_directory(self, archive_path: str, destination_path: str,
-                                   overwrite: bool = False, sudo: bool = False) -> Dict[str, Any]:
+                                   overwrite: bool = False, sudo: bool = False,
+                                   parent_tool: Optional[str] = None) -> Dict[str, Any]:
         """
         Extract a zip or tar.gz archive to a directory.
-        
+
         Args:
             archive_path: Path to archive file
             destination_path: Extract location
             overwrite: Whether to overwrite existing files
             sudo: Whether to use sudo for the operation
-            
+            parent_tool: internal - tags issued commands as owned by this tool
+                (e.g. 'ssh_dir_transfer') rather than a direct user command
+
         Returns:
             Dict with status and list of extracted files
         """
-        return self.dir_ops.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
+        return self.dir_ops.extract_archive_to_directory(archive_path, destination_path, overwrite, sudo,
+                                                           parent_tool=parent_tool)
     
     def search_file_contents(self, path: str, pattern: str, regex: bool = False,
                            case_sensitive: bool = True, sudo: bool = False) -> List[Dict[str, Any]]:
@@ -1127,7 +1135,8 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                 # Extract on remote
                 self._logger.info(f"Extracting archive to {remote_path}")
                 extract_result = self.extract_archive_to_directory(
-                    remote_temp_archive, remote_path, overwrite=True, sudo=sudo
+                    remote_temp_archive, remote_path, overwrite=True, sudo=sudo,
+                    parent_tool='ssh_dir_transfer'
                 )
 
                 if not extract_result.get('success'):
@@ -1166,7 +1175,8 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                 # Create archive on remote
                 self._logger.info(f"Creating archive on remote: {remote_temp_archive}")
                 archive_result = self.create_archive_from_directory(
-                    remote_path, remote_temp_archive, format=archive_format, sudo=sudo
+                    remote_path, remote_temp_archive, format=archive_format, sudo=sudo,
+                    parent_tool='ssh_dir_transfer'
                 )
 
                 if not archive_result.get('success') and archive_result.get('status') != 'success':

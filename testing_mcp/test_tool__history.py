@@ -1,11 +1,15 @@
 import pytest
 import json
 import logging
+import os
+import tempfile
+import shutil
 from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
     extract_result_text, echo_command, IS_WINDOWS, noop_success_command,
     multiline_printf_command, silent_failing_command, skip_on_windows,
-    TEST_WORKSPACE, PATH_SEP, cleanup_file_command, success_with_stderr_command
+    TEST_WORKSPACE, PATH_SEP, cleanup_file_command, success_with_stderr_command,
+    cleanup_command
 )
 
 from cygnus_ssh_mcp.server import mcp
@@ -872,6 +876,162 @@ async def test_connection_probes_labeled_as_internal_and_filterable(mcp_test_env
             logger.error(f"Error in connection-probe origin-labeling test: {e}", exc_info=True)
             raise
         finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+@skip_on_windows
+async def test_ssh_conn_verify_sudo_labeled_as_internal_and_filterable(mcp_test_environment):
+    """Test that ssh_conn_verify_sudo's own sudo/sudoers probe commands are
+    labeled origin='sudo_probe' in ssh_cmd_history, not left as origin='user'.
+
+    Regression test: GPT-5.5's 2026-07-07 retest found ssh_conn_verify_sudo
+    still recorded 'sudo -n true' as origin='user', parent_tool=None - it has
+    its own separate inline probe logic in server.py that never called
+    SshClient.verify_sudo_access() (confirmed dead code, unused anywhere else)
+    and was missed by the original origin/parent_tool tagging pass.
+    Linux/macOS-only: Windows's ssh_conn_verify_sudo checks the cached
+    elevation flag directly and never calls ssh_client.run() at all.
+    """
+    print_test_header("Testing ssh_conn_verify_sudo's probes are labeled and filterable in history")
+    logger.info("Starting ssh_conn_verify_sudo origin-labeling regression test")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            await client.call_tool("ssh_cmd_clear_history", {})
+
+            verify_result = await client.call_tool("ssh_conn_verify_sudo", {})
+            verify_json = json.loads(extract_result_text(verify_result))
+            assert 'available' in verify_json, f"Unexpected ssh_conn_verify_sudo response: {verify_json}"
+
+            user_marker_command = echo_command("verify_sudo_labeling_test_20260707")
+            user_result = await client.call_tool("ssh_cmd_run", {
+                "command": user_marker_command,
+                "io_timeout": 5.0
+            })
+            user_json = json.loads(extract_result_text(user_result))
+            assert user_json['exit_code'] == 0
+
+            full_history = await client.call_tool("ssh_cmd_history", {"include_internal": True})
+            full_history_json = json.loads(extract_result_text(full_history))
+            verify_probes = [e for e in full_history_json if e.get('parent_tool') == 'ssh_conn_verify_sudo']
+            assert verify_probes, (
+                f"Expected at least one entry tagged parent_tool='ssh_conn_verify_sudo', "
+                f"got: {full_history_json}"
+            )
+            assert all(e.get('origin') == 'sudo_probe' for e in verify_probes), (
+                f"Expected all ssh_conn_verify_sudo-triggered entries to have "
+                f"origin='sudo_probe', got: {verify_probes}"
+            )
+
+            filtered_history = await client.call_tool("ssh_cmd_history", {"include_internal": False})
+            filtered_history_json = json.loads(extract_result_text(filtered_history))
+            assert not any(e.get('parent_tool') == 'ssh_conn_verify_sudo' for e in filtered_history_json), (
+                f"include_internal=False should filter out ssh_conn_verify_sudo's probes, "
+                f"got: {filtered_history_json}"
+            )
+            user_entries_filtered = [e for e in filtered_history_json if e['command'] == user_marker_command]
+            assert len(user_entries_filtered) == 1, (
+                f"The directly user-issued command should still appear with include_internal=False, "
+                f"got: {filtered_history_json}"
+            )
+
+            logger.info("ssh_conn_verify_sudo's probes correctly labeled and filterable")
+        except Exception as e:
+            logger.error(f"Error in ssh_conn_verify_sudo origin-labeling test: {e}", exc_info=True)
+            raise
+        finally:
+            await disconnect_ssh(client)
+
+    print_test_footer()
+
+
+@pytest.mark.asyncio
+async def test_ssh_dir_transfer_labeled_as_internal_and_filterable(mcp_test_environment):
+    """Test that ssh_dir_transfer's own temp-archive plumbing (mkdir/tar
+    list/tar extract on upload) is labeled origin='tool_internal' in
+    ssh_cmd_history, not left as origin='user'.
+
+    Regression test: GPT-5.5's 2026-07-07 retest found only the final cleanup
+    'rm -f <temp archive>' was tagged parent_tool='ssh_dir_transfer' - the
+    mkdir/tar-list/tar-extract commands issued via the shared
+    extract_archive_to_directory() (also used directly by ssh_archive_extract,
+    where these same commands correctly ARE the user's own request) had no
+    way to know which caller they were being run for. Fixed by threading an
+    optional parent_tool parameter through create_archive_from_directory()/
+    extract_archive_to_directory() in ops/directory.py.
+    """
+    print_test_header("Testing ssh_dir_transfer's plumbing is labeled and filterable in history")
+    logger.info("Starting ssh_dir_transfer origin-labeling regression test")
+
+    local_dir = None
+    remote_path = f"{TEST_WORKSPACE}{PATH_SEP}dir_transfer_labeling_test_20260707"
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            local_dir = tempfile.mkdtemp(prefix='ssh_dir_transfer_labeling_test_')
+            with open(os.path.join(local_dir, 'file1.txt'), 'w') as f:
+                f.write('origin labeling test content')
+
+            await client.call_tool("ssh_cmd_clear_history", {})
+
+            upload_result = await client.call_tool("ssh_dir_transfer", {
+                "direction": "upload",
+                "local_path": local_dir,
+                "remote_path": remote_path
+            })
+            upload_json = json.loads(extract_result_text(upload_result))
+            assert upload_json['success'], f"Upload failed: {upload_json}"
+
+            user_marker_command = echo_command("dir_transfer_labeling_test_20260707")
+            user_result = await client.call_tool("ssh_cmd_run", {
+                "command": user_marker_command,
+                "io_timeout": 5.0
+            })
+            user_json = json.loads(extract_result_text(user_result))
+            assert user_json['exit_code'] == 0
+
+            full_history = await client.call_tool("ssh_cmd_history", {"include_internal": True})
+            full_history_json = json.loads(extract_result_text(full_history))
+            transfer_helpers = [e for e in full_history_json if e.get('parent_tool') == 'ssh_dir_transfer']
+            assert len(transfer_helpers) >= 3, (
+                f"Expected at least 3 entries tagged parent_tool='ssh_dir_transfer' (mkdir, tar list, "
+                f"tar extract), got: {full_history_json}"
+            )
+            assert all(e.get('origin') == 'tool_internal' for e in transfer_helpers), (
+                f"Expected all ssh_dir_transfer-triggered entries to have "
+                f"origin='tool_internal', got: {transfer_helpers}"
+            )
+
+            filtered_history = await client.call_tool("ssh_cmd_history", {"include_internal": False})
+            filtered_history_json = json.loads(extract_result_text(filtered_history))
+            assert not any(e.get('parent_tool') == 'ssh_dir_transfer' for e in filtered_history_json), (
+                f"include_internal=False should filter out ssh_dir_transfer's plumbing, "
+                f"got: {filtered_history_json}"
+            )
+            user_entries_filtered = [e for e in filtered_history_json if e['command'] == user_marker_command]
+            assert len(user_entries_filtered) == 1, (
+                f"The directly user-issued command should still appear with include_internal=False, "
+                f"got: {filtered_history_json}"
+            )
+
+            logger.info("ssh_dir_transfer's plumbing correctly labeled and filterable")
+        except Exception as e:
+            logger.error(f"Error in ssh_dir_transfer origin-labeling test: {e}", exc_info=True)
+            raise
+        finally:
+            if local_dir and os.path.exists(local_dir):
+                shutil.rmtree(local_dir)
+            await client.call_tool("ssh_cmd_run", {
+                "command": cleanup_command(remote_path),
+                "io_timeout": 10.0
+            })
             await disconnect_ssh(client)
 
     print_test_footer()
