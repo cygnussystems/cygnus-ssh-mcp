@@ -1,10 +1,11 @@
+<!-- mcp-name: io.github.cygnussystems/cygnus-ssh-mcp -->
 <div align="center">
 
 <img src="https://raw.githubusercontent.com/cygnussystems/cygnus-ssh-mcp/master/assets/banner.png" alt="cygnus-ssh-mcp" width="400">
 
 # cygnus-ssh-mcp
 
-**The most powerful SSH MCP server for AI assistants**
+**Cross-platform SSH MCP server with 46 purpose-built tools for real server management by AI agents**
 
 [![PyPI version](https://img.shields.io/pypi/v/cygnus-ssh-mcp.svg)](https://pypi.org/project/cygnus-ssh-mcp/)
 [![Python](https://img.shields.io/pypi/pyversions/cygnus-ssh-mcp.svg)](https://pypi.org/project/cygnus-ssh-mcp/)
@@ -20,6 +21,22 @@ Linux, macOS, and Windows servers with 46 specialized tools*
 
 ---
 
+> [!TIP]
+> **A note from the author:** I've been running this daily since April 2025 — over a
+> year now — to manage a dozen+ machines and devices, plus a Proxmox host running
+> 30+ containers, across a network tied together with Tailscale. It started as a
+> tool to solve my own problem, and it's saved me a huge amount of manual work ever
+> since. After a year of running it against Linux, I've since added support for
+> Windows, macOS, and other devices with reduced shells like BusyBox. I'm
+> open-sourcing it now because I think anyone running real infrastructure will find
+> it just as useful. This is a young *public* repo, but the tool behind it isn't new
+> or unproven — it's been battle-tested against my own servers for over a year.
+>
+> If you find it useful, a ⭐ star or a mention to someone who manages their own
+> infrastructure goes a long way for a project this new — thank you!
+
+---
+
 ## Why cygnus-ssh-mcp?
 
 **cygnus-ssh-mcp is an MCP server - usable from Claude Desktop, Claude Code,
@@ -31,15 +48,16 @@ processes, handling sudo - across Linux, macOS, and Windows targets alike.
 
 Doing that properly means solving a pile of genuinely hard, per-platform problems
 that a naive `ssh` wrapper never has to face - and that this project hit and fixed
-the hard way. Getting a *real* PID back from a Windows
-target instead of a meaningless local channel number. Recovering the actual exit
-code when Win32-OpenSSH silently flattens it to `1`. Reading file contents via SFTP
-instead of `Get-Content`, because PowerShell's console encodes stdout in its OEM
-code page and corrupts anything non-ASCII. Killing a `sudo`'d background process
-without either leaving its privileged child orphaned or blindly firing SIGKILL at
-the wrong PID. None of this shows up until you actually run these tools against
-real Linux, macOS, and Windows targets under real conditions - which is exactly how
-every one of these was found and fixed here, not guessed at from documentation.
+the hard way, including:
+
+- Getting a *real* PID back from a Windows target, instead of a meaningless local channel number
+- Recovering the actual exit code when Win32-OpenSSH silently flattens it to `1`
+- Reading file contents via SFTP instead of `Get-Content`, because PowerShell's console encodes stdout in its OEM code page and corrupts anything non-ASCII
+- Killing a `sudo`'d background process without leaving its privileged child orphaned or blindly firing SIGKILL at the wrong PID
+
+None of this shows up until you actually run these tools against real Linux, macOS,
+and Windows targets under real conditions - which is exactly how every one of these
+was found and fixed here, not guessed at from documentation.
 
 | What you get | Basic SSH MCP | cygnus-ssh-mcp |
 |--------------|:-------------:|:--------------:|
@@ -63,6 +81,16 @@ shell can actually do. See [Connecting to Alternate Platforms](#connecting-to-al
 > **Alternate-platform (`flex`) support is a work in progress.** It's been
 > verified against several real devices, but the space of routers/NAS/embedded
 > systems is huge - expect rough edges on hardware that hasn't been tried yet.
+
+### Example agent tasks
+
+Ask your MCP-capable agent to:
+
+- "Check disk space, memory, uptime, and recent logs on my `web` host."
+- "Patch this remote config file safely and show me the diff."
+- "Upload this build artifact, extract it, and restart the service."
+- "Start this command in the background and fetch the output later."
+- "Inspect running processes on my Windows SSH host."
 
 ---
 
