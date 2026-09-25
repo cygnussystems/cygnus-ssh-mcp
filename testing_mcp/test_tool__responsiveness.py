@@ -6,12 +6,14 @@
   client-side request timeout (~60s in many MCP clients)
 - ssh_task_launch's stderr defaults to stdout's file, and the returned log paths exist
 - ssh_cmd_history timestamps are valid ISO 8601 (no '+00:00Z')
-- ssh_conn_connect reports the Linux distro and the real network interfaces
+- ssh_conn_connect reports the Linux distro, the real network interfaces, and a clean
+  load_avg on macOS
 """
 import pytest
 import json
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime
 from conftest import (
@@ -177,6 +179,24 @@ async def test_ssh_conn_connect_reports_distro_and_interfaces(mcp_test_environme
             assert interfaces, f"No interfaces reported: {info}"
             assert any(i['name'] != 'lo' and i['ip_addresses'] for i in interfaces), interfaces
             assert 'raw_output' not in info and 'raw_output' not in info.get('system', {})
+        finally:
+            await disconnect_ssh(client)
+            print_test_footer()
+
+
+@pytest.mark.asyncio
+@skip_on_windows
+async def test_ssh_conn_connect_load_avg_is_three_numbers(mcp_test_environment):
+    """load_avg is plain '1.23 4.56 7.89' (macOS used to give 'LOAD:{ ... } LOAD:{ ... }')."""
+    print_test_header("Testing ssh_conn_connect load_avg format")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            info = _json(await client.call_tool("ssh_conn_host_info", {}))
+            load_avg = info.get('load_avg') or info.get('system', {}).get('load_avg')
+            assert re.fullmatch(r"\d+(\.\d+)? \d+(\.\d+)? \d+(\.\d+)?", load_avg or ""), \
+                f"Unexpected load_avg format: {load_avg!r}"
         finally:
             await disconnect_ssh(client)
             print_test_footer()

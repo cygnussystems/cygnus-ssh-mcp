@@ -480,7 +480,10 @@ class SshOsOperations_Mac(SshOsOperations):
           mem_avail_mb=$(( ((pages_free + pages_inactive) * page_size) / 1048576 ))
           echo "MEM_FREE:$mem_free_mb"
           echo "MEM_AVAIL:$mem_avail_mb"
-          echo "LOAD:$(sysctl -n vm.loadavg | awk "{print \$2, \$3, \$4}")"
+          # vm.loadavg is "{ 1.23 4.56 7.89 }" - strip the braces with sed, not
+          # awk "{print \$2, \$3, \$4}": macOS /bin/sh brace-expands that comma
+          # list inside $(...) and awk gets a mangled program
+          echo "LOAD:$(sysctl -n vm.loadavg | sed "s/[{}]//g; s/^ *//; s/ *\$//")"
         '
         """
 
