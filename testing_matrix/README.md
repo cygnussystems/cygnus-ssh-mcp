@@ -93,7 +93,7 @@ Each runner machine needs:
 |--------|--------|--------|
 | Linux (192.168.1.27) | Python 3.11 | Ready |
 | Windows (192.168.1.9) | Unknown | Needs setup/verification (replaces the old .28 win-test VM, which no longer exists) |
-| macOS (192.168.1.109, `MACBOOK-2015`) | Python 3.9.6 | Can't be a runner (needs 3.10+) - target only. Its password comes from `MACOS_SSH_PASSWORD` in `testing_mcp/.env` |
+| macOS (192.168.1.109, `MACBOOK-2015`) | Python 3.13.15 (`/usr/local/bin/python3`) | Installed 2026-09-25, not yet verified as a runner. Its password comes from `MACOS_SSH_PASSWORD` in `testing_mcp/.env` |
 
 ## Files
 

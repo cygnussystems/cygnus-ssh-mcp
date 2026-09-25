@@ -46,10 +46,10 @@ RUNNERS = {
         'user': 'claude',
         'password': MACOS_PASSWORD,
         'home': '/Users/claude',
-        # NOTE: MACBOOK-2015 (2026-09-25) only has Apple's bundled Python 3.9.6 -
-        # too old for this project's >=3.10 requirement, so it can't be a runner
-        # yet. Install a newer Python (e.g. python.org's installer puts it at
-        # /usr/local/bin/python3) before using --runner=macos.
+        # NOTE: plain 'python3' on PATH may still resolve to Apple's bundled 3.9.6
+        # (too old for this project's >=3.10 requirement) - Python 3.13.15 was
+        # installed via python.org's installer at /usr/local/bin/python3 on
+        # 2026-09-25 (not yet verified as a matrix runner).
         'python': '/usr/local/bin/python3',
         'venv_activate': 'source venv/bin/activate',
         'path_sep': '/',
