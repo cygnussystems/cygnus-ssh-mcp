@@ -123,6 +123,19 @@ Three independent timeout knobs, checked every poll iteration in `_monitor_comma
 - **`runtime_timeout`** (default: none): a hard wall-clock cap regardless of output
   activity — the *only* one of the three that ever kills the remote process.
 
+**Per-call wait cap + non-blocking execution (2026-09-25,
+`issues/2026-09-25-cmd-run-client-timeout-loses-handle.md`):**
+- `ssh_cmd_run` (server layer only, not `client.run()`) clamps `wait_timeout` to
+  `server.max_foreground_wait` (default 50s, `--max-wait`/`MCP_SSH_MAX_WAIT`, `0` =
+  off). MCP clients on the TypeScript SDK's defaults abort tool calls at 60s, and the
+  agent then never saw the handoff or the id/pid. A clamped handoff adds
+  `wait_capped: true` and `requested_wait_timeout`. Internal callers of `client.run()`
+  (transfers, probes) are not capped.
+- `ssh_cmd_run` calls `client.run()` via `asyncio.to_thread`. Before, the blocking wait
+  loop ran on the event-loop thread, so FastMCP couldn't serve *any* other request
+  (even `ssh_conn_is_connected`) until the command ended. A concurrent `ssh_cmd_run`
+  still gets `busy` from the non-blocking `_busy_lock`, same as before.
+
 **When `io_timeout` or `wait_timeout` fires** (`ops/run.py:_handoff_to_background`),
 the channel is **not** closed. Monitoring is handed off to a daemon thread
 (`_continue_monitoring_in_background`) that keeps draining stdout/stderr into the

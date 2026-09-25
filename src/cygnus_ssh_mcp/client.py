@@ -285,14 +285,18 @@ class SshClient:
     def _detect_linux_distro(self):
         """Detect Linux distribution subtype."""
         try:
-            result = self.run('cat /etc/os-release', origin='connection_probe', parent_tool='ssh_conn_connect')
-            if 'debian' in result.lower():
+            # Raw exec, like _detect_windows_version: this runs during OS detection,
+            # before run_ops exists, so self.run() isn't available yet
+            stdin, stdout, stderr = self._client.exec_command('cat /etc/os-release', timeout=5)
+            result = stdout.read().decode('utf-8', errors='replace').lower()
+            if 'debian' in result:
                 self.os_subtype = 'debian'
-            elif 'centos' in result.lower():
+            elif 'centos' in result:
                 self.os_subtype = 'centos'
             else:
                 self.os_subtype = 'unknown_linux'
-        except Exception:
+        except Exception as e:
+            self._logger.warning(f"Failed to detect Linux distro: {e!r}")
             self.os_subtype = 'unknown_linux'
 
     def _detect_windows_version(self):

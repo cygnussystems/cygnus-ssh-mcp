@@ -33,6 +33,20 @@ concurrently - whichever of `io_timeout`/`wait_timeout` fires first hands back
 control without touching the remote command; `runtime_timeout` always wins outright
 if it fires, and kills.
 
+> **Client request timeouts - keep each call under a minute.** Many MCP clients
+> (OpenCode and anything else built on the MCP TypeScript SDK's defaults) abort a tool
+> call after **60 seconds** with `MCP error -32001: Request timed out`. If that happens,
+> the agent never sees the `io_timeout`/`wait_timeout` handoff, so it loses the command's
+> `id` and `pid`. To prevent this, the server caps how long a single `ssh_cmd_run` call
+> blocks: **50s by default**, set with `--max-wait <seconds>` or `MCP_SSH_MAX_WAIT`
+> (`0` disables it). A larger `wait_timeout` (or none) is clamped to the cap, and the
+> call returns a normal `status='wait_timeout'` handoff with `wait_capped: true` and
+> `requested_wait_timeout`. The command keeps running; poll it with
+> `ssh_cmd_check_status`. Other tools, including `ssh_cmd_history` and
+> `ssh_cmd_check_status`, answer immediately while an `ssh_cmd_run` is waiting. For
+> anything that may take more than about a minute (package installs, image pulls,
+> large downloads), `ssh_task_launch` is usually the better tool.
+
 ### Supporting Tools
 
 | Tool | Purpose |
@@ -74,7 +88,8 @@ only one that ever kills).
   the background, and `ssh_cmd_check_status`/`ssh_cmd_output`/`ssh_cmd_kill` all work
   on it exactly the same way afterward
 - Default: `None` (disabled) - only `io_timeout`/`runtime_timeout` apply unless you
-  set this explicitly
+  set this explicitly. Either way, the server's per-call wait cap (default 50s, see
+  above) still applies, and a larger value is clamped to it (`wait_capped: true`)
 - Use for: Checking in periodically on a command that's chatty but long-running
   (e.g. a `docker pull` with a constantly-updating progress bar, which would never
   go quiet enough to trigger `io_timeout`) - lets you decide whether to keep waiting,

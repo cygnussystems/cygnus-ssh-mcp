@@ -186,7 +186,7 @@ afterward. Only `runtime_timeout` ever kills. See
 |-----------|------|----------|---------|-------------|
 | `command` | str | Yes | - | Command to execute |
 | `io_timeout` | float | No | 60.0 | Inactivity (silence) timeout in seconds - does NOT kill the remote command |
-| `wait_timeout` | float | No | None | Total elapsed wait in seconds, regardless of output activity - does NOT kill the remote command, same handoff as `io_timeout` |
+| `wait_timeout` | float | No | None | Total elapsed wait in seconds, regardless of output activity - does NOT kill the remote command, same handoff as `io_timeout`. Clamped to the server's per-call wait cap (default 50s, `--max-wait`/`MCP_SSH_MAX_WAIT`), in which case the response has `wait_capped: true` and `requested_wait_timeout` |
 | `runtime_timeout` | float | No | None | Total wall-clock cap in seconds - DOES attempt to kill the remote command |
 | `use_sudo` | bool | No | False | Run with sudo privileges |
 | `cwd` | str | No | None | Run this call in this directory (Linux/macOS only). Not remembered between calls; fails closed if the directory doesn't exist |
@@ -194,6 +194,8 @@ afterward. Only `runtime_timeout` ever kills. See
 **Returns:** Dictionary with `status`, `output` (stdout), `stderr`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps. `output`/`stderr` are always separate, never interleaved - a command that succeeds can still have written to `stderr` (warnings, progress meters), so check it even on `status='success'`.
 
 **Status values:** `success`, `command_failed`, `cwd_not_found`, `io_timeout`, `wait_timeout`, `runtime_timeout`, `sudo_required`, `busy`, `error`
+
+A single call never blocks longer than the wait cap (default 50s), because many MCP clients abort tool calls at 60s and the handoff would be lost. See [Command Execution](50-command-execution.md#timeout-management).
 
 ---
 
@@ -288,10 +290,10 @@ Launch a command in the background.
 | `command` | str | Yes | - | Command to execute |
 | `use_sudo` | bool | No | False | Run with sudo |
 | `stdout_log` | str | No | Auto | Path for stdout log |
-| `stderr_log` | str | No | Auto | Path for stderr log |
+| `stderr_log` | str | No | Auto | Path for stderr log. Default: the same file as stdout on Linux/macOS, a sibling `<name>_err.log` on Windows |
 | `log_output` | bool | No | True | Whether to log output |
 
-**Returns:** Dictionary with `command`, `pid`, `start_time`, log paths
+**Returns:** Dictionary with `command`, `pid`, `start_time`, `stdout_log`, `stderr_log`. The log paths are where output really goes on the remote host, or `None` for a discarded stream
 
 ---
 

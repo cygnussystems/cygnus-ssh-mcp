@@ -146,21 +146,26 @@ class SshOsOperations(ABC):
             - interfaces: List of dicts with interface details (name, ip_addresses, etc.)
         """
         cmd = self._cmd_network_info()
-        result = self._execute_status_command(cmd, self._network_key_map, parent_tool=parent_tool)
+        result = self._execute_status_command(cmd, self._network_key_map, parent_tool=parent_tool,
+                                              keep_raw_output=True)
 
-        # Parse interface information
-        interfaces = []
-        for line in result.get('raw_output', '').splitlines():
-            if line.startswith('IFACE:'):
-                iface_part, ips_part = line.split('|')
-                iface_name = iface_part.split(':')[1]
-                ips = ips_part.split(':')[1].strip().split()
-                interfaces.append({
-                    'name': iface_name,
-                    'ip_addresses': ips
-                })
+        # Parse "IFACE:<name>|IPS:<ip> <ip> ..." lines from the raw output - one per
+        # interface on Linux/macOS, one per address on Windows (merged by name here)
+        interfaces = {}
+        for line in result.pop('raw_output', '').splitlines():
+            line = line.strip()
+            if not line.startswith('IFACE:') or '|IPS:' not in line:
+                continue
+            iface_part, ips_part = line.split('|IPS:', 1)
+            iface_name = iface_part[len('IFACE:'):].strip()
+            if not iface_name:
+                continue
+            ips = interfaces.setdefault(iface_name, [])
+            ips.extend(ip for ip in ips_part.split() if ip not in ips)
 
-        result['interfaces'] = interfaces
+        result['interfaces'] = [
+            {'name': name, 'ip_addresses': ips} for name, ips in interfaces.items()
+        ]
         return result
 
     def disk_info(self, parent_tool=None):
@@ -257,9 +262,9 @@ class SshOsOperations(ABC):
         'KERNEL': 'kernel',
         'ARCH': 'architecture'
     }
+    # Interfaces are parsed from the raw output in network_info(), not via this map
     _network_key_map = {
         'HOSTNAME': 'hostname',
-        'IFACE': 'raw_output'  # Temporary storage for parsing
     }
     _disk_key_map = {
         'DISK_TOTAL': 'disk_total',
@@ -267,7 +272,7 @@ class SshOsOperations(ABC):
         'FILESYSTEM': 'filesystem'
     }
 
-    def _execute_status_command(self, cmd, key_map, parent_tool=None):
+    def _execute_status_command(self, cmd, key_map, parent_tool=None, keep_raw_output=False):
         """
         Execute a status command and parse its output.
 
@@ -276,6 +281,8 @@ class SshOsOperations(ABC):
             key_map: Mapping of output keys to result keys.
             parent_tool: Name of the MCP tool that triggered this (for history
                 labeling - tagged origin='connection_probe').
+            keep_raw_output: Also return the command's full output as 'raw_output',
+                for callers that parse more than simple KEY:value lines.
 
         Returns:
             Dict containing parsed status information or {'error': ...}.
@@ -295,6 +302,8 @@ class SshOsOperations(ABC):
 
             # Proceed with parsing if exit code is 0 (which it must be if CommandFailed wasn't raised)
             output = "".join(handle.tail(handle.total_lines))  # Get all lines
+            if keep_raw_output:
+                status_info['raw_output'] = output
             parsed_keys = set()
             for line in output.splitlines():
                 if ':' in line:

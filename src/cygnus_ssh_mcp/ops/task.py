@@ -80,6 +80,11 @@ class SshTaskOperations(ABC):
         """Return command to rename a log file, once the task (pid) no longer needs it."""
         pass
 
+    def _merged_stderr_path(self, stdout_log: str) -> str:
+        """Where stderr actually lands when it's asked to share stdout_log's file.
+        POSIX merges both into the one file (2>&1); Windows overrides this."""
+        return stdout_log
+
     # ==========================================================================
     # Shared implementation methods
     # ==========================================================================
@@ -117,7 +122,8 @@ class SshTaskOperations(ABC):
             elif log_output and stdout_log is None:
                 effective_stdout_log = f"{log_dir}/null" if log_dir.startswith("C:") else "/dev/null"
             elif log_output and stderr_log is None:
-                effective_stderr_log = f"{log_dir}/null" if log_dir.startswith("C:") else "/dev/null"
+                # Documented default: stderr goes wherever stdout goes
+                effective_stderr_log = stdout_log
 
             # Build platform-specific launch script
             script_path, script_content, create_script_cmd = self._build_launch_script(
@@ -189,6 +195,9 @@ class SshTaskOperations(ABC):
                 handle = CommandHandle(self.ssh_client.history_manager._next_id, cmd)
                 handle.pid = pid
                 handle.start_ts = datetime.now(UTC)
+            handle.stdout_log, handle.stderr_log = self._actual_log_paths(
+                effective_stdout_log, effective_stderr_log, default_log_path, f"{log_dir}/task-{pid}.log"
+            ) if log_output else (None, None)
             return handle
 
         except Exception as e:
@@ -196,6 +205,23 @@ class SshTaskOperations(ABC):
             if isinstance(e, SudoRequired):
                 raise
             raise SshError(f"Failed to launch task: {e}") from e
+
+    def _actual_log_paths(self, stdout_log, stderr_log, placeholder_path, final_path):
+        """Return (stdout_path, stderr_path) as they will really exist on the remote host -
+        None for a stream that's discarded - so callers never get a path that isn't there."""
+        def real(path):
+            if path == placeholder_path:
+                return final_path  # renamed to the pid-based name after launch
+            if path is None or path == "/dev/null" or path.endswith("/null"):
+                return None
+            return path
+
+        stdout_path = real(stdout_log)
+        if stderr_log is not None and stderr_log == stdout_log and stdout_path:
+            stderr_path = self._merged_stderr_path(stdout_path)
+        else:
+            stderr_path = real(stderr_log)
+        return stdout_path, stderr_path
 
     def get_task_status(self, pid):
         """
@@ -501,6 +527,11 @@ class SshTaskOperations_Win(SshTaskOperations):
 
     def _get_default_log_dir(self) -> str:
         return "C:\\Windows\\Temp"
+
+    def _merged_stderr_path(self, stdout_log: str) -> str:
+        # cmd.exe can't send both streams to one file here, so _build_launch_script
+        # puts stderr in a sibling <name>_err.log instead
+        return stdout_log.replace('.log', '_err.log') if '.log' in stdout_log else stdout_log + '_err'
 
     def _build_launch_script(self, cmd: str, stdout_log: str, stderr_log: str, sudo: bool) -> tuple:
         """Build PowerShell command to launch background task.

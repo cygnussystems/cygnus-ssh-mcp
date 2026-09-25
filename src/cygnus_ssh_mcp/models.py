@@ -208,8 +208,9 @@ class CommandHandle:
             'output_lines': len(self._buf),
             'stderr_lines': len(self._stderr_buf),
             'tail_keep': self._tail_keep,
-            'start_ts': self.start_ts.isoformat() + 'Z',
-            'end_ts': self.end_ts.isoformat() + 'Z' if self.end_ts else None,
+            # Timestamps are tz-aware, so isoformat() already carries the +00:00 offset
+            'start_ts': self.start_ts.isoformat(),
+            'end_ts': self.end_ts.isoformat() if self.end_ts else None,
             'exit_code': self.exit_code,
             'running': self.running,
             'total_lines': self.total_lines, # Stdout

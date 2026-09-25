@@ -35,7 +35,40 @@ def parse_args():
         help="Path to SSH hosts configuration file (TOML format)",
         default=None
     )
+    parser.add_argument(
+        '--max-wait',
+        type=float,
+        help=("Max seconds a single ssh_cmd_run call blocks before handing off with "
+              "status='wait_timeout' (default: $MCP_SSH_MAX_WAIT or "
+              f"{DEFAULT_MAX_FOREGROUND_WAIT:g}; 0 disables the cap)"),
+        default=None
+    )
     return parser.parse_args()
+
+
+# Many MCP clients (e.g. anything on the TypeScript SDK's default) abort a tool call
+# after 60s with "Request timed out" - the caller then never sees the id/pid handoff.
+# So ssh_cmd_run never blocks longer than this, whatever io_timeout/wait_timeout ask
+# for; the command keeps running and is handed off exactly like a wait_timeout.
+DEFAULT_MAX_FOREGROUND_WAIT = 50.0
+
+
+def _max_wait_from_env() -> Optional[float]:
+    """Read the foreground-wait cap from MCP_SSH_MAX_WAIT (0 or negative = no cap)."""
+    raw = os.environ.get('MCP_SSH_MAX_WAIT')
+    if raw is None:
+        return DEFAULT_MAX_FOREGROUND_WAIT
+    try:
+        value = float(raw)
+    except ValueError:
+        logging.getLogger("SSH_MCP_Server").warning(
+            f"Ignoring invalid MCP_SSH_MAX_WAIT={raw!r}, using {DEFAULT_MAX_FOREGROUND_WAIT:g}s")
+        return DEFAULT_MAX_FOREGROUND_WAIT
+    return value if value > 0 else None
+
+
+# None = no cap. Overridden by --max-wait in main().
+max_foreground_wait: Optional[float] = _max_wait_from_env()
 
 
 
@@ -1011,11 +1044,11 @@ async def ssh_task_kill(
 @mcp.tool()
 async def ssh_cmd_run(
         command: Annotated[str, Field(description="Command to execute on remote host")],
-        io_timeout: Annotated[float, Field(description="Max seconds of SILENCE (no output) before giving up on waiting. Does NOT kill the remote command - hands off to background monitoring and returns control to you. Set this high (300+) for commands that may be quiet for a while: package installs (apt/dpkg/yum), Docker/image pulls, large downloads, compilation. If hit, call ssh_cmd_check_status or ssh_cmd_output to check back rather than rerunning.")] = 60.0,
+        io_timeout: Annotated[float, Field(description="Max seconds of SILENCE (no output) before giving up on waiting. Does NOT kill the remote command - hands off to background monitoring and returns control to you. Note a single call never blocks longer than the server's wait cap (default 50s, since most MCP clients abort tool calls at ~60s) - raising this above that only matters for how long silence is tolerated within the cap. For package installs, Docker pulls, large downloads or compilation, prefer ssh_task_launch. If hit, call ssh_cmd_check_status or ssh_cmd_output to check back rather than rerunning.")] = 60.0,
         runtime_timeout: Annotated[Optional[float], Field(description="Total wall-clock cap in seconds, regardless of output activity. Unlike io_timeout/wait_timeout, hitting this DOES attempt to kill the remote command - it's the only hard ceiling. Set generously for long operations (installs/downloads can need 10-60+ minutes) - this should be a safety net, not a UX mechanism.", gt=0)] = None,
         use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
         cwd: Annotated[Optional[str], Field(description="Run the command in this directory, for this call only (Linux/macOS only - not yet supported on Windows). Nothing is remembered between calls: each ssh_cmd_run is an independent process, so pass cwd again on every call where it matters, or chain 'cd dir && command' yourself. Fails closed - if the directory doesn't exist, the command is never executed at all (status='cwd_not_found'), so there's no ambiguity about where anything ran.")] = None,
-        wait_timeout: Annotated[Optional[float], Field(description="Max seconds to wait in THIS call, regardless of output activity - unlike io_timeout, fires even if the command is actively producing output. Does NOT kill the remote command, same non-destructive handoff as io_timeout. Use this when you want to check in periodically on a command that's chatty but long-running (e.g. a verbose Docker pull), rather than being blocked until it finishes or goes quiet.", gt=0)] = None
+        wait_timeout: Annotated[Optional[float], Field(description="Max seconds to wait in THIS call, regardless of output activity - unlike io_timeout, fires even if the command is actively producing output. Does NOT kill the remote command, same non-destructive handoff as io_timeout. Use this when you want to check in periodically on a command that's chatty but long-running (e.g. a verbose Docker pull), rather than being blocked until it finishes or goes quiet. Values above the server's wait cap (default 50s) are clamped to it - the response then has wait_capped=true.", gt=0)] = None
 ) -> dict:
     """
     Execute a command on the remote host and BLOCK until it completes, an io_timeout (silence),
@@ -1037,6 +1070,11 @@ async def ssh_cmd_run(
     - runtime_timeout is the only knob that DOES attempt to terminate the remote command - a hard
       safety ceiling, not a UX mechanism. Set it generously (much longer than the command should
       ever realistically take).
+    - A single call never blocks longer than the server's wait cap (default 50s, configurable
+      via --max-wait / MCP_SSH_MAX_WAIT), because most MCP clients abort a tool call at ~60s and
+      the id/pid handoff would be lost. Longer waits are clamped: the response is a normal
+      status='wait_timeout' handoff with wait_capped=true. For anything that may take more than
+      about a minute, ssh_task_launch is usually the better tool.
     - For commands that should survive you disconnecting/reconnecting entirely (not just this
       call returning), use ssh_task_launch instead - it runs fully detached from this SSH session,
       whereas a command started here (even after surviving io_timeout/wait_timeout) is still tied
@@ -1087,8 +1125,22 @@ async def ssh_cmd_run(
             'timestamp': datetime.now(UTC).isoformat()
         }
 
+    # Never block longer than the foreground cap - past ~60s most MCP clients abort the
+    # call and the id/pid handoff is lost. Capping wait_timeout keeps the normal handoff.
+    effective_wait = wait_timeout
+    wait_capped = False
+    if max_foreground_wait and (wait_timeout is None or wait_timeout > max_foreground_wait):
+        effective_wait = max_foreground_wait
+        wait_capped = True
+
     try:
-        handle = mcp.ssh_client.run(command, io_timeout, runtime_timeout, use_sudo, cwd=cwd, wait_timeout=wait_timeout)
+        # Run in a worker thread: client.run() blocks, and blocking the event loop would
+        # stall every other tool call (even ssh_cmd_history/ssh_cmd_check_status) until
+        # this command finished.
+        handle = await asyncio.to_thread(
+            mcp.ssh_client.run, command, io_timeout, runtime_timeout, use_sudo,
+            cwd=cwd, wait_timeout=effective_wait
+        )
         output = handle.get_full_output()
         stderr_output = handle.get_full_stderr()
         return {
@@ -1121,7 +1173,7 @@ async def ssh_cmd_run(
             else f"{e.seconds}s of total elapsed wait, regardless of activity"
         )
 
-        return {
+        result = {
             'status': e.reason,  # 'io_timeout' or 'wait_timeout'
             'id': handle.id if handle else None,
             'pid': handle.pid if handle else None,
@@ -1143,6 +1195,15 @@ async def ssh_cmd_run(
             'error': str(e),
             'timestamp': datetime.now(UTC).isoformat()
         }
+        if wait_capped and e.reason == 'wait_timeout':
+            result['wait_capped'] = True
+            result['requested_wait_timeout'] = wait_timeout
+            result['note'] = (
+                f"This call returned after {effective_wait:g}s, the server's per-call wait cap "
+                f"(most MCP clients abort tool calls at ~60s, which would lose this handoff). "
+                f"This is expected for long commands - just poll as described in next_step."
+            )
+        return result
     except CommandRuntimeTimeout as e:
         logger.warning(f"Command runtime timeout after {e.seconds}s: {command}")
         return {
@@ -1612,7 +1673,7 @@ async def ssh_task_launch(
         stdout_log: Annotated[
             Optional[str], Field(description="Path to redirect stdout (default: /tmp/task-<pid>.log on Linux/macOS, C:\\Windows\\Temp\\task-<pid>.log on Windows)")] = None,
         stderr_log: Annotated[
-            Optional[str], Field(description="Path to redirect stderr (default: same as stdout)")] = None,
+            Optional[str], Field(description="Path to redirect stderr (default: same file as stdout on Linux/macOS; a sibling <name>_err.log on Windows). The response's stderr_log always gives the real path.")] = None,
         log_output: Annotated[bool, Field(description="Whether to log output to files")] = True
 ) -> dict:
     """
@@ -1629,11 +1690,12 @@ async def ssh_task_launch(
     log files to see progress or final output.
 
     Returns:
-        `{'command', 'pid', 'start_time', 'stdout_log', 'stderr_log'}`. `stdout_log`/
-        `stderr_log` are `None` if `log_output=False`. If you didn't pass an explicit
-        `stdout_log`/`stderr_log` yourself, the returned path reflects the actual
-        default log location used - `/tmp/task-<pid>.log` on Linux/macOS,
-        `C:\\Windows\\Temp\\task-<pid>.log` on Windows.
+        `{'command', 'pid', 'start_time', 'stdout_log', 'stderr_log'}`. Both are the paths
+        the output really goes to on the remote host (read them with ssh_file_read), or
+        `None` for a stream that's discarded - both are `None` if `log_output=False`, and
+        `stdout_log` is `None` if you passed only `stderr_log`. With neither passed, the
+        default is `/tmp/task-<pid>.log` on Linux/macOS (both streams in one file), and
+        `C:\\Windows\\Temp\\task-<pid>.log` plus `task-<pid>_err.log` on Windows.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
@@ -1641,13 +1703,13 @@ async def ssh_task_launch(
     try:
         # Don't add tasks to command history
         handle = mcp.ssh_client.launch(command, use_sudo, stdout_log, stderr_log, log_output, add_to_history=False)
-        default_log_dir = mcp.ssh_client.task_ops._get_default_log_dir()
         return {
             'command': command,
             'pid': handle.pid,
             'start_time': handle.start_ts.isoformat() if handle.start_ts else None,
-            'stdout_log': (stdout_log or f"{default_log_dir}/task-{handle.pid}.log") if log_output else None,
-            'stderr_log': (stderr_log or f"{default_log_dir}/task-{handle.pid}.log") if log_output else None
+            # Paths as they really exist remotely - None for a discarded stream
+            'stdout_log': handle.stdout_log,
+            'stderr_log': handle.stderr_log
         }
     except Exception as e:
         logger.error(f"Task launch failed: {e}")
@@ -3115,10 +3177,13 @@ def _format_size(size_bytes):
 
 def main():
     """Entry point for CLI execution."""
-    global host_manager, _default_host_manager
+    global host_manager, _default_host_manager, max_foreground_wait
 
     # Parse command line arguments
     args = parse_args()
+
+    if args.max_wait is not None:
+        max_foreground_wait = args.max_wait if args.max_wait > 0 else None
 
     # Re-initialize host manager with config path if provided
     host_manager = SshHostManager(
@@ -3129,6 +3194,8 @@ def main():
     try:
         logger.info(f"Starting SSH MCP server '{mcp.name}' ")
         logger.info(f"Using TOML config file: {host_manager.config_path}")
+        logger.info(f"ssh_cmd_run foreground wait cap: "
+                    f"{f'{max_foreground_wait:g}s' if max_foreground_wait else 'disabled'}")
         logger.info("Available tools (can be retrieved programmatically via 'list_tools' tool):")
         mcp.run()
     except KeyboardInterrupt:
