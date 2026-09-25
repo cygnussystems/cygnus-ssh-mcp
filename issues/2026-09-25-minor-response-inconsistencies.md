@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Severity** | 🟡 Data loss (item 1) / 🟢 Minor (items 2-4) |
+| **Severity** | 🟡 Data loss (item 1) / 🟢 Minor (items 2-5) |
 | **Status** | **Fixed, 2026-09-25** (branch `fix/cmd-run-timeout-handoff`). All items confirmed live, traced to code, and fixed. Regression tests in `testing_mcp/test_tool__responsiveness.py` |
 | **Found** | 2026-09-25, Claude Code against `TEST_MCP_SSH_LINUX` (Debian 12), side findings from `2026-09-25-cmd-run-client-timeout-loses-handle.md` |
 
@@ -76,3 +76,19 @@
   `ssh_client.output(handle_id)`, which returns only the last 50 lines by default.
 - **Fixed:** uses the handle's `total_lines` instead. Regression test
   `test_ssh_cmd_check_status_output_lines_is_total`.
+
+## 5. 🟢 `ssh_conn_connect` reports `os_version: unknown_windows` on every Windows host
+
+- Found 2026-09-25 on `win-server-2016`: `connection.os_version: "unknown_windows"`, although
+  `ssh_cmd_run("ver")` returns `Microsoft Windows [Version 10.0.14393]` (which the code maps
+  to `windows_server_2016`).
+- **Root cause:** `client.py` `_detect_windows_version()` sends a bare `ver` via raw
+  `exec_command`. `ver` is a cmd.exe builtin, and the VM's SSH default shell is PowerShell:
+  `ver : The term 'ver' is not recognized …`. Empty output → `unknown_windows`. Same class of
+  bug as item 3's Linux distro detection.
+- **Fixed:** runs `cmd /c ver`, which works whatever the default shell is. Verified live:
+  `os_version: windows_server_2016`. Regression test
+  `test_ssh_conn_connect_reports_windows_version` (fails on the old code, passes on the fix).
+- **Test note:** the first version of this test, and the Linux distro test, read
+  `os_version` from `ssh_conn_status`, which has no such key, so `None != 'unknown_*'` passed
+  on the old code. Both now read `ssh_conn_host_info`'s `connection.os_version`.

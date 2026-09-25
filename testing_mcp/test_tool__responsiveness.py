@@ -20,7 +20,7 @@ from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
     mcp_test_environment, extract_result_text, echo_command, sleep_then_echo,
     remote_temp_path, cleanup_file_command, read_file_command,
-    skip_on_windows, linux_only
+    skip_on_windows, linux_only, windows_only
 )
 
 from cygnus_ssh_mcp import server
@@ -169,12 +169,13 @@ async def test_ssh_conn_connect_reports_distro_and_interfaces(mcp_test_environme
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
-            status = _json(await client.call_tool("ssh_conn_status", {}))
             info = _json(await client.call_tool("ssh_conn_host_info", {}))
-            logger.info(f"conn_status: {status} | host_info: {info}")
+            logger.info(f"host_info: {info}")
 
-            assert status.get('os_version') != 'unknown_linux', \
-                f"Distro detection failed: {status}"
+            # ssh_conn_status has no os_version at all - check the field detection sets
+            os_version = info['connection'].get('os_version')
+            assert os_version and os_version != 'unknown_linux', \
+                f"Distro detection failed: {info['connection']}"
             interfaces = info.get('interfaces') or info.get('system', {}).get('interfaces')
             assert interfaces, f"No interfaces reported: {info}"
             assert any(i['name'] != 'lo' and i['ip_addresses'] for i in interfaces), interfaces
@@ -216,6 +217,23 @@ async def test_ssh_cmd_check_status_output_lines_is_total(mcp_test_environment):
             status = _json(await client.call_tool(
                 "ssh_cmd_check_status", {"handle_id": run_json['id'], "wait_seconds": 0.1}))
             assert status['output_lines'] == 120, status
+        finally:
+            await disconnect_ssh(client)
+            print_test_footer()
+
+
+@pytest.mark.asyncio
+@windows_only
+async def test_ssh_conn_connect_reports_windows_version(mcp_test_environment):
+    """Windows connect reports a real version (bare 'ver' failed under a PowerShell default shell)."""
+    print_test_header("Testing ssh_conn_connect Windows os_version")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            connection = _json(await client.call_tool("ssh_conn_host_info", {}))['connection']
+            assert connection.get('os_version') and connection['os_version'] != 'unknown_windows', \
+                f"Windows version detection failed: {connection}"
         finally:
             await disconnect_ssh(client)
             print_test_footer()

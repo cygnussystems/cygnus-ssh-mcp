@@ -302,8 +302,9 @@ class SshClient:
     def _detect_windows_version(self):
         """Detect Windows version subtype."""
         try:
-            # Use 'ver' command which is fast and returns Windows version
-            stdin, stdout, stderr = self._client.exec_command('ver', timeout=5)
+            # 'ver' is a cmd.exe builtin - call it via cmd /c, since the SSH default
+            # shell is often PowerShell, where a bare 'ver' doesn't exist
+            stdin, stdout, stderr = self._client.exec_command('cmd /c ver', timeout=5)
             result = stdout.read().decode('utf-8', errors='replace').strip()
 
             if 'Windows Server 2019' in result or '10.0.17' in result:
