@@ -3,6 +3,14 @@ Configuration for cross-platform test matrix.
 
 Defines runner machines and target platforms for the 3x3 test matrix.
 """
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# The macOS password lives only in testing_mcp/.env (MACOS_SSH_PASSWORD), not here
+load_dotenv(Path(__file__).resolve().parent.parent / 'testing_mcp' / '.env')
+MACOS_PASSWORD = os.environ.get('MACOS_SSH_PASSWORD')
 
 # Runner machines - these execute the tests
 RUNNERS = {
@@ -32,16 +40,16 @@ RUNNERS = {
         'path_sep': '\\',
     },
     'macos': {
-        'alias': 'macbook-2014',
-        'host': '192.168.1.200',
+        'alias': 'MACBOOK-2015',
+        'host': '192.168.1.109',
         'port': 22,
         'user': 'claude',
-        'password': 'claudepwd',
+        'password': MACOS_PASSWORD,
         'home': '/Users/claude',
-        # NOTE: plain 'python3' on PATH still resolves to Apple's bundled 3.8.9
-        # (too old for this project's >=3.10 requirement) - a newer Python 3.13.5
-        # was installed via python.org's installer at /usr/local/bin/python3,
-        # verified working as a runner 2026-07-05.
+        # NOTE: MACBOOK-2015 (2026-09-25) only has Apple's bundled Python 3.9.6 -
+        # too old for this project's >=3.10 requirement, so it can't be a runner
+        # yet. Install a newer Python (e.g. python.org's installer puts it at
+        # /usr/local/bin/python3) before using --runner=macos.
         'python': '/usr/local/bin/python3',
         'venv_activate': 'source venv/bin/activate',
         'path_sep': '/',
@@ -63,10 +71,10 @@ TARGETS = {
         'password': 'claudepwd',
     },
     'macos': {
-        'host': '192.168.1.53',
+        'host': '192.168.1.109',  # MACBOOK-2015
         'port': 22,
         'user': 'claude',
-        'password': 'claudepwd',
+        'password': MACOS_PASSWORD,
     },
 }
 
