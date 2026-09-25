@@ -35,13 +35,16 @@ cygnus-ssh-mcp --help
 
 Expected output:
 ```
-usage: cygnus-ssh-mcp [-h] [--config CONFIG]
+usage: cygnus-ssh-mcp [-h] [--config CONFIG] [--max-wait MAX_WAIT]
 
-SSH MCP Server - Remote server management via SSH
+SSH MCP Server
 
 options:
-  -h, --help       show this help message and exit
-  --config CONFIG  Path to TOML host configuration file
+  -h, --help           show this help message and exit
+  --config CONFIG      Path to SSH hosts configuration file (TOML format)
+  --max-wait MAX_WAIT  Max seconds a single ssh_cmd_run call blocks before
+                       handing off with status='wait_timeout' (default:
+                       $MCP_SSH_MAX_WAIT or 50; 0 disables the cap)
 ```
 
 ## Uninstalling / Upgrading

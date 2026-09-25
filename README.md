@@ -530,6 +530,11 @@ background monitoring so you can check back later (`ssh_cmd_check_status`), read
 output collected so far (`ssh_cmd_output`), or decide to end it early
 (`ssh_cmd_kill`). Only `runtime_timeout` ever terminates anything.
 
+A single call never blocks longer than **50 seconds** (`--max-wait` /
+`MCP_SSH_MAX_WAIT`), because many MCP clients (e.g. OpenCode) abort a tool call at 60s and
+the handoff would be lost. Longer commands just return a normal `wait_timeout` handoff with
+`wait_capped: true` - poll them, or use `ssh_task_launch` for anything that runs for minutes.
+
 ---
 
 ### Full Unicode Support

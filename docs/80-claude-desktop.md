@@ -88,11 +88,13 @@ Run directly without installing:
 | Argument | Description |
 |----------|-------------|
 | `--config PATH` | Path to host configuration file |
+| `--max-wait SECONDS` | Max seconds a single `ssh_cmd_run` call blocks before handing off with `status='wait_timeout'` (default 50; `0` disables the cap). Keep it below your MCP client's request timeout - many clients abort tool calls at 60s. |
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
+| `MCP_SSH_MAX_WAIT` | Same as `--max-wait` (the command-line flag wins if both are set) |
 | `PYTHONUNBUFFERED` | Set to "1" for immediate output |
 | `LOG_LEVEL` | Logging verbosity (DEBUG, INFO, WARNING, ERROR) |
 
