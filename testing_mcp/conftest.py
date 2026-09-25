@@ -23,7 +23,20 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 src_path = os.path.join(project_root, 'src')
 sys.path.insert(0, src_path)
 
+from cygnus_ssh_mcp import server as _server
+from cygnus_ssh_mcp.host_manager import SshHostManager
 from cygnus_ssh_mcp.server import mcp
+
+# Give each test session its own throwaway host config, so tests never write test
+# hosts (and their passwords) into the user's real ~/.mcp_ssh_hosts.toml, and two
+# sessions (e.g. macOS and Windows at once) can't clobber each other's file.
+import shutil
+import tempfile
+from pathlib import Path
+_TEST_CONFIG_DIR = tempfile.mkdtemp(prefix="mcp_ssh_test_hosts_")
+_server.host_manager = _server._default_host_manager = SshHostManager(
+    config_path=Path(_TEST_CONFIG_DIR) / "mcp_ssh_hosts.toml"
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -364,6 +377,7 @@ def pytest_sessionfinish(session, exitstatus):
     """Close the cached independent-verification connection at the end of the
     test session."""
     _close_paramiko_verify_client()
+    shutil.rmtree(_TEST_CONFIG_DIR, ignore_errors=True)
 
 
 # =============================================================================
