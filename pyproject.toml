@@ -33,7 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
+    "pytest-asyncio>=1.0",  # needs asyncio_default_test_loop_scope (see [tool.pytest.ini_options])
     "python-dotenv>=1.0.0",
 ]
 
@@ -68,4 +68,7 @@ exclude = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
+# All tests and fixtures share one session-wide event loop (the session fixture in
+# testing_mcp/conftest.py holds state across tests)
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

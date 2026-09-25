@@ -84,7 +84,7 @@ MATRIX_WORKSPACE = 'mcp_matrix_test'
 # Test dependencies to install alongside the wheel
 TEST_DEPENDENCIES = [
     'pytest',
-    'pytest-asyncio==0.23.8',  # Pin to compatible version
+    'pytest-asyncio>=1.0',  # conftest uses loop_scope + asyncio_default_test_loop_scope
     'python-dotenv',
     'fastmcp',
 ]

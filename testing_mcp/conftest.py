@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 import asyncio
 import sys
 import os
@@ -503,20 +504,12 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "asyncio: mark test as an asyncio test")
     config.addinivalue_line("markers", "windows: mark test as Windows-specific")
     config.addinivalue_line("markers", "linux: mark test as Linux-specific")
-    if hasattr(config, '_inicache'):
-        config._inicache["asyncio_default_fixture_loop_scope"] = "function"
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test session."""
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="session", autouse=True)
+# One event loop for the whole session (tests and fixtures) - set via
+# asyncio_default_{test,fixture}_loop_scope in pyproject.toml. This replaces the
+# old session-scoped event_loop override, which pytest-asyncio 0.24+ no longer supports.
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def mcp_test_environment():
     """Session-wide test environment setup and teardown."""
     try:

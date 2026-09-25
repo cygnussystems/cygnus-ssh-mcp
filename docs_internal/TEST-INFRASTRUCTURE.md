@@ -11,10 +11,15 @@ cp testing_mcp/.env.example testing_mcp/.env
 # 2. Edit with your test server details
 # (IP addresses, usernames, passwords for each platform)
 
-# 3. Install dev dependencies
+# 3. Install dev dependencies INTO THE PROJECT VENV, and run pytest from it
+#    (.venv/Scripts/python.exe on Windows, .venv/bin/python on Linux/macOS).
+#    A global Python with an older fastmcp returns tool results in a different
+#    shape and breaks several tests (history, dir search) - not a server bug.
+#    pytest-asyncio must be >=1.0 (session-wide loop via pyproject.toml).
+source .venv/bin/activate        # Windows (Git Bash): source .venv/Scripts/activate
 pip install -e ".[dev]"
 
-# 4. Run tests
+# 4. Run tests (with the venv active)
 python -m pytest testing_mcp/ -v                        # Linux (default)
 TEST_PLATFORM=windows python -m pytest testing_mcp/ -v  # Windows
 TEST_PLATFORM=macos python -m pytest testing_mcp/ -v    # macOS

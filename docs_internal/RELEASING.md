@@ -92,7 +92,8 @@ pip install -e .
 ## Running Tests
 
 ```bash
-pip install pytest
+# from the project venv - see TEST-INFRASTRUCTURE.md
+pip install -e ".[dev]"
 python -m pytest testing_mcp/ -v
 ```
 
