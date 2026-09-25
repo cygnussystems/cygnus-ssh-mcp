@@ -200,3 +200,22 @@ async def test_ssh_conn_connect_load_avg_is_three_numbers(mcp_test_environment):
         finally:
             await disconnect_ssh(client)
             print_test_footer()
+
+
+@pytest.mark.asyncio
+@skip_on_windows
+async def test_ssh_cmd_check_status_output_lines_is_total(mcp_test_environment):
+    """output_lines counts all stdout lines, not just the last 50 (it used to cap at 50)."""
+    print_test_header("Testing ssh_cmd_check_status output_lines")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            run_json = _json(await client.call_tool("ssh_cmd_run", {"command": "seq 1 120"}))
+            assert run_json['status'] == 'success', run_json
+            status = _json(await client.call_tool(
+                "ssh_cmd_check_status", {"handle_id": run_json['id'], "wait_seconds": 0.1}))
+            assert status['output_lines'] == 120, status
+        finally:
+            await disconnect_ssh(client)
+            print_test_footer()

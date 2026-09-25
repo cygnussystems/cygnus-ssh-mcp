@@ -1465,7 +1465,8 @@ async def ssh_cmd_check_status(
                     'pid': handle_info.get('pid'),
                     'timestamp': datetime.now(UTC).isoformat(),
                     'output_available': True,
-                    'output_lines': len(output) if output else 0
+                    # Total stdout lines seen - `output` is only the last 50 (ssh_cmd_output's default)
+                    'output_lines': handle_info.get('total_lines', len(output) if output else 0)
                 }
                 if status not in ('completed', 'killed', 'completed_exit_code_unknown'):
                     result['next_step'] = (

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Severity** | 🔴 Blocker (in the field: forced the agent to guess command IDs) |
-| **Status** | **Fixed (uncommitted), 2026-09-25.** Both problems (A and B) reproduced in Claude Code against `TEST_MCP_SSH_LINUX` (see "Repro results"). Root cause and fix below |
+| **Status** | **Fixed, 2026-09-25** (branch `fix/cmd-run-timeout-handoff`). Both problems (A and B) reproduced in Claude Code against `TEST_MCP_SSH_LINUX` (see "Repro results"). Root cause and fix below |
 | **Reported** | 2026-09-19 (field), written up here 2026-09-25 |
 | **Client** | OpenCode, models `gpt-5.5` / `gpt-5.6-terra` |
 | **Target** | Ubuntu 26.04.1 LTS (MacBook Pro 2014), sudo available |
@@ -203,7 +203,11 @@ Client: Claude Code launched with `MCP_TOOL_TIMEOUT=60000`. Target: `TEST_MCP_SS
 - **Recovery without guessing IDs (suggestion #3):** with B fixed, `ssh_cmd_history` lists
   the in-flight command, so no ID guessing is needed. A caller-supplied `tag` was not added.
 - Regression tests: `testing_mcp/test_tool__responsiveness.py`.
-- Not yet run against Windows/macOS targets.
+- Verified through the live MCP connection (Claude Code) on `MACBOOK-2015`: a 70s loop with
+  `wait_timeout=600` returned at 50s with `wait_capped: true`; `ssh_conn_is_connected` and
+  `ssh_cmd_history` sent in parallel answered while it ran (history showed `id: 8`,
+  `end_time: null`); `ssh_cmd_check_status` then reported `completed`, `exit_code: 0`.
+- Not yet run against the Windows target.
 
 ## Open questions
 

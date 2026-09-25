@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Severity** | 🟡 Data loss (item 1) / 🟢 Minor (items 2-3) |
-| **Status** | **Fixed (uncommitted), 2026-09-25.** All items confirmed live on `linux-test`, traced to code, and fixed. Regression tests in `testing_mcp/test_tool__responsiveness.py` |
+| **Severity** | 🟡 Data loss (item 1) / 🟢 Minor (items 2-4) |
+| **Status** | **Fixed, 2026-09-25** (branch `fix/cmd-run-timeout-handoff`). All items confirmed live, traced to code, and fixed. Regression tests in `testing_mcp/test_tool__responsiveness.py` |
 | **Found** | 2026-09-25, Claude Code against `TEST_MCP_SSH_LINUX` (Debian 12), side findings from `2026-09-25-cmd-run-client-timeout-loses-handle.md` |
 
 ## 1. 🟡 `ssh_task_launch` discards stderr when only `stdout_log` is given, and returns a `stderr_log` path that doesn't exist
@@ -64,4 +64,15 @@
   raw output (`keep_raw_output=True`), and `network_info()` parses every `IFACE:` line,
   merging Windows' one-line-per-address output by interface name. `raw_output` no longer
   leaks into the response. Verified live: `os_version: debian`, interfaces `eth0
-  192.168.1.27/24` and `lo 127.0.0.1/8`. Windows/macOS not yet re-tested.
+  192.168.1.27/24` and `lo 127.0.0.1/8`. macOS verified on `MACBOOK-2015` (`lo0`, `en0
+  192.168.1.109`, `utun4`; it returned `[]` before too). Windows not yet re-tested.
+
+## 4. 🟢 `ssh_cmd_check_status` reports at most 50 `output_lines`
+
+- Found 2026-09-25 on `MACBOOK-2015`: a 70-tick loop (71 stdout lines) completed, and
+  `ssh_cmd_output` returned `tick 69`, `tick 70`, `FINISHED`, so all output was captured.
+  But `ssh_cmd_check_status` said `output_lines: 50`.
+- **Root cause:** `server.py` `ssh_cmd_check_status` computed `len(output)`, where `output` is
+  `ssh_client.output(handle_id)`, which returns only the last 50 lines by default.
+- **Fixed:** uses the handle's `total_lines` instead. Regression test
+  `test_ssh_cmd_check_status_output_lines_is_total`.
