@@ -968,12 +968,18 @@ async def ssh_task_status(
         
     try:
         status = mcp.ssh_client.task_status(pid)
-        return {
+        result = {
             'pid': pid,
             'status': status,
             'running': status == 'running',
             'timestamp': datetime.now(UTC).isoformat()
         }
+        if status == 'error':
+            reason = getattr(mcp.ssh_client.task_ops, 'last_status_error', None)
+            result['reason'] = reason or "the status check failed"
+            result['next_step'] = ("This does NOT mean the task exited - its state is unknown. "
+                                   "Call ssh_task_status again shortly.")
+        return result
     except Exception as e:
         logger.error(f"Failed to get task status: {e}")
         raise
@@ -1088,6 +1094,9 @@ async def ssh_cmd_run(
     You can access command history using 'ssh_cmd_history' to see previous commands and their output.
     Commands run this way always appear there with origin='user' - pass include_internal=False to
     ssh_cmd_history to hide unrelated internal plumbing from other tools (e.g. ssh_file_write's sudo dance).
+
+    Windows targets: commands run under cmd.exe (CMD syntax), not PowerShell. For PowerShell,
+    run it explicitly: powershell -NoProfile -Command "...".
 
     Working directory: each call is an independent remote process (like a GitHub Actions step
     or Ansible task, not a continuous shell) - nothing is remembered between calls, including
@@ -1701,6 +1710,9 @@ async def ssh_task_launch(
 
     Output is redirected to files (see stdout_log/stderr_log), not captured in memory - read the
     log files to see progress or final output.
+
+    Windows targets: the command runs under cmd.exe (CMD syntax); for PowerShell use
+    powershell -NoProfile -Command "...".
 
     On Linux/macOS the launch FAILS with an error (nothing is started) if a log file can't be
     created, or, with use_sudo, if sudo itself fails - so a returned PID always means the task

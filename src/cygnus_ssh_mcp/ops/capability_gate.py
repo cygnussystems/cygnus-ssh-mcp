@@ -182,7 +182,7 @@ LINUX_DIRECTORY_GUARDS = {
         overwrite_arg_index=2
     ),
     'batch_delete_by_pattern': require_capability('xargs_0', _XARGS_0_MSG),
-    'search_file_contents': require_capability('xargs_0', _XARGS_0_MSG),
+    # search_file_contents: no guard - it uses plain 'grep -r', which BusyBox has too
 }
 
 # Methods shared via the base SshDirectoryOperations class (not overridden
@@ -195,7 +195,7 @@ FLEX_DIRECTORY_GUARDS = {
         overwrite_arg_index=2
     ),
     'batch_delete_by_pattern': require_capability('xargs_0', _XARGS_0_MSG),
-    'search_file_contents': require_capability('xargs_0', _XARGS_0_MSG),
+    # search_file_contents: no guard - it uses plain 'grep -r', which BusyBox has too
 }
 
 # ops/task.py has no Mac-flavored variant at all (macOS and 'flex' both reuse

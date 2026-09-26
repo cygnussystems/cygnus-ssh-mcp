@@ -5,6 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
+from cygnus_ssh_mcp.models import SshError
 
 
 class SshDirectoryOperations(ABC):
@@ -693,20 +694,28 @@ class SshDirectoryOperations(ABC):
         if not case_sensitive:
             grep_opts.append("-i")  # Case insensitive
 
-        # Add line number and filename options
-        grep_opts.extend(["-n", "-H"])
+        # Recursive, line numbers, always print the file name
+        grep_opts.extend(["-r", "-n", "-H"])
 
-        # Construct the full command
-        # Using find to get all files and xargs to pass to grep
-        # The grep command will return non-zero if no matches are found, which is not an error for us
-        cmd = f"find {shlex.quote(path)} -type f -print0 | xargs -0 grep {' '.join(grep_opts)} {shlex.quote(pattern)} || [ $? -eq 1 ]"
+        # grep's own exit code: 0 = matches, 1 = no match (a normal empty result),
+        # >=2 = a real error (possibly alongside matches, e.g. some unreadable files).
+        # It's echoed as a marker and the command always exits 0, so "no match" never
+        # surfaces as a failure. (The old `find | xargs grep ... || [ $? -eq 1 ]` broke on
+        # GNU xargs, which reports a child's exit 1 as 123.) -e keeps a pattern starting
+        # with '-' from being read as an option.
+        cmd = (f"grep {' '.join(grep_opts)} -e {shlex.quote(pattern)} {shlex.quote(path)}; "
+               f"echo \"__GREP_RC__:$?\"; exit 0")
 
         try:
             handle = self.ssh_client.run(cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo)
 
             # Process the output
             results = []
+            grep_rc = None
             for line in handle.tail(handle.total_lines):
+                if line.startswith("__GREP_RC__:"):
+                    grep_rc = int(line.split(":", 1)[1].strip() or 2)
+                    continue
                 if not line.strip():
                     continue
 
@@ -725,6 +734,16 @@ class SshDirectoryOperations(ABC):
                         'line': line_num,
                         'content': content.rstrip()
                     })
+
+            if grep_rc is not None and grep_rc >= 2:
+                stderr_text = handle.get_full_stderr().strip()
+                if not results:
+                    raise SshError(
+                        f"Content search under '{path}' failed (grep exit {grep_rc}): "
+                        f"{stderr_text or 'no error details'}"
+                    )
+                self.logger.warning(f"Search found {len(results)} matches but some files "
+                                    f"couldn't be read (grep exit {grep_rc}): {stderr_text[:300]}")
 
             self.logger.info(f"Found {len(results)} matches for '{pattern}'")
             return results

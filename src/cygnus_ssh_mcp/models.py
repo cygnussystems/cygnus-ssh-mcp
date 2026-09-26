@@ -77,7 +77,12 @@ class OutputPurged(SshError):
 class TaskNotFound(SshError):
     # Can be raised by output(), task_status(), task_kill()
     def __init__(self, identifier):
-        super().__init__(f"No command handle or task found with identifier: {identifier}")
+        super().__init__(
+            f"No command handle or task found with identifier: {identifier}. "
+            f"Command handles only live for the current connection - reconnecting "
+            f"(ssh_conn_connect) or a server restart clears them. Background tasks from "
+            f"ssh_task_launch can still be checked by PID with ssh_task_status."
+        )
         self.identifier = identifier
 
 

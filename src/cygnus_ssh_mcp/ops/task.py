@@ -253,27 +253,36 @@ class SshTaskOperations(ABC):
 
         cmd = self._cmd_check_process_running(pid)
         self.logger.debug(f"Checking status for PID {pid} using command: {cmd}")
-        chan = None
-        try:
-            chan = self.ssh_client._client.get_transport().open_session()
-            chan.settimeout(5.0)
-            chan.exec_command(cmd)
-            stderr_output = chan.makefile_stderr('r').read().decode('utf-8', errors='replace')
-            exit_status = chan.recv_exit_status()
-            chan.close()
-
-            if exit_status == 0:
-                self.logger.debug(f"Status check for PID {pid}: running")
-                return "running"
-            else:
-                self.logger.debug(f"Status check for PID {pid}: exited (exit code {exit_status})")
-                return "exited"
-
-        except Exception as e:
-            self.logger.error(f"Error checking status for PID {pid}: {e}", exc_info=True)
-            if chan and not chan.closed:
+        self.last_status_error = None
+        # Two attempts: a busy host (e.g. Windows creating thousands of files) can
+        # miss the short per-check timeout once without anything being wrong.
+        for attempt in (1, 2):
+            chan = None
+            try:
+                chan = self.ssh_client._client.get_transport().open_session()
+                chan.settimeout(10.0)
+                chan.exec_command(cmd)
+                stderr_output = chan.makefile_stderr('r').read().decode('utf-8', errors='replace')
+                exit_status = chan.recv_exit_status()
                 chan.close()
-            return "error"
+
+                if exit_status == 0:
+                    self.logger.debug(f"Status check for PID {pid}: running")
+                    return "running"
+                else:
+                    self.logger.debug(f"Status check for PID {pid}: exited (exit code {exit_status})")
+                    return "exited"
+
+            except Exception as e:
+                self.logger.warning(f"Error checking status for PID {pid} (attempt {attempt}): {e!r}")
+                if chan and not chan.closed:
+                    chan.close()
+                self.last_status_error = (
+                    "the status check timed out (the host may be very busy)"
+                    if "timeout" in type(e).__name__.lower() or "timed out" in str(e).lower()
+                    else f"the status check failed: {e!r}"
+                )
+        return "error"
 
     def _kill_remote_process(self, pid, sudo=False):
         """Internal helper to attempt killing a remote PID."""
