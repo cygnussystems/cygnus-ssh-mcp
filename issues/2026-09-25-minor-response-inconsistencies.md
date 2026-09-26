@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Severity** | 🟡 Data loss (item 1) / 🟢 Minor (items 2-5) |
+| **Severity** | 🟡 Data loss (item 1) / 🟢 Minor (items 2-7) |
 | **Status** | **Fixed, 2026-09-25** (branch `fix/cmd-run-timeout-handoff`). All items confirmed live, traced to code, and fixed. Regression tests in `testing_mcp/test_tool__responsiveness.py` |
 | **Found** | 2026-09-25, Claude Code against `TEST_MCP_SSH_LINUX` (Debian 12), side findings from `2026-09-25-cmd-run-client-timeout-loses-handle.md` |
 
@@ -92,3 +92,25 @@
 - **Test note:** the first version of this test, and the Linux distro test, read
   `os_version` from `ssh_conn_status`, which has no such key, so `None != 'unknown_*'` passed
   on the old code. Both now read `ssh_conn_host_info`'s `connection.os_version`.
+
+## 6. 🟢 `busy` wording implied one remote command at a time (from the 2026-09-26 OpenCode retest)
+
+- The tester ran `ssh_cmd_run("echo second")` successfully while an earlier loop, already handed
+  off at the 50s cap, was still running, although the `busy` status said "only one command can
+  run at a time per connection".
+- Not a bug: only one `ssh_cmd_run` can be *waiting in the foreground* at a time; handed-off
+  commands keep running in the background and don't block new ones.
+- **Fixed (wording):** the `busy` description in `ssh_cmd_run` now says exactly that.
+
+## 7. 🟢 Two `os_version` fields with different meanings (same retest)
+
+- `connection.os_version: "debian"` vs `system.os_version: "12 (bookworm)"`.
+- Not a bug: the first is a short platform/distro identifier (`debian`, `windows_server_2016`,
+  `unknown_*`; `None` on macOS), the second is the OS's own version string. Renaming would break
+  clients.
+- **Fixed (documentation):** `ssh_conn_connect`'s description now explains both fields.
+
+## 8. Watch: one-off `Failed during sudo pre-check: SSH session not active` (same retest)
+
+- One setup call failed with this right after a successful connect; reconnect + retry worked.
+  Not reproduced. Track if it recurs.

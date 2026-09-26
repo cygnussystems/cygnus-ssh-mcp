@@ -205,7 +205,7 @@ Wait, then check the status of a command started with `ssh_cmd_run`.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `handle_id` | int | Yes | - | Command handle ID (the `id` field from `ssh_cmd_run`'s response) |
-| `wait_seconds` | float | No | 5.0 | Seconds to wait before checking |
+| `wait_seconds` | float | No | 5.0 | Seconds to wait before checking. Clamped to the per-call wait cap (default 50s); `waited_seconds` in the response shows the wait actually applied. Short waits (1-10s) with repeated polling work best. |
 
 **Returns:** Dictionary with `status`, `exit_code`, `pid`, output metadata
 
@@ -294,6 +294,8 @@ Launch a command in the background.
 | `log_output` | bool | No | True | Whether to log output |
 
 **Returns:** Dictionary with `command`, `pid`, `start_time`, `stdout_log`, `stderr_log`. The log paths are where output really goes on the remote host, or `None` for a discarded stream
+
+**Fails instead of returning a PID** (Linux/macOS) if a log file can't be created (missing or unwritable directory) or, with `use_sudo`, if sudo itself fails - nothing is launched in either case. With `use_sudo`, logs in a directory only root can write (e.g. a root-owned scratch dir) are created and written as root.
 
 ---
 

@@ -252,6 +252,11 @@ async def ssh_conn_connect(
         'capabilities'/'capability_warnings' are included for 'linux'/'flex'
         connections only (empty/omitted for macOS/Windows, which are already
         fully supported and not probed).
+        Two different "os_version" fields: `connection.os_version` is a short
+        platform/distro identifier used internally (e.g. 'debian', 'centos',
+        'windows_server_2016', or 'unknown_linux'/'unknown_windows' if not recognized;
+        None on macOS), while `system.os_version` is the human-readable version string
+        reported by the OS itself (e.g. '12 (bookworm)', '14.8.9').
     """
     try:
         # Try to resolve the host by key or alias
@@ -1113,8 +1118,10 @@ async def ssh_cmd_run(
           the remote command (see ssh_cmd_check_status's `'killed'` status to confirm).
         - 'sudo_required': `use_sudo=True` but elevation isn't available (see
           ssh_conn_verify_sudo before retrying).
-        - 'busy': another ssh_cmd_run is already in flight on this connection - only
-          one command can run at a time per connection.
+        - 'busy': another ssh_cmd_run is still WAITING in the foreground on this
+          connection - only one call can wait at a time. A command that was already
+          handed off (io_timeout/wait_timeout) keeps running in the background and does
+          NOT block new ssh_cmd_run calls; several remote commands can be running at once.
         - 'error': unexpected failure (e.g. connection dropped).
     """
     if not mcp.ssh_client:
@@ -1350,7 +1357,7 @@ async def ssh_cmd_kill(
 @mcp.tool()
 async def ssh_cmd_check_status(
     handle_id: Annotated[int, Field(description="Command handle ID to check status for - the 'id' returned by ssh_cmd_run, including in its io_timeout/wait_timeout response")],
-    wait_seconds: Annotated[float, Field(description="Seconds to wait before checking", gt=0)] = 5.0
+    wait_seconds: Annotated[float, Field(description="Seconds to wait before checking. Clamped to the server's per-call wait cap (default 50s, since most MCP clients abort tool calls at ~60s) - the response's waited_seconds shows the wait actually applied. Short waits (1-10s) with repeated polling work best.", gt=0)] = 5.0
 ) -> dict:
     """
     Wait for the specified duration, then check the status of a command started with
@@ -1401,6 +1408,11 @@ async def ssh_cmd_check_status(
         # Log the wait operation
         logger.info(f"Waiting {wait_seconds} seconds before checking status of handle {handle_id}")
         
+        # Never outlast the client's request timeout (same cap as ssh_cmd_run) -
+        # a 90s wait would come back as "Request timed out" in a 60s client
+        if max_foreground_wait and wait_seconds > max_foreground_wait:
+            wait_seconds = max_foreground_wait
+
         # Perform the actual wait
         await asyncio.sleep(wait_seconds)
         
@@ -1689,6 +1701,11 @@ async def ssh_task_launch(
 
     Output is redirected to files (see stdout_log/stderr_log), not captured in memory - read the
     log files to see progress or final output.
+
+    On Linux/macOS the launch FAILS with an error (nothing is started) if a log file can't be
+    created, or, with use_sudo, if sudo itself fails - so a returned PID always means the task
+    was really started. With use_sudo, logs in a directory only root can write are created and
+    written as root.
 
     Returns:
         `{'command', 'pid', 'start_time', 'stdout_log', 'stderr_log'}`. Both are the paths

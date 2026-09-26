@@ -156,6 +156,20 @@ class SshTaskOperations(ABC):
                 self.logger.error(err_msg)
                 if sudo and "password is required" in stderr_output:
                     raise SudoRequired(cmd)
+                # Markers from the POSIX launcher's pre-launch checks - nothing was started
+                for line in stderr_output.splitlines():
+                    if line.startswith("LOG_NOT_WRITABLE:"):
+                        raise SshError(
+                            f"Task NOT launched: can't create log file '{line.split(':', 1)[1]}' "
+                            f"(directory missing or not writable"
+                            f"{', even with sudo' if sudo else '; use_sudo=True may help'}). "
+                            f"Choose another stdout_log/stderr_log path."
+                        )
+                    if line.startswith("SUDO_FAILED:"):
+                        raise SshError(
+                            f"Task NOT launched: sudo failed: {line.split(':', 1)[1].strip() or 'unknown error'}. "
+                            f"Check with ssh_conn_verify_sudo."
+                        )
                 raise SshError(err_msg)
 
             # Extract PID from the "PID:12345" format
@@ -427,69 +441,83 @@ class SshTaskOperations_Linux(SshTaskOperations):
         # so real Linux/macOS behave exactly as before.
         cmd_shell = 'bash' if self.ssh_client.capabilities.get('bash', True) else 'sh'
 
-        # Build redirection part
-        if stdout_log:
-            if stderr_log and stderr_log != stdout_log:
-                redirect_part = f"1>{shlex.quote(stdout_log)} 2>{shlex.quote(stderr_log)}"
-            else:
-                redirect_part = f"1>{shlex.quote(stdout_log)} 2>&1"
-        else:
-            if stderr_log:
-                redirect_part = f"1>/dev/null 2>{shlex.quote(stderr_log)}"
-            else:
-                redirect_part = "1>/dev/null 2>/dev/null"
+        out_path = stdout_log or "/dev/null"
+        err_path = stderr_log or ("/dev/null" if not stdout_log else stdout_log)
+        merged = err_path == out_path and out_path != "/dev/null"
+        user_redirect = '1>"$__OUT" ' + ('2>&1' if merged else '2>"$__ERR"')
+
+        # Log files and the command are passed as env vars / positional args, never
+        # spliced into nested quotes. Before launching anything, each log is created
+        # (": >>" - no truncation) as the user if possible. Only if the user can't
+        # (e.g. a root-owned directory) and use_sudo is set is it created via sudo -
+        # and then the task opens its logs as root (__ROOT_LOGS=1). Otherwise logs are
+        # opened by the user's shell exactly as before: a default /tmp log must stay
+        # user-owned and be opened immediately, since it's renamed to task-<pid>.log
+        # right after launch (/tmp is sticky, and a slow sudo startup would otherwise
+        # race the rename). If a log can't be created at all, or sudo itself fails,
+        # the launcher exits non-zero with a marker instead of reporting the PID of a
+        # job that never started.
+        header = f"""#!/bin/sh
+export __TASK_CMD={shlex.quote(cmd)}
+export __OUT={shlex.quote(out_path)}
+export __ERR={shlex.quote(err_path)}
+"""
+        ensure_logs = """__ROOT_LOGS=0
+__ensure_log() {
+  [ "$1" = /dev/null ] && return 0
+  ( : >> "$1" ) 2>/dev/null && return 0
+  __sudo_touch "$1" && { __ROOT_LOGS=1; return 0; }
+  echo "LOG_NOT_WRITABLE:$1" >&2
+  exit 3
+}
+__ensure_log "$__OUT"
+[ "$__ERR" = "$__OUT" ] || __ensure_log "$__ERR"
+"""
+        footer = f"""pid=$!
+echo "PID:$pid"
+rm -f {script_path}
+exit 0
+"""
 
         if sudo:
-            # Check if sudo password is available for non-interactive sudo with password
+            # Root-side program for __ROOT_LOGS=1: open the logs as root, then exec the
+            # user's command (exec keeps the process chain depth kill_task's
+            # process-group handling relies on).
+            root_prog = 'exec 1>"$1" ' + ('2>&1' if merged else '2>"$2"') + f'; exec {cmd_shell} -c "$3"'
+            header += f"export __ROOT_PROG={shlex.quote(root_prog)}\n"
             sudo_password = getattr(self.ssh_client, 'sudo_password', None)
             if sudo_password:
-                # Use sudo -S to read password from stdin via echo
-                # Store command in environment variable to avoid nested quoting issues
-                # nohup ensures process survives script exit. The outer 'sh -c' here is
-                # just plumbing (a pipe + sudo invocation) - always sh, no bash needed;
-                # only the innermost "$__SUDO_CMD" invocation uses cmd_shell.
-                script_content = f"""#!/bin/sh
-# Store command in variable to avoid nested quoting issues
-export __SUDO_CMD={shlex.quote(cmd)}
-# Launch command in background with proper redirection
-nohup sh -c 'echo {shlex.quote(sudo_password)} | sudo -S -p "" {cmd_shell} -c "$__SUDO_CMD"' {redirect_part} &
-# Store PID
-pid=$!
-# Output only the PID with marker
-echo "PID:$pid"
-# Clean up this script
-rm -f {script_path}
-exit 0
-"""
+                # Password via env var + printf, not an echo argument visible in ps.
+                # The outer 'sh -c' is just plumbing (pipe + sudo) - always sh.
+                sudo_prefix = 'printf "%s\\n" "$__SUDO_PW" | sudo -S -p ""'
+                header += f"export __SUDO_PW={shlex.quote(sudo_password)}\n"
+                launch_root = (f"nohup sh -c '{sudo_prefix} sh -c \"$__ROOT_PROG\" sh "
+                               f"\"$__OUT\" \"$__ERR\" \"$__TASK_CMD\"' >/dev/null 2>&1 &")
+                launch_user = (f"nohup sh -c '{sudo_prefix} {cmd_shell} -c \"$__TASK_CMD\"' "
+                               f"{user_redirect} &")
             else:
-                # Try passwordless sudo
-                script_content = f"""#!/bin/sh
-# Store command in variable to avoid quoting issues
-export __SUDO_CMD={shlex.quote(cmd)}
-# Launch command in background with proper redirection
-nohup sudo -n {cmd_shell} -c "$__SUDO_CMD" {redirect_part} &
-# Store PID
-pid=$!
-# Output only the PID with marker
-echo "PID:$pid"
-# Clean up this script
-rm -f {script_path}
-exit 0
-"""
+                sudo_prefix = 'sudo -n'
+                launch_root = ('nohup sudo -n sh -c "$__ROOT_PROG" sh "$__OUT" "$__ERR" "$__TASK_CMD"'
+                               ' >/dev/null 2>&1 &')
+                launch_user = f'nohup sudo -n {cmd_shell} -c "$__TASK_CMD" {user_redirect} &'
+            script_content = header + f"""__sudo_check=$({sudo_prefix} true 2>&1 >/dev/null) || {{
+  echo "SUDO_FAILED:$__sudo_check" >&2
+  exit 4
+}}
+__sudo_touch() {{ {sudo_prefix} sh -c ': >> "$1"' sh "$1" 2>/dev/null; }}
+""" + ensure_logs + f"""if [ "$__ROOT_LOGS" = 1 ]; then
+  {launch_root}
+else
+  {launch_user}
+fi
+""" + footer
         else:
-            script_content = f"""#!/bin/sh
-# Launch command in background with proper redirection
-{cmd_shell} -c {shlex.quote(cmd)} {redirect_part} &
-# Store PID
-pid=$!
-# Output only the PID with marker
-echo "PID:$pid"
-# Clean up this script
-rm -f {script_path}
-exit 0
-"""
+            script_content = header + """__sudo_touch() { return 1; }
+""" + ensure_logs + f"""{cmd_shell} -c "$__TASK_CMD" {user_redirect} &
+""" + footer
 
-        create_script_cmd = f"cat > {script_path} << 'EOFSCRIPT'\n{script_content}\nEOFSCRIPT\nchmod +x {script_path}"
+        # umask 077: the script can contain the sudo password - never world-readable
+        create_script_cmd = f"umask 077; cat > {script_path} << 'EOFSCRIPT'\n{script_content}\nEOFSCRIPT\nchmod 700 {script_path}"
         execution_cmd = f"sh {shlex.quote(script_path)}"
         return execution_cmd, script_content, create_script_cmd
 

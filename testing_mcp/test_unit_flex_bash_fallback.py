@@ -27,7 +27,8 @@ def test_build_launch_script_prefers_bash_when_confirmed_present():
         f"present by every capability probe), not rely on a bash shebang - "
         f"got: {execution_cmd!r}"
     )
-    assert "bash -c 'echo hi'" in script_content
+    assert "export __TASK_CMD='echo hi'" in script_content
+    assert 'bash -c "$__TASK_CMD"' in script_content
 
 
 def test_build_launch_script_falls_back_to_sh_when_bash_confirmed_missing():
@@ -36,8 +37,8 @@ def test_build_launch_script_falls_back_to_sh_when_bash_confirmed_missing():
         "echo hi", None, None, sudo=False
     )
     assert execution_cmd.startswith("sh ")
-    assert "sh -c 'echo hi'" in script_content
-    assert "bash -c 'echo hi'" not in script_content
+    assert 'sh -c "$__TASK_CMD"' in script_content
+    assert "bash" not in script_content
 
 
 def test_build_launch_script_prefers_bash_when_unconfirmed():
@@ -49,7 +50,7 @@ def test_build_launch_script_prefers_bash_when_unconfirmed():
     execution_cmd, script_content, _ = task_ops._build_launch_script(
         "echo hi", None, None, sudo=False
     )
-    assert "bash -c 'echo hi'" in script_content
+    assert 'bash -c "$__TASK_CMD"' in script_content
 
 
 def test_build_launch_script_execution_cmd_uses_actual_script_path():
@@ -72,8 +73,9 @@ def test_build_launch_script_sudo_with_password_falls_back_to_sh():
         "echo hi", None, None, sudo=True
     )
     assert execution_cmd.startswith("sh ")
-    assert "sh -c 'echo" in script_content  # outer plumbing wrapper
-    assert 'sh -c "$__SUDO_CMD"' in script_content  # innermost user-command invocation
+    assert "nohup sh -c 'printf" in script_content  # outer plumbing wrapper (password pipe)
+    assert 'sh -c "$__TASK_CMD"' in script_content  # innermost user-command invocation
+    assert 'exec sh -c "$3"' in script_content  # same, when logs must be opened as root
     assert "bash" not in script_content
 
 
@@ -84,4 +86,5 @@ def test_build_launch_script_sudo_passwordless_prefers_bash_when_present():
     execution_cmd, script_content, _ = task_ops._build_launch_script(
         "echo hi", None, None, sudo=True
     )
-    assert 'bash -c "$__SUDO_CMD"' in script_content
+    assert 'sudo -n bash -c "$__TASK_CMD"' in script_content
+    assert 'exec bash -c "$3"' in script_content  # root-opened-logs variant
