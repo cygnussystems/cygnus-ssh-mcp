@@ -85,11 +85,11 @@ async def test_long_operation_hands_off_and_server_stays_responsive(mcp_test_env
     """A slow tool returns in_progress at the cap; status tools answer at once meanwhile;
     history lists it; check_status returns its full normal result when done."""
     print_test_header("Testing long operation handoff")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             _slow_down(monkeypatch, 'calculate_directory_size')
 
             start = time.monotonic()
@@ -122,11 +122,11 @@ async def test_second_operation_is_refused_while_one_runs(mcp_test_environment, 
     """One operation at a time: another operation, or ssh_cmd_run, fails fast with 'busy'
     naming the running handle - it isn't queued (a queued call would time out anyway)."""
     print_test_header("Testing one operation at a time")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             _slow_down(monkeypatch, 'calculate_directory_size')
             first = _json(await client.call_tool("ssh_dir_calc_size", {"path": TEST_WORKSPACE}))
             handle_id = first['handle_id']
@@ -152,11 +152,11 @@ async def test_second_operation_is_refused_while_one_runs(mcp_test_environment, 
 async def test_failed_long_operation_reports_error(mcp_test_environment, monkeypatch):
     """A handed-off operation that fails reports status 'failed' with the real error."""
     print_test_header("Testing failed long operation")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             _slow_down(monkeypatch, 'calculate_directory_size', delay=4, fail=True)
             first = _json(await client.call_tool("ssh_dir_calc_size", {"path": TEST_WORKSPACE}))
             done = await _wait_for_operation(client, first['handle_id'])
@@ -170,11 +170,11 @@ async def test_failed_long_operation_reports_error(mcp_test_environment, monkeyp
 async def test_list_tool_in_progress_then_list_result(mcp_test_environment, monkeypatch):
     """A list-returning tool (content search) can hand off too; its result is the list."""
     print_test_header("Testing list tool handoff")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             _slow_down(monkeypatch, 'search_file_contents')
             first = _unwrap(await client.call_tool("ssh_dir_search_files_content", {
                 "dir_path": TEST_WORKSPACE, "pattern": f"never-matches-{int(time.time())}"}))
@@ -211,11 +211,11 @@ async def test_fast_operation_returns_directly(mcp_test_environment):
 async def test_simultaneous_operations_exactly_one_runs(mcp_test_environment, monkeypatch):
     """Two operations started at the same instant: exactly one runs, the other gets busy."""
     print_test_header("Testing simultaneous operations")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             _slow_down(monkeypatch, 'calculate_directory_size', delay=4)
             results = await asyncio.gather(
                 *[client.call_tool("ssh_dir_calc_size", {"path": TEST_WORKSPACE}) for _ in range(4)],
@@ -234,11 +234,11 @@ async def test_simultaneous_operations_exactly_one_runs(mcp_test_environment, mo
 async def test_burst_of_status_calls_during_operation(mcp_test_environment, monkeypatch):
     """A burst of parallel status calls while an operation runs all answer promptly."""
     print_test_header("Testing parallel status calls during an operation")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             _slow_down(monkeypatch, 'calculate_directory_size', delay=8)
             first = _json(await client.call_tool("ssh_dir_calc_size", {"path": TEST_WORKSPACE}))
             calls = []
@@ -307,11 +307,11 @@ async def test_connect_as_long_operation(mcp_test_environment, monkeypatch):
     """ssh_conn_connect itself can hand off; check_status works before any connection
     exists, and the connection is usable once it completes."""
     print_test_header("Testing a slow ssh_conn_connect")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             host_key = f"{mcp.ssh_client.user}@{mcp.ssh_client.host}"
             await disconnect_ssh(client)
 
@@ -337,11 +337,11 @@ async def test_connect_as_long_operation(mcp_test_environment, monkeypatch):
 async def test_cmd_output_on_operation_handle_explains(mcp_test_environment, monkeypatch):
     """ssh_cmd_output on an operation handle points to ssh_cmd_check_status."""
     print_test_header("Testing ssh_cmd_output on an operation handle")
-    monkeypatch.setattr(server, 'max_foreground_wait', CAP)
 
     async with Client(mcp) as client:
         try:
             assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
             _slow_down(monkeypatch, 'calculate_directory_size', delay=4)
             first = _json(await client.call_tool("ssh_dir_calc_size", {"path": TEST_WORKSPACE}))
             with pytest.raises(Exception) as exc_info:

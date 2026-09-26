@@ -246,6 +246,16 @@ async def make_connection(client):
         return False
 
     connect_json = json.loads(result_text)
+    if connect_json.get('status') == 'in_progress':
+        # A slow connect (e.g. Windows OS/PowerShell probes under a lowered wait cap) hands
+        # off like any long operation - collect its real result the way a client would.
+        handle_id = connect_json['handle_id']
+        for _ in range(120):
+            status = json.loads(extract_result_text(await client.call_tool(
+                "ssh_cmd_check_status", {"handle_id": handle_id, "wait_seconds": 1})))
+            if status['status'] != 'running':
+                connect_json = status.get('result') or {'status': status['status'], 'error': status.get('error')}
+                break
     if connect_json.get('status') == 'success':
         logging.info(f"SSH connection established to {connect_json.get('connected_to')}")
         return True

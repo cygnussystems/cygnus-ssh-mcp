@@ -21,6 +21,21 @@ logger = logging.getLogger(__name__)
 COUNT = 300
 
 
+async def _collect(client, tool, params):
+    """The tool's result, polling ssh_cmd_check_status if it handed off (in_progress)."""
+    response = _unwrap(await client.call_tool(tool, params))
+    if isinstance(response, dict) and response.get('status') == 'in_progress':
+        for _ in range(240):
+            status = json.loads((await client.call_tool("ssh_cmd_check_status", {
+                "handle_id": response['handle_id'], "wait_seconds": 5})).content[0].text)
+            if status['status'] != 'running':
+                assert status['status'] == 'completed', status
+                logger.info(f"{tool} handed off and completed after the wait cap")
+                return status['result']
+        raise AssertionError(f"{tool} still running")
+    return response
+
+
 def _unwrap(result):
     items = result.content if hasattr(result, 'content') else result
     parsed = [json.loads(item.text) for item in items]
@@ -48,18 +63,18 @@ async def test_tools_return_more_than_100_results(mcp_test_environment):
             made = json.loads((await client.call_tool("ssh_cmd_run", {"command": make, "wait_timeout": 45})).content[0].text)
             assert made['status'] == 'success', made
 
-            listing = _unwrap(await client.call_tool("ssh_dir_list_files_basic", {"path": base}))
+            listing = await _collect(client, "ssh_dir_list_files_basic", {"path": base})
             assert len(listing) == COUNT, f"ssh_dir_list_files_basic returned {len(listing)}"
 
-            advanced = _unwrap(await client.call_tool("ssh_dir_list_advanced", {"path": base}))
+            advanced = await _collect(client, "ssh_dir_list_advanced", {"path": base})
             files = [e for e in advanced if (e.get('type') or '').lower() in ('file', 'f', '-')] or advanced
             assert len(files) >= COUNT, f"ssh_dir_list_advanced returned {len(files)} files"
 
-            globbed = _unwrap(await client.call_tool("ssh_dir_search_glob", {"path": base, "pattern": "*.txt"}))
+            globbed = await _collect(client, "ssh_dir_search_glob", {"path": base, "pattern": "*.txt"})
             assert len(globbed) == COUNT, f"ssh_dir_search_glob returned {len(globbed)}"
 
-            found = _unwrap(await client.call_tool("ssh_dir_search_files_content",
-                                                   {"dir_path": base, "pattern": "needle"}))
+            found = await _collect(client, "ssh_dir_search_files_content",
+                                   {"dir_path": base, "pattern": "needle"})
             assert len(found) == COUNT, f"ssh_dir_search_files_content returned {len(found)}"
         finally:
             await client.call_tool("ssh_cmd_run", {"command": cleanup_command(base), "wait_timeout": 45})

@@ -54,6 +54,8 @@ async def _connect(client):
     }, timeout=30)
     connected = _json(await client.call_tool(
         "ssh_conn_connect", {"host_name": f"{SSH_TEST_USER}@{SSH_TEST_HOST}"}, timeout=60))
+    if connected.get('status') == 'in_progress':  # slow connect (e.g. Windows) hands off too
+        connected = (await _poll(client, connected['handle_id'])).get('result', {})
     assert connected.get('status') == 'success', connected
 
 
