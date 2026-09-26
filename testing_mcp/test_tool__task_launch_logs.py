@@ -14,7 +14,7 @@ import logging
 import time
 from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
-    mcp_test_environment, extract_result_text, sleep_then_echo, skip_on_windows
+    mcp_test_environment, extract_result_text, sleep_then_echo, skip_on_windows, windows_only
 )
 
 from cygnus_ssh_mcp import server
@@ -151,6 +151,94 @@ async def test_check_status_wait_is_capped(mcp_test_environment, monkeypatch):
             assert status['waited_seconds'] == 3.0, status
             assert status['status'] == 'running', status
             await asyncio.sleep(12)
+        finally:
+            await disconnect_ssh(client)
+            print_test_footer()
+
+
+# ---- Windows: redirects must cover the whole command (issue W1, 2026-09-26 retest) ----
+
+WIN_DIR = r"C:\Users\claude\mcp_task_logs_test"
+
+
+async def _read(client, path):
+    result = _json(await client.call_tool("ssh_file_read", {"file_path": path}))
+    assert result.get('success'), f"can't read {path}: {result}"
+    return result['content']
+
+
+async def _launch_and_wait(client, **params):
+    launch = _json(await client.call_tool("ssh_task_launch", params))
+    await _wait_until_exited(client, launch['pid'])
+    return launch
+
+
+@pytest.mark.asyncio
+@windows_only
+async def test_windows_task_compound_command_logs(mcp_test_environment):
+    """'&' chains, '&&', pipes, quotes and the command's own redirects keep their meaning,
+    and stdout/stderr land in the right logs (stdout-only, distinct and default paths)."""
+    print_test_header("Testing Windows task logs with compound commands")
+
+    async with Client(mcp) as client:
+        cleanup = []
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            await client.call_tool("ssh_dir_mkdir", {"path": WIN_DIR})
+
+            # 1. The tester's exact repro: stdout_log only -> stderr in the sibling _err.log
+            launch = await _launch_and_wait(client, command="echo win-task-out & echo win-task-err 1>&2",
+                                            stdout_log=rf"{WIN_DIR}\task.log")
+            assert launch['stderr_log'] == rf"{WIN_DIR}\task_err.log", launch
+            out, err = await _read(client, launch['stdout_log']), await _read(client, launch['stderr_log'])
+            assert "win-task-out" in out and "win-task-err" not in out, out
+            assert "win-task-err" in err and "win-task-out" not in err, err
+
+            # 2. Distinct logs, plus '&&', a pipe and quoted '&' that must NOT split the command
+            launch = await _launch_and_wait(
+                client,
+                command='echo first && echo "quoted & kept" | findstr quoted & echo e2 1>&2',
+                stdout_log=rf"{WIN_DIR}\o.log", stderr_log=rf"{WIN_DIR}\e.log")
+            out, err = await _read(client, rf"{WIN_DIR}\o.log"), await _read(client, rf"{WIN_DIR}\e.log")
+            assert "first" in out and '"quoted & kept"' in out, out
+            assert "e2" in err and "e2" not in out, (out, err)
+
+            # 3. The command's own redirect to nul still applies
+            launch = await _launch_and_wait(client, command="echo hidden 1>nul & echo shown",
+                                            stdout_log=rf"{WIN_DIR}\nul_test.log")
+            out = await _read(client, rf"{WIN_DIR}\nul_test.log")
+            assert "shown" in out and "hidden" not in out, out
+
+            # 4. Default logs (no paths): both returned paths exist with the right stream
+            launch = await _launch_and_wait(client, command="echo def-out & echo def-err 1>&2")
+            cleanup += [launch['stdout_log'], launch['stderr_log']]
+            await asyncio.sleep(3)  # the rename watcher runs once the task has exited
+            out, err = await _read(client, launch['stdout_log']), await _read(client, launch['stderr_log'])
+            assert "def-out" in out and "def-err" in err and "def-err" not in out, (out, err)
+        finally:
+            for path in cleanup:
+                await client.call_tool("ssh_cmd_run", {"command": f'del /q "{path}"'})
+            await client.call_tool("ssh_cmd_run", {"command": f'rmdir /s /q "{WIN_DIR}"'})
+            await disconnect_ssh(client)
+            print_test_footer()
+
+
+@pytest.mark.asyncio
+@windows_only
+async def test_windows_task_unwritable_log_fails_launch(mcp_test_environment):
+    """A log in a missing directory fails the launch clearly - no PID for a task that never ran."""
+    print_test_header("Testing Windows task launch with an unwritable log")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            with pytest.raises(Exception) as exc_info:
+                await client.call_tool("ssh_task_launch", {
+                    "command": "echo never",
+                    "stdout_log": r"C:\no_such_dir_for_mcp_test\task.log",
+                })
+            message = str(exc_info.value)
+            assert "NOT launched" in message and "no_such_dir_for_mcp_test" in message, message
         finally:
             await disconnect_ssh(client)
             print_test_footer()

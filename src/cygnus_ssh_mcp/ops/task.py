@@ -610,25 +610,63 @@ class SshTaskOperations_Win(SshTaskOperations):
             f"[System.Convert]::FromBase64String('{cmd_b64}'))"
         )
 
-        # cmd.exe's own redirection operators (not Start-Process's -RedirectStandard*
-        # params, which don't apply here - WMI's CommandLine is a single shell string).
-        if stdout_log and stderr_log and stdout_log != stderr_log:
-            redirect_ps = f' > "{stdout_log}" 2> "{stderr_log}"'
+        # Log paths as they'll really be used. stdout and stderr can't share one file
+        # here, so a stderr "same as stdout" goes to a sibling <name>_err.log
+        # (_merged_stderr_path) - the same contract as before.
+        # launch_task passes '<log_dir>/null' for a stream the caller didn't ask to log
+        if stdout_log and stdout_log.endswith('/null'):
+            stdout_log = None
+        if stderr_log and stderr_log.endswith('/null'):
+            stderr_log = None
+        out_path = stdout_log or None
+        if stderr_log and stderr_log != stdout_log:
+            err_path = stderr_log
         elif stdout_log:
-            # Keep the same same-file workaround as before: two files, not one
-            stderr_path = stdout_log.replace('.log', '_err.log') if '.log' in stdout_log else stdout_log + '_err'
-            redirect_ps = f' > "{stdout_log}" 2> "{stderr_path}"'
+            err_path = self._merged_stderr_path(stdout_log)
         else:
-            redirect_ps = ' >nul 2>&1'
-        # Embed as a PS single-quoted literal - double quotes need no escaping there,
-        # only a stray literal single quote (e.g. in a log path) would need doubling.
-        redirect_ps = redirect_ps.replace("'", "''")
+            err_path = None
+
+        def ps_literal(value):
+            return "'" + value.replace("'", "''") + "'"
+
+        # The detached process is a small PowerShell wrapper that starts
+        # 'cmd.exe /c <command>' via Start-Process with -RedirectStandardOutput/-Error.
+        # The OS-level redirection covers the WHOLE command. The old
+        # 'cmd.exe /c <command> > "log" 2> "err"' let cmd.exe bind the redirects to
+        # only the last part of an '&' chain (e.g. 'echo a & echo b 1>&2' lost stdout
+        # and wrote stderr into the stdout log). The command text is passed as
+        # '/c ' + text exactly like ssh_cmd_run's Windows path (ops/run.py), so a
+        # command behaves the same in both tools, and it's never re-parsed by an outer
+        # cmd.exe. The returned PID is the wrapper's: ssh_task_kill's taskkill /T still
+        # kills the whole tree, and the default-log rename watcher still waits for it.
+        inner_lines = [
+            decode_stmt,
+            "$__spArgs = @{ FilePath = 'cmd.exe'; ArgumentList = ('/c ' + $__cmdText); "
+            "NoNewWindow = $true; Wait = $true; PassThru = $true }",
+        ]
+        if out_path:
+            inner_lines.append(f"$__spArgs.RedirectStandardOutput = {ps_literal(out_path)}")
+        if err_path:
+            inner_lines.append(f"$__spArgs.RedirectStandardError = {ps_literal(err_path)}")
+        inner_lines.append("$__p = Start-Process @__spArgs; exit $__p.ExitCode")
+        inner_script = "; ".join(inner_lines)
+        inner_b64 = base64.b64encode(inner_script.encode('utf-16-le')).decode('ascii')
+        wrapper_cmdline = (f"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass "
+                           f"-EncodedCommand {inner_b64}")
+
+        # Check the logs can be created BEFORE launching (same contract as Linux/macOS):
+        # otherwise Start-Process would fail inside the detached wrapper and we'd still
+        # report a PID for a task that never ran.
+        log_checks = "".join(
+            f"try {{ [System.IO.File]::Open({ps_literal(path)}, 'Append', 'Write').Close() }} "
+            f"catch {{ [Console]::Error.WriteLine('LOG_NOT_WRITABLE:' + {ps_literal(path)}); exit 3 }}; "
+            for path in (out_path, err_path) if path
+        )
 
         script_content = (
-            f"{decode_stmt}; "
-            f"$__fullCmd = 'cmd.exe /c ' + $__cmdText + '{redirect_ps}'; "
+            f"{log_checks}"
             f"$__result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
-            f"-Arguments @{{CommandLine = $__fullCmd}}; "
+            f"-Arguments @{{CommandLine = {ps_literal(wrapper_cmdline)}}}; "
             f"if ($__result.ReturnValue -eq 0) {{ Write-Output \"PID:$($__result.ProcessId)\" }} "
             f"else {{ Write-Error \"Win32_Process Create failed with code $($__result.ReturnValue)\"; exit 1 }}"
         )
