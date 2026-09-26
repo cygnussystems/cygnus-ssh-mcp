@@ -5,7 +5,7 @@
 | **Found** | 2026-09-26, OpenCode (`openai/gpt-6-sol`, default request timeout) against Linux, macOS and Windows |
 | **Source** | `PR_MCP_SSH__LLM_TEST/findings/2026-09-26-opencode-developer-handoff.md` (+ per-issue files there) |
 | **Plan** | `planning/2026-09-26-retest-fix-plan.md` (local) |
-| **Status** | In progress on `fix/opencode-retest-issues`: F2 + small items fixed, W1 fixed; F1 and W2/W3 pending |
+| **Status** | In progress on `fix/opencode-retest-issues`: F2 + small items, W1 and F1 fixed (plus a Windows output-loss bug found on the way); W2/W3 pending |
 
 ## Summary
 
@@ -13,7 +13,8 @@
 |---|---|---|
 | W2/W3 (P1) | `ssh_archive_create` / `ssh_archive_extract` on 18,000 files: client timeout, result lost; during extract **every** tool timed out until OpenCode was restarted | Pending (WS4) |
 | W1 (P1) | Windows `ssh_task_launch("echo a & echo b 1>&2", stdout_log=…)`: stdout lost, stderr in the stdout log | **Fixed** |
-| F1 (P1) | `ssh_cmd_run("seq 1 105")` returns lines 6–105, no truncation indicator, first lines unrecoverable | Pending (WS3) |
+| F1 (P1) | `ssh_cmd_run("seq 1 105")` returns lines 6–105, no truncation indicator, first lines unrecoverable | **Fixed** |
+| F1b (P1, found while fixing F1) | **Windows `ssh_cmd_run` lost the end of fast output**: a 1000-line command returned `success` with only lines 1–505 | **Fixed** |
 | F2 (P2) | Linux `ssh_dir_search_files_content` with no match → "Command failed with exit code 1" | **Fixed** |
 | S1 | Windows commands run under cmd.exe; PowerShell syntax fails | **Fixed** (documented) |
 | S2 | Windows `ssh_task_status` transiently `status: error` | **Fixed** (retry + reason) |
@@ -64,3 +65,48 @@
   (tester's repro with stdout-only, distinct logs with `&&` + pipe + quoted `&`, the command's own
   `1>nul`, default logs) and `::test_windows_task_unwritable_log_fails_launch`. Both fail on the
   old code. Existing Windows task/kill/status tests pass (11 passed, 6 skipped).
+
+## F1: output silently cut to the last 100 lines
+
+- **Root cause:** `CommandHandle` kept output in `deque(maxlen=tail_keep)` with `tail_keep=100`
+  (the history manager meant to keep full output for recent commands, but `run_ops` forced every
+  handle back to 100). Earlier lines were dropped with no indication, and `ssh_cmd_output` couldn't
+  recover them. The same buffer limited every tool that parses command output (content search,
+  listings, glob search) to 100 lines.
+- **Fix:**
+  - Size-based retention: up to **2 MB per stream per command** is kept (`--max-output` /
+    `MCP_SSH_MAX_OUTPUT`); beyond it the earliest lines are dropped **and counted**
+    (`dropped_lines`). A single line bigger than the budget keeps its end with a marker.
+  - **Inline limit:** `ssh_cmd_run` returns at most the last **32 KB** of each stream
+    (`--inline-output` / `MCP_SSH_INLINE_OUTPUT`), in all four response paths (success,
+    io/wait handoff, runtime timeout, command_failed).
+  - Every response has `output_truncated` / `stderr_truncated`; when true it adds
+    `*_lines_total`, `*_lines_returned`, `*_lines_dropped` and an `output_note` saying which
+    lines can be paged and which are gone. `command_failed` now also includes the handle `id`.
+  - `ssh_cmd_output(start_line=N, lines=M)` pages over everything retained (stdout or stderr);
+    asking for a dropped line raises an error naming the first available line.
+  - **Total memory ceiling** of 50 MB across history (`--output-memory` /
+    `MCP_SSH_OUTPUT_MEMORY`): when a new command starts over it, the oldest *finished*
+    commands' output is released (reads then say it was dropped).
+- **Tests:** `testing_mcp/test_tool__output_limits.py` (105 lines complete; truncation flags,
+  paging and dropped-line error with patched small limits; stderr separately; memory ceiling).
+  Pass on Linux, macOS and Windows.
+
+## F1b: Windows `ssh_cmd_run` lost the end of fast output
+
+- **Found** while testing F1 on Windows: a 1000-line PowerShell loop returned `success` with
+  `total_lines` 505 (447 on another run) and the last line `Line 505`. The old 100-line buffer
+  hid it: you'd have seen lines 406–505 and not known 506–1000 were missing.
+- **Root cause:** the Windows wrapper (`ops/run.py` `_PID_CAPTURE_SCRIPT_TEMPLATE`) relayed the
+  child's output through `Register-ObjectEvent -Action` handlers, which PowerShell only runs
+  when the engine is idle. A command that writes a lot and exits quickly left events queued;
+  the wrapper then printed its exit-code marker and exited, and the queued output was lost.
+- **Fix:** the wrapper reads both pipes directly with `ReadLineAsync`, polled until EOF, and
+  relays each line immediately (still streaming live). If the command has exited but a process
+  it started still holds the pipes open (e.g. `start /b …`), it stops after ~1s of silence
+  instead of waiting for that process.
+- **Also fixed:** removing the exit-code marker line from stderr didn't update the line/size
+  counts, so every Windows command showed one phantom stderr line (and would have been flagged
+  `stderr_truncated`). New `CommandHandle.remove_stderr_line()` keeps them consistent.
+- **Tests (Windows):** `test_windows_fast_bulk_output_is_not_lost` (3,000 lines, all present),
+  `test_windows_child_holding_pipes_does_not_hang` (`start /b ping …` returns promptly).

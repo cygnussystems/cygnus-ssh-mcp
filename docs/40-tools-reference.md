@@ -191,7 +191,7 @@ afterward. Only `runtime_timeout` ever kills. See
 | `use_sudo` | bool | No | False | Run with sudo privileges |
 | `cwd` | str | No | None | Run this call in this directory (Linux/macOS only). Not remembered between calls; fails closed if the directory doesn't exist |
 
-**Returns:** Dictionary with `status`, `output` (stdout), `stderr`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps. `output`/`stderr` are always separate, never interleaved - a command that succeeds can still have written to `stderr` (warnings, progress meters), so check it even on `status='success'`.
+**Returns:** Dictionary with `status`, `output` (stdout), `stderr`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps. `output`/`stderr` are always separate, never interleaved - a command that succeeds can still have written to `stderr` (warnings, progress meters), so check it even on `status='success'`. Each stream is returned inline up to its last ~32 KB; `output_truncated` / `stderr_truncated` are always present, and when true the response adds line counts and an `output_note` explaining how to page the rest with `ssh_cmd_output(start_line=...)` (see [Command Execution](50-command-execution.md#output-management)).
 
 **Status values:** `success`, `command_failed`, `cwd_not_found`, `io_timeout`, `wait_timeout`, `runtime_timeout`, `sudo_required`, `busy`, `error`
 
@@ -247,8 +247,9 @@ Retrieve output from a command.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `handle_id` | int | Yes | - | Command handle ID |
-| `lines` | int | No | None | Number of lines to retrieve |
+| `lines` | int | No | None | How many lines: the most recent N (default 50), or N from `start_line` |
 | `stream` | str | No | `'stdout'` | Which captured stream to retrieve - `'stdout'` or `'stderr'`. Not interleaved - call twice for both |
+| `start_line` | int | No | None | Page from this line (1 = the command's first line). Use it to read what a truncated `ssh_cmd_run` response didn't include. A line dropped past the 2 MB limit gives an error naming the first available line |
 
 **Returns:** List of output lines from the selected stream
 

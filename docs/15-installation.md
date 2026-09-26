@@ -36,15 +36,31 @@ cygnus-ssh-mcp --help
 Expected output:
 ```
 usage: cygnus-ssh-mcp [-h] [--config CONFIG] [--max-wait MAX_WAIT]
+                      [--max-output MAX_OUTPUT]
+                      [--inline-output INLINE_OUTPUT]
+                      [--output-memory OUTPUT_MEMORY]
 
 SSH MCP Server
 
 options:
-  -h, --help           show this help message and exit
-  --config CONFIG      Path to SSH hosts configuration file (TOML format)
-  --max-wait MAX_WAIT  Max seconds a single ssh_cmd_run call blocks before
-                       handing off with status='wait_timeout' (default:
-                       $MCP_SSH_MAX_WAIT or 50; 0 disables the cap)
+  -h, --help            show this help message and exit
+  --config CONFIG       Path to SSH hosts configuration file (TOML format)
+  --max-wait MAX_WAIT   Max seconds a single ssh_cmd_run call blocks before
+                        handing off with status='wait_timeout' (default:
+                        $MCP_SSH_MAX_WAIT or 50; 0 disables the cap)
+  --max-output MAX_OUTPUT
+                        Output kept in memory per command and stream, in
+                        bytes; the earliest lines beyond it are dropped
+                        (default: $MCP_SSH_MAX_OUTPUT or 2097152 = 2 MB)
+  --inline-output INLINE_OUTPUT
+                        Most recent output returned inline per stream by
+                        ssh_cmd_run, in bytes; the rest can be paged with
+                        ssh_cmd_output (default: $MCP_SSH_INLINE_OUTPUT or
+                        32768)
+  --output-memory OUTPUT_MEMORY
+                        Total output memory across the command history, in
+                        bytes (default: $MCP_SSH_OUTPUT_MEMORY or 52428800 =
+                        50 MB)
 ```
 
 ## Uninstalling / Upgrading

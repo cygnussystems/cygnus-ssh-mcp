@@ -202,27 +202,39 @@ Note this is a separate field (`result`, not `status`) on the `ssh_cmd_kill` res
 
 ## Output Management
 
-### Circular Buffer
-- stdout and stderr are captured into **separate** in-memory buffers with tail
-  preservation - never interleaved into one combined stream
-- Default: 100 lines retained per stream
-- Streaming capture with line normalization
-- `ssh_cmd_run`'s own response only ever includes `output` (stdout) and `stderr` as
-  two distinct fields - a command that succeeds can still have written to stderr
-  (warnings, progress meters, non-fatal messages), so check `stderr` even on
-  `status='success'`
+### What's kept, and what's returned
+- stdout and stderr are captured into **separate** buffers - never interleaved - and
+  returned as two fields (`output` and `stderr`; `stdout`/`stderr` for
+  `command_failed`). A command that succeeds can still have written to stderr
+  (warnings, progress meters), so check `stderr` even on `status='success'`.
+- **Kept in memory:** up to **2 MB per stream per command** (`--max-output` /
+  `MCP_SSH_MAX_OUTPUT`). Past that, the **earliest** lines are dropped - and counted.
+- **Returned inline:** `ssh_cmd_run` returns up to the **last 32 KB** of each stream
+  (`--inline-output` / `MCP_SSH_INLINE_OUTPUT`), so a chatty command can't flood the
+  caller's context.
+- **Never silent:** every response has `output_truncated` / `stderr_truncated`. When
+  true, it also has `output_lines_total`, `output_lines_returned`,
+  `output_lines_dropped` (same with `stderr_` for stderr) and an `output_note` saying
+  exactly which lines can still be paged and which were dropped for good.
+- **Total memory:** at most **50 MB** across the command history
+  (`--output-memory` / `MCP_SSH_OUTPUT_MEMORY`); when a new command starts over that,
+  the oldest *finished* commands' output is released first.
+- For very large output (logs, dumps), redirect to a file and read it with
+  `ssh_file_read`, or use `ssh_task_launch`.
 
 ### Retrieving Output
 ```
-# Get last N lines of stdout (default stream)
+# Last N lines of stdout (default: last 50)
 ssh_cmd_output(handle_id=1001, lines=50)
 
-# Get all captured stdout
-ssh_cmd_output(handle_id=1001)
+# Page from a given line (1 = the command's first line) - for truncated responses
+ssh_cmd_output(handle_id=1001, start_line=1, lines=200)
 
-# Get stderr instead
-ssh_cmd_output(handle_id=1001, stream="stderr")
+# stderr instead
+ssh_cmd_output(handle_id=1001, stream="stderr", start_line=1, lines=50)
 ```
+Asking for a line that was dropped (past the 2 MB limit) returns an error naming the
+first line still available.
 
 ### Output in History
 ```
@@ -331,9 +343,12 @@ ssh_cmd_kill(
 ## Concurrency
 
 ### Single Connection Behavior
-- Only one command can execute at a time per connection
-- Attempting concurrent execution returns `busy` status
-- Use the execution lock to prevent conflicts
+- Only one `ssh_cmd_run` can be *waiting* at a time per connection; a second one
+  returns `busy` immediately
+- A command that was handed off (`io_timeout` / `wait_timeout`) keeps running in the
+  background and does **not** block new commands - several can run at once
+- Status tools (`ssh_cmd_history`, `ssh_cmd_check_status`, `ssh_cmd_output`,
+  `ssh_conn_is_connected`) answer immediately while a command runs
 
 ### Parallel Execution Options
 1. **Multiple connections** - Each handles one command

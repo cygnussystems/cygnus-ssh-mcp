@@ -27,11 +27,12 @@ class SshRunOperations(ABC):
     # timeout) - callers who care about a tighter bound should pass runtime_timeout themselves.
     MAX_BACKGROUND_RUNTIME_SECONDS = 24 * 3600
 
-    def __init__(self, ssh_client, tail_keep=100):
+    def __init__(self, ssh_client, tail_keep=None):
         """
         Args:
             ssh_client: Reference to parent SSH client
-            tail_keep: Number of lines to keep in output buffer
+            tail_keep: Optional line limit per output stream (None = only the size
+                limit in models.OutputLimits)
         """
         self.ssh_client = ssh_client
         self.tail_keep = tail_keep
@@ -524,7 +525,9 @@ class SshRunOperations(ABC):
 
             stdout_all = handle.get_full_output()
             stderr_output = handle.get_full_stderr()
-            raise CommandFailed(handle.exit_code, stdout_all, stderr_output)
+            failure = CommandFailed(handle.exit_code, stdout_all, stderr_output)
+            failure.handle = handle  # lets ssh_cmd_run report id + truncation info
+            raise failure
 
         return handle
 
@@ -746,21 +749,40 @@ $psi.RedirectStandardError = $true
 $psi.CreateNoWindow = $true
 $proc = New-Object System.Diagnostics.Process
 $proc.StartInfo = $psi
-$proc.EnableRaisingEvents = $true
-$stdoutAction = { if ($EventArgs.Data -ne $null) { [Console]::Out.WriteLine($EventArgs.Data) } }
-$stderrAction = { if ($EventArgs.Data -ne $null) { [Console]::Error.WriteLine($EventArgs.Data) } }
-Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -Action $stdoutAction | Out-Null
-Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -Action $stderrAction | Out-Null
 [void]$proc.Start()
 [Console]::Error.WriteLine('__PID_MARKER__' + $proc.Id)
 [Console]::Error.Flush()
-$proc.BeginOutputReadLine()
-$proc.BeginErrorReadLine()
-while (-not $proc.HasExited) {
-    Start-Sleep -Milliseconds 50
+# Relay both streams by reading them directly until EOF. (Register-ObjectEvent -Action
+# handlers only run when the engine is idle, so a fast, chatty command used to exit with
+# events still queued and its later output was silently lost - verified live 2026-09-26:
+# a 1000-line command returned only lines 1-505.) If the command has exited but something
+# it started still holds the pipes open, stop after ~1s of silence rather than hang.
+$outReader = $proc.StandardOutput
+$errReader = $proc.StandardError
+$outTask = $outReader.ReadLineAsync()
+$errTask = $errReader.ReadLineAsync()
+$exitIdleMs = 0
+while ($outTask -ne $null -or $errTask -ne $null) {
+    $idle = $true
+    if ($outTask -ne $null -and $outTask.IsCompleted) {
+        $idle = $false
+        $line = $outTask.Result
+        if ($line -eq $null) { $outTask = $null } else { [Console]::Out.WriteLine($line); $outTask = $outReader.ReadLineAsync() }
+    }
+    if ($errTask -ne $null -and $errTask.IsCompleted) {
+        $idle = $false
+        $line = $errTask.Result
+        if ($line -eq $null) { $errTask = $null } else { [Console]::Error.WriteLine($line); $errTask = $errReader.ReadLineAsync() }
+    }
+    if ($idle) {
+        if ($proc.HasExited) { $exitIdleMs += 20; if ($exitIdleMs -ge 1000) { break } }
+        Start-Sleep -Milliseconds 20
+    } else {
+        $exitIdleMs = 0
+    }
 }
 $proc.WaitForExit()
-Start-Sleep -Milliseconds 150
+[Console]::Out.Flush()
 [Console]::Error.WriteLine('__EXITCODE_MARKER__' + $proc.ExitCode)
 [Console]::Error.Flush()
 exit $proc.ExitCode
@@ -775,11 +797,10 @@ exit $proc.ExitCode
         regardless of whether the SSH server's DefaultShell is cmd.exe or
         PowerShell, and regardless of anything in cmd itself.
 
-        Streaming caveat: PowerShell only runs Process's OutputDataReceived/
-        ErrorDataReceived -Action handlers while the engine is idle, which a
-        blocking WaitForExit() call up front would prevent - so this polls
-        HasExited in a sleep loop instead, matching the standard PowerShell
-        idiom for combining Register-ObjectEvent with a synchronous process wait.
+        Streaming: both pipes are read directly with ReadLineAsync, polled in a
+        loop until EOF, and each line is relayed immediately - so output still
+        streams live, and nothing is lost when a command writes a lot and exits
+        quickly (the old Register-ObjectEvent -Action relay dropped queued events).
         """
         cmd_b64 = base64.b64encode(cmd.encode('utf-8')).decode('ascii')
 
@@ -864,7 +885,7 @@ exit $proc.ExitCode
             if self.EXIT_CODE_MARKER in stripped:
                 code_str = stripped[stripped.index(self.EXIT_CODE_MARKER) + len(self.EXIT_CODE_MARKER):].strip()
                 if code_str.lstrip('-').isdigit():
-                    handle._stderr_buf.remove(line)
+                    handle.remove_stderr_line(line)
                     return int(code_str)
         return None
 
@@ -918,7 +939,9 @@ exit $proc.ExitCode
 
             stdout_all = handle.get_full_output()
             stderr_output = handle.get_full_stderr()
-            raise CommandFailed(handle.exit_code, stdout_all, stderr_output)
+            failure = CommandFailed(handle.exit_code, stdout_all, stderr_output)
+            failure.handle = handle  # lets ssh_cmd_run report id + truncation info
+            raise failure
 
         return handle
 

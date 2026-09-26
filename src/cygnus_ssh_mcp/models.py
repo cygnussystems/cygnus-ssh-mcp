@@ -55,6 +55,7 @@ class CommandFailed(SshError):
         self.exit_code = exit_code
         self.stdout = stdout
         self.stderr = stderr_str # Assign the processed stderr string
+        self.handle = None  # set by the run ops when the failing command has a handle
 
 
 class SudoRequired(SshError):
@@ -69,9 +70,17 @@ class BusyError(SshError):
 
 
 class OutputPurged(SshError):
-    def __init__(self, handle_id):
-        super().__init__(f"Output for handle {handle_id} has been purged")
+    def __init__(self, handle_id, first_available_line=None, stream='stdout'):
+        if first_available_line is not None and first_available_line > 1:
+            msg = (f"Lines 1-{first_available_line - 1} of this command's {stream} were dropped "
+                   f"(over the server's output size limit) and can't be recovered. The first "
+                   f"available line is {first_available_line}. For very large output, redirect "
+                   f"it to a file (or use ssh_task_launch) and read that instead.")
+        else:
+            msg = f"Output for handle {handle_id} is no longer available"
+        super().__init__(msg)
         self.handle_id = handle_id
+        self.first_available_line = first_available_line
 
 
 class TaskNotFound(SshError):
@@ -84,6 +93,22 @@ class TaskNotFound(SshError):
             f"ssh_task_launch can still be checked by PID with ssh_task_status."
         )
         self.identifier = identifier
+
+
+class OutputLimits:
+    """Output retention limits, in characters (~bytes for ASCII output). Set once at
+    startup from --max-output / --inline-output / --output-memory (or MCP_SSH_* env).
+
+    - per_stream: how much of each command's stdout (and, separately, stderr) is kept in
+      memory. Past this, the OLDEST lines are dropped - and counted, never silently.
+    - inline: how much of the kept output ssh_cmd_run returns in its response (the most
+      recent part); the rest can be paged with ssh_cmd_output.
+    - total: memory ceiling across the whole command history. When a new command starts
+      and history holds more than this, the oldest finished commands' output is released.
+    """
+    per_stream = 2 * 1024 * 1024
+    inline = 32 * 1024
+    total = 50 * 1024 * 1024
 
 
 class CommandHandle:
@@ -105,10 +130,15 @@ class CommandHandle:
                                # by other tools (e.g. ssh_file_write's mv/chown/chmod dance).
         self.parent_tool = parent_tool  # Name of the MCP tool that triggered this command,
                                          # when origin != 'user' (e.g. 'ssh_file_write').
-        self._tail_keep = tail_keep
+        self._tail_keep = tail_keep  # Optional line limit (None = only the size limit)
+        self._max_chars = OutputLimits.per_stream  # Size limit per stream (see OutputLimits)
 
-        self._buf = deque(maxlen=self._tail_keep)      # For stdout
-        self._stderr_buf = deque(maxlen=self._tail_keep) # For stderr
+        self._buf = deque()         # For stdout
+        self._stderr_buf = deque()  # For stderr
+        self._buf_chars = 0
+        self._stderr_buf_chars = 0
+        self.dropped_lines = 0         # stdout lines dropped from the start (not retained)
+        self.dropped_stderr_lines = 0  # same for stderr
 
         self._pending_stdout = ''  # Buffers an in-progress, not-yet-newline-terminated
         self._pending_stderr = ''  # line fragment across recv() chunks (see ops/run.py's
@@ -141,17 +171,71 @@ class CommandHandle:
         self.total_stderr_lines = 0 # For stderr
         self.stderr_truncated = False # For stderr
         
+    def _clip_line(self, line):
+        """A single line bigger than the whole per-stream budget keeps only its end."""
+        if len(line) <= self._max_chars:
+            return line
+        keep = max(self._max_chars - 100, 0)
+        return f"[... first {len(line) - keep} characters of this line dropped ...]" + line[-keep:]
+
+    def _enforce_limits(self, stderr):
+        buf = self._stderr_buf if stderr else self._buf
+        chars = self._stderr_buf_chars if stderr else self._buf_chars
+        dropped = 0
+        while buf and ((self._tail_keep is not None and len(buf) > self._tail_keep)
+                       or (chars > self._max_chars and len(buf) > 1)):
+            chars -= len(buf.popleft())
+            dropped += 1
+        if stderr:
+            self._stderr_buf_chars = chars
+            if dropped:
+                self.dropped_stderr_lines += dropped
+                self.stderr_truncated = True
+        else:
+            self._buf_chars = chars
+            if dropped:
+                self.dropped_lines += dropped
+                self.truncated = True
+
     def add_output(self, line): # Stdout
+        line = self._clip_line(line)
         self._buf.append(line)
+        self._buf_chars += len(line)
         self.total_lines += 1
-        if self._tail_keep is not None and self.total_lines > self._tail_keep:
-            self.truncated = True
+        self._enforce_limits(stderr=False)
 
     def add_stderr_output(self, line): # Stderr
+        line = self._clip_line(line)
         self._stderr_buf.append(line)
+        self._stderr_buf_chars += len(line)
         self.total_stderr_lines += 1
-        if self._tail_keep is not None and self.total_stderr_lines > self._tail_keep:
+        self._enforce_limits(stderr=True)
+
+    def remove_stderr_line(self, line):
+        """Remove one internal marker line from stderr, keeping the counts consistent."""
+        self._stderr_buf.remove(line)
+        self._stderr_buf_chars -= len(line)
+        self.total_stderr_lines -= 1
+
+    def retained_lines(self, stream='stdout'):
+        """All lines still held for a stream (the most recent ones, if any were dropped)."""
+        return list(self._stderr_buf if stream == 'stderr' else self._buf)
+
+    def memory_chars(self):
+        """Characters currently held for this command (both streams)."""
+        return self._buf_chars + self._stderr_buf_chars
+
+    def release_output(self):
+        """Drop all retained output (memory ceiling reached) - counted as dropped."""
+        self.dropped_lines += len(self._buf)
+        self.dropped_stderr_lines += len(self._stderr_buf)
+        if self._buf:
+            self.truncated = True
+        if self._stderr_buf:
             self.stderr_truncated = True
+        self._buf.clear()
+        self._stderr_buf.clear()
+        self._buf_chars = self._stderr_buf_chars = 0
             
     def get_full_output(self): # Stdout
         return ''.join(self._buf)
@@ -190,20 +274,11 @@ class CommandHandle:
         return list(self._stderr_buf)[-n:]
         
     def set_tail_keep(self, n):
+        """Optional line limit on top of the size limit (None = size limit only)."""
         self._tail_keep = n
-        if n is not None:
-            # Recreate stdout buffer
-            old_buf = list(self._buf)
-            self._buf = deque(maxlen=n)
-            for line in old_buf[-min(n, len(old_buf)):]:
-                self._buf.append(line)
-            
-            # Recreate stderr buffer
-            old_stderr_buf = list(self._stderr_buf)
-            self._stderr_buf = deque(maxlen=n)
-            for line in old_stderr_buf[-min(n, len(old_stderr_buf)):]:
-                self._stderr_buf.append(line)
-            
+        self._enforce_limits(stderr=False)
+        self._enforce_limits(stderr=True)
+
     def info(self):
         """Return metadata about the command."""
         return {
@@ -219,9 +294,11 @@ class CommandHandle:
             'exit_code': self.exit_code,
             'running': self.running,
             'total_lines': self.total_lines, # Stdout
-            'truncated': self.truncated,   # Stdout
+            'truncated': self.truncated,   # Stdout: True if any early lines were dropped
+            'dropped_lines': self.dropped_lines,
             'total_stderr_lines': self.total_stderr_lines,
             'stderr_truncated': self.stderr_truncated,
+            'dropped_stderr_lines': self.dropped_stderr_lines,
             'cwd': self.cwd,
             'kill_confirmed': self.kill_confirmed,
             'sudo': self.sudo,
@@ -229,20 +306,24 @@ class CommandHandle:
             'parent_tool': self.parent_tool
         }
 
-    def chunk(self, start, length=50): # Stdout
-        """Return `length` lines starting at zero-based index `start` from run()."""
+    def chunk(self, start, length=50, stream='stdout'):
+        """Return `length` lines starting at zero-based index `start` (counted over ALL
+        lines the command produced, including dropped ones)."""
         if start < 0:
-             raise ValueError(f"Start index {start} cannot be negative")
+            raise ValueError(f"Start index {start} cannot be negative")
 
-        buf_list = list(self._buf)
-        buf_start_abs_index = max(0, self.total_lines - len(self._buf))
-        
+        buf = self._stderr_buf if stream == 'stderr' else self._buf
+        total = self.total_stderr_lines if stream == 'stderr' else self.total_lines
+        buf_list = list(buf)
+        buf_start_abs_index = max(0, total - len(buf))
+
         if start < buf_start_abs_index:
-            raise OutputPurged(self.id)
-            
+            raise OutputPurged(self.id, first_available_line=buf_start_abs_index + 1,
+                               stream=stream)
+
         relative_start_idx = start - buf_start_abs_index
-        
+
         if relative_start_idx >= len(buf_list):
             return []
-            
+
         return buf_list[relative_start_idx : relative_start_idx + length]

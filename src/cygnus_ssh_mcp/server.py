@@ -18,7 +18,7 @@ from pydantic import Field, BaseModel
 from typing import Annotated, Optional, Literal, Dict, Any, List, Union
 from datetime import datetime, UTC
 from cygnus_ssh_mcp.client import SshClient
-from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, CwdNotFound
+from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, CwdNotFound, OutputLimits
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 from cygnus_ssh_mcp.ops.capability_gate import describe_capabilities
 import stat as stat_module
@@ -43,7 +43,34 @@ def parse_args():
               f"{DEFAULT_MAX_FOREGROUND_WAIT:g}; 0 disables the cap)"),
         default=None
     )
+    parser.add_argument(
+        '--max-output', type=int, default=None,
+        help="Output kept in memory per command and stream, in bytes; the earliest lines "
+             "beyond it are dropped (default: $MCP_SSH_MAX_OUTPUT or 2097152 = 2 MB)")
+    parser.add_argument(
+        '--inline-output', type=int, default=None,
+        help="Most recent output returned inline per stream by ssh_cmd_run, in bytes; the "
+             "rest can be paged with ssh_cmd_output (default: $MCP_SSH_INLINE_OUTPUT or 32768)")
+    parser.add_argument(
+        '--output-memory', type=int, default=None,
+        help="Total output memory across the command history, in bytes (default: "
+             "$MCP_SSH_OUTPUT_MEMORY or 52428800 = 50 MB)")
     return parser.parse_args()
+
+
+def _apply_output_limits(args):
+    """Set models.OutputLimits from CLI args, falling back to MCP_SSH_* env vars."""
+    for attr, arg, env in (('per_stream', args.max_output, 'MCP_SSH_MAX_OUTPUT'),
+                           ('inline', args.inline_output, 'MCP_SSH_INLINE_OUTPUT'),
+                           ('total', args.output_memory, 'MCP_SSH_OUTPUT_MEMORY')):
+        value = arg
+        if value is None and os.environ.get(env):
+            try:
+                value = int(os.environ[env])
+            except ValueError:
+                logging.getLogger("SSH_MCP_Server").warning(f"Ignoring invalid {env}={os.environ[env]!r}")
+        if value is not None and value > 0:
+            setattr(OutputLimits, attr, value)
 
 
 # Many MCP clients (e.g. anything on the TypeScript SDK's default) abort a tool call
@@ -1052,6 +1079,59 @@ async def ssh_task_kill(
 # ===================
 
 
+def _inline_tail(lines, limit):
+    """The most recent whole lines that fit in `limit` characters -> (text, line_count).
+    A single line bigger than the limit is cut to its last `limit` characters."""
+    picked, size = [], 0
+    for line in reversed(lines):
+        if size + len(line) > limit:
+            if not picked:
+                picked.append(line[-limit:])
+            break
+        picked.append(line)
+        size += len(line)
+    picked.reverse()
+    return ''.join(picked), len(picked)
+
+
+def _output_fields(handle, stdout_key='output', stderr_key='stderr'):
+    """stdout/stderr for a command response, bounded to OutputLimits.inline each.
+
+    Always adds `output_truncated` / `stderr_truncated`. When either is true, adds the
+    line counts and an `output_note` telling the caller how to page the rest with
+    ssh_cmd_output(start_line=...), or that the earliest lines were dropped for good
+    (past the per-command size limit) - so a response never silently looks complete.
+    """
+    fields, notes = {}, []
+    for stream, key, prefix in (('stdout', stdout_key, 'output'), ('stderr', stderr_key, 'stderr')):
+        if stream == 'stdout':
+            total, dropped = handle.total_lines, handle.dropped_lines
+        else:
+            total, dropped = handle.total_stderr_lines, handle.dropped_stderr_lines
+        text, returned = _inline_tail(handle.retained_lines(stream), OutputLimits.inline)
+        fields[key] = text
+        truncated = returned < total
+        fields[f'{prefix}_truncated'] = truncated
+        if not truncated:
+            continue
+        fields[f'{prefix}_lines_total'] = total
+        fields[f'{prefix}_lines_returned'] = returned
+        fields[f'{prefix}_lines_dropped'] = dropped
+        first_returned = total - returned + 1
+        note = f"{stream}: this response shows only lines {first_returned}-{total} of {total}."
+        if dropped + 1 < first_returned:
+            note += (f" Lines {dropped + 1}-{first_returned - 1} can be read with "
+                     f"ssh_cmd_output(handle_id={handle.id}, stream='{stream}', start_line=N, lines=M).")
+        if dropped:
+            note += (f" Lines 1-{dropped} exceeded the server's per-command output limit and were "
+                     f"dropped (not recoverable) - for very large output, redirect it to a file or "
+                     f"use ssh_task_launch.")
+        notes.append(note)
+    if notes:
+        fields['output_note'] = ' '.join(notes)
+    return fields
+
+
 @mcp.tool()
 async def ssh_cmd_run(
         command: Annotated[str, Field(description="Command to execute on remote host")],
@@ -1114,6 +1194,13 @@ async def ssh_cmd_run(
         that succeeds can still have written to stderr (warnings, progress meters,
         non-fatal messages), so check `stderr` even on `status='success'`.
 
+        Each stream is returned inline up to its most recent ~32 KB. `output_truncated`
+        and `stderr_truncated` are always present; when true, the response also has
+        line counts and an `output_note` saying how to read the rest with
+        ssh_cmd_output(handle_id=..., start_line=...), or that the earliest lines were
+        dropped (the server keeps ~2 MB per stream per command). For very large output,
+        redirect it to a file and read that instead.
+
         `status` is one of:
         - 'success': command completed with exit code 0. `exit_code`, `output`, `stderr` populated.
         - 'command_failed': completed with a non-zero exit code. `exit_code`, `output`, `stderr` populated.
@@ -1157,15 +1244,12 @@ async def ssh_cmd_run(
             mcp.ssh_client.run, command, io_timeout, runtime_timeout, use_sudo,
             cwd=cwd, wait_timeout=effective_wait
         )
-        output = handle.get_full_output()
-        stderr_output = handle.get_full_stderr()
         return {
             'status': 'success',
             'id': handle.id,
             'command': command,
             'exit_code': handle.exit_code,
-            'output': output,
-            'stderr': stderr_output,
+            **_output_fields(handle),
             'pid': handle.pid,
             'cwd': handle.cwd,
             'start_time': handle.start_ts.isoformat(),
@@ -1195,7 +1279,7 @@ async def ssh_cmd_run(
             'pid': handle.pid if handle else None,
             'command': command,
             'timeout_seconds': e.seconds,
-            'output': handle.get_full_output() if handle else None,
+            **(_output_fields(handle) if handle else {'output': None}),
             'still_running': True,
             'next_step': (
                 f"The remote command was NOT killed - only local monitoring handed off to background "
@@ -1228,7 +1312,7 @@ async def ssh_cmd_run(
             'command': command,
             'timeout_seconds': e.seconds,
             'pid': e.handle.pid,
-            'output': e.handle.get_full_output() if hasattr(e.handle, 'get_full_output') else None,
+            **(_output_fields(e.handle) if hasattr(e.handle, 'retained_lines') else {'output': None}),
             'start_time': e.handle.start_ts.isoformat() if hasattr(e.handle, 'start_ts') else None,
             'end_time': e.handle.end_ts.isoformat() if hasattr(e.handle, 'end_ts') else None,
             'error': str(e),
@@ -1236,12 +1320,14 @@ async def ssh_cmd_run(
         }
     except CommandFailed as e:
         logger.warning(f"Command failed with exit code {e.exit_code}: {command}")
+        failed_handle = getattr(e, 'handle', None)
         return {
             'status': 'command_failed',
+            **({'id': failed_handle.id} if failed_handle else {}),
             'command': command,
             'exit_code': e.exit_code,
-            'stdout': e.stdout,
-            'stderr': e.stderr,
+            **(_output_fields(failed_handle, stdout_key='stdout') if failed_handle
+               else {'stdout': e.stdout, 'stderr': e.stderr}),
             'error': str(e),
             'timestamp': datetime.now(UTC).isoformat()
         }
@@ -1546,35 +1632,42 @@ async def ssh_cmd_check_status(
 @mcp.tool()
 async def ssh_cmd_output(
         handle_id: Annotated[int, Field(description="Command handle ID - the 'id' field from ssh_cmd_run's response")],
-        lines: Annotated[Optional[int], Field(description="Number of most-recent lines to retrieve; None returns the last 50 (not necessarily the full output - see ssh_cmd_history for total/truncated line counts)")] = None,
-        stream: Annotated[Literal['stdout', 'stderr'], Field(description="Which captured stream to retrieve - stdout (default) or stderr. These are NOT interleaved into one combined stream - call this twice (once per stream) if you need both")] = 'stdout'
+        lines: Annotated[Optional[int], Field(description="How many lines to return. Without start_line: the most recent N lines (default 50). With start_line: N lines from there (default 50).")] = None,
+        stream: Annotated[Literal['stdout', 'stderr'], Field(description="Which captured stream to retrieve - stdout (default) or stderr. These are NOT interleaved into one combined stream - call this twice (once per stream) if you need both")] = 'stdout',
+        start_line: Annotated[Optional[int], Field(description="Page through the output: return lines starting at this line number (1 = the command's first line). Use it to read what a truncated ssh_cmd_run response didn't include (see its output_note).", ge=1)] = None
 ) -> list:
     """
     Retrieve captured output from a command started with ssh_cmd_run, identified by
     its handle_id. Useful after an io_timeout/wait_timeout to see progress so far -
     including output produced after that call returned, since background monitoring
-    keeps collecting it - or any time to re-inspect an earlier command's output
+    keeps collecting it - to page through output a response didn't include in full
+    (ssh_cmd_run returns at most the last ~32 KB of each stream inline and says so via
+    output_truncated/output_note), or to re-inspect an earlier command's output
     without rerunning it.
 
     stdout and stderr are captured in separate buffers, not interleaved - `stream`
-    picks which one to retrieve. ssh_cmd_run's own response only ever includes
-    `output` (stdout); to see stderr from a successful command (warnings, progress
-    meters, non-fatal messages - stderr on success is real output, not just for
-    failures), call this tool with `stream='stderr'`.
+    picks which one to retrieve.
+
+    The server keeps up to ~2 MB of each stream per command; beyond that the EARLIEST
+    lines are dropped. Asking for a dropped line with start_line gives an error naming
+    the first line still available. For very large output, redirect it to a file (or
+    use ssh_task_launch) and read that instead.
 
     Raises an error if handle_id doesn't exist (e.g. from a previous connection -
     handles don't survive reconnects).
 
     Returns:
-        A plain list of output lines from the selected stream (most recent `lines`,
-        or the last 50 by default) - not a dict, no status/metadata. For total line
-        counts and whether output was truncated, use ssh_cmd_history(include_output=True)
-        instead (stdout only there).
+        A plain list of output lines from the selected stream - not a dict. For total
+        line counts and whether anything was dropped, use ssh_cmd_check_status
+        (output_lines) or ssh_cmd_history.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
 
     try:
+        if start_line is not None:
+            return mcp.ssh_client.output(handle_id, mode='chunk', start=start_line - 1,
+                                         n=lines or 50, stream=stream)
         return mcp.ssh_client.output(handle_id, lines=lines, stream=stream)
     except Exception as e:
         logger.error(f"Failed to retrieve output: {e}")
@@ -3214,6 +3307,7 @@ def main():
 
     if args.max_wait is not None:
         max_foreground_wait = args.max_wait if args.max_wait > 0 else None
+    _apply_output_limits(args)
 
     # Re-initialize host manager with config path if provided
     host_manager = SshHostManager(
@@ -3226,6 +3320,8 @@ def main():
         logger.info(f"Using TOML config file: {host_manager.config_path}")
         logger.info(f"ssh_cmd_run foreground wait cap: "
                     f"{f'{max_foreground_wait:g}s' if max_foreground_wait else 'disabled'}")
+        logger.info(f"Output limits: {OutputLimits.per_stream} bytes kept per command/stream, "
+                    f"{OutputLimits.inline} returned inline, {OutputLimits.total} total")
         logger.info("Available tools (can be retrieved programmatically via 'list_tools' tool):")
         mcp.run()
     except KeyboardInterrupt:

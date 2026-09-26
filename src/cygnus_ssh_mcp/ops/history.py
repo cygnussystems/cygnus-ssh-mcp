@@ -4,23 +4,23 @@ from typing import Optional, Self, List, Dict, Any
 from datetime import UTC
 from cygnus_ssh_mcp.models import (
     CommandHandle, CommandTimeout, CommandRuntimeTimeout,
-    CommandFailed, SudoRequired, SshError
+    CommandFailed, SudoRequired, SshError, OutputLimits
 )
 
 class CommandHistoryManager:
     """Manages command history with flexible output retention."""
     
-    def __init__(self, history_limit=30, recent_full_output=10, default_tail=100):
+    def __init__(self, history_limit=30, recent_full_output=None, default_tail=None):
         """
         Args:
             history_limit: Total number of commands to keep
-            recent_full_output: Number of recent commands to keep full output
-            default_tail: Number of lines to keep for older commands
+            recent_full_output: Unused (kept for compatibility) - retention is size-based
+                now, see models.OutputLimits
+            default_tail: Optional line limit per stream per command (None = size limit only)
         """
         self._history = {}
         self._history_order = deque()
         self.history_limit = history_limit
-        self.recent_full_output = recent_full_output
         self.default_tail = default_tail
         self.tail_keep = default_tail  # Add this attribute for compatibility with tests
         self._next_id = 1
@@ -31,36 +31,34 @@ class CommandHistoryManager:
         handle_id = self._next_id
         self._next_id += 1
 
-        # Create handle with appropriate buffer size
-        tail_keep = None if self.recent_full_output > 0 else self.default_tail
-        handle = CommandHandle(handle_id, cmd, tail_keep=tail_keep, pid=pid, sudo=sudo,
+        handle = CommandHandle(handle_id, cmd, tail_keep=self.default_tail, pid=pid, sudo=sudo,
                                 origin=origin, parent_tool=parent_tool)
-        
+
         # Trim history if needed
         if len(self._history) >= self.history_limit:
             oldest_id = self._history_order.popleft()
-            if oldest_id in self._history:
-                # Truncate output before removing
-                old_handle = self._history[oldest_id]
-                if old_handle._tail_keep is not None:
-                    old_handle.set_tail_keep(self.default_tail)
-                del self._history[oldest_id]
-        
+            self._history.pop(oldest_id, None)
+
         self._history[handle.id] = handle
         self._history_order.append(handle.id)
-        
-        # Ensure proper output retention
-        if self.recent_full_output > 0:
-            for handle_id, handle in self._history.items():
-                is_currently_recent = handle_id in list(self._history_order)[-self.recent_full_output:]
-                if is_currently_recent and handle._tail_keep is not None:
-                    # This command is now recent, give it unlimited output
-                    handle.set_tail_keep(None)
-                elif not is_currently_recent and handle._tail_keep is None:
-                    # This command is no longer recent, truncate its output
-                    handle.set_tail_keep(self.default_tail)
-        
+        self._enforce_memory_cap()
         return handle
+
+    def _enforce_memory_cap(self):
+        """Keep total retained output under OutputLimits.total by releasing the output of
+        the oldest FINISHED commands first (running commands are never touched). Their
+        metadata stays in history; their output reads as dropped, with a clear message."""
+        total = sum(h.memory_chars() for h in self._history.values())
+        if total <= OutputLimits.total:
+            return
+        for old_id in list(self._history_order):
+            handle = self._history.get(old_id)
+            if handle is None or handle.running or not handle.memory_chars():
+                continue
+            total -= handle.memory_chars()
+            handle.release_output()
+            if total <= OutputLimits.total:
+                break
 
     def get_handle(self, handle_id: int) -> CommandHandle:
         """Get a command handle by ID."""

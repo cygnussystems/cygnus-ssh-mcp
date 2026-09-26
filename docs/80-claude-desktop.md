@@ -88,6 +88,9 @@ Run directly without installing:
 | Argument | Description |
 |----------|-------------|
 | `--config PATH` | Path to host configuration file |
+| `--max-output BYTES` | Output kept in memory per command and stream (default 2 MB); the earliest lines beyond it are dropped, and responses say so |
+| `--inline-output BYTES` | Most recent output returned inline per stream by `ssh_cmd_run` (default 32 KB); the rest can be paged with `ssh_cmd_output` |
+| `--output-memory BYTES` | Total output memory across the command history (default 50 MB) |
 | `--max-wait SECONDS` | Max seconds a single `ssh_cmd_run` call blocks before handing off with `status='wait_timeout'` (default 50; `0` disables the cap). Keep it below your MCP client's request timeout - many clients abort tool calls at 60s. |
 
 ### Environment Variables
@@ -95,6 +98,7 @@ Run directly without installing:
 | Variable | Description |
 |----------|-------------|
 | `MCP_SSH_MAX_WAIT` | Same as `--max-wait` (the command-line flag wins if both are set) |
+| `MCP_SSH_MAX_OUTPUT` / `MCP_SSH_INLINE_OUTPUT` / `MCP_SSH_OUTPUT_MEMORY` | Same as `--max-output` / `--inline-output` / `--output-memory` |
 | `PYTHONUNBUFFERED` | Set to "1" for immediate output |
 | `LOG_LEVEL` | Logging verbosity (DEBUG, INFO, WARNING, ERROR) |
 

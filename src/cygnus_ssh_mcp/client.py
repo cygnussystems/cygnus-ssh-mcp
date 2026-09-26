@@ -51,7 +51,7 @@ class SshClient:
     """
     def __init__(self, host, user, port=22, keyfile=None, key_passphrase=None,
                  password=None, sudo_password=None,
-                 connect_timeout=10, history_limit=50, tail_keep=100):
+                 connect_timeout=10, history_limit=50, tail_keep=None):
         # Initialize platform detection
         self.os_type = None  # 'windows', 'linux', 'macos', or 'flex' (any other
                               # responsive POSIX kernel - see _detect_os/_create_operations)
@@ -87,7 +87,7 @@ class SshClient:
         self._busy_lock = threading.Lock()
         self.history_limit = history_limit
         self.tail_keep = tail_keep
-        self.history_manager = CommandHistoryManager(history_limit, tail_keep)
+        self.history_manager = CommandHistoryManager(history_limit, default_tail=tail_keep)
         self._logger = logging.getLogger(f"{__name__}.SshClient")
 
         # Initialize operations after connection
@@ -713,8 +713,9 @@ rm -rf "$PROBE_DIR" 2>/dev/null
               stream: Literal['stdout', 'stderr'] = 'stdout') -> List[str]:
         """Retrieve output from a previous CommandHandle created by run().
 
-        stream: 'stdout' (default) or 'stderr' - only affects 'tail' mode; 'chunk'
-        mode remains stdout-only (nothing currently exposes stderr chunking).
+        stream: 'stdout' (default) or 'stderr' - applies to both modes. In 'chunk' mode
+        `start` is a zero-based index over ALL lines the command produced; lines dropped
+        past the output size limit raise OutputPurged with the first available line.
         """
         try:
             handle = self.history_manager.get_handle(handle_id)
@@ -737,7 +738,7 @@ rm -rf "$PROBE_DIR" 2>/dev/null
             except ValueError:
                 raise ValueError("`start` must be an integer for chunk mode.")
             # 'n' is used as length for chunk mode. 'lines' is not typically used here.
-            return handle.chunk(start_idx, n)
+            return handle.chunk(start_idx, n, stream=stream)
         else:
             raise ValueError(f"Unknown mode for output: {mode}")
 
