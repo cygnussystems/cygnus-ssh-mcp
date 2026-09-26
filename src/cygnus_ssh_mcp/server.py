@@ -283,8 +283,13 @@ def _summarize_args(kwargs):
 def _busy_message():
     op = _foreground_op
     if op is None:
-        return ("Another operation is still running on this server. Wait for it to finish, "
+        return ("busy: another operation is still running on this server. Wait a moment, "
                 "then retry.")
+    if op.id is None:  # a foreground ssh_cmd_run (see ssh_cmd_run)
+        wait = f"within {max_foreground_wait:g}s" if max_foreground_wait else "when it finishes"
+        return (f"busy: ssh_cmd_run ({op.summary}) is still waiting in the foreground, started "
+                f"{op.start_ts.isoformat()}. It returns {wait} (handing off if still running); "
+                f"retry after that. Status tools keep working meanwhile.")
     return (f"busy: {op.tool} ({op.summary}) is still running as handle_id={op.id}, started "
             f"{op.start_ts.isoformat()}. Only one operation runs at a time. Poll it with "
             f"ssh_cmd_check_status(handle_id={op.id}) and retry after it finishes - do not "
@@ -1443,6 +1448,7 @@ async def ssh_cmd_run(
         # this command finished.
         # One foreground operation at a time (see operation_tool). Held only while this
         # call waits - a command handed off at io/wait_timeout keeps running without it.
+        global _foreground_op
         if not _foreground_lock.acquire(blocking=False):
             return {
                 'status': 'busy',
@@ -1450,12 +1456,17 @@ async def ssh_cmd_run(
                 'error': _busy_message(),
                 'timestamp': datetime.now(UTC).isoformat()
             }
+        # Owner record for other callers' busy message (id None = a foreground command)
+        fg = _Operation(None, 'ssh_cmd_run', command if len(command) <= 120 else command[:117] + '...')
+        _foreground_op = fg
         try:
             handle = await asyncio.to_thread(
                 mcp.ssh_client.run, command, io_timeout, runtime_timeout, use_sudo,
                 cwd=cwd, wait_timeout=effective_wait
             )
         finally:
+            if _foreground_op is fg:
+                _foreground_op = None
             _foreground_lock.release()
         return {
             'status': 'success',
