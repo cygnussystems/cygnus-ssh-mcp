@@ -7,6 +7,7 @@ import tempfile
 import shlex
 import time
 import functools
+import re
 import inspect
 import itertools
 import threading
@@ -306,6 +307,27 @@ def _remember_operation(op):
         _operations.pop(oldest_id)
 
 
+# Appended to every @operation_tool description, so a model reading the tool list knows
+# up front that a long call can come back as a handle instead of the result.
+_HANDOFF_NOTE = """
+
+    Long-running calls: if this takes longer than the server's wait cap (default 50s), it
+    returns {"status": "in_progress", "handle_id": ...} instead of the result - the work keeps
+    running. Get the result by polling ssh_cmd_check_status(handle_id=...), which returns this
+    tool's normal response once finished. Do not call it again meanwhile. Only one such
+    operation runs at a time; another one started meanwhile fails with a 'busy' error.
+"""
+
+
+def _doc_with_handoff_note(doc):
+    """Add _HANDOFF_NOTE where tool descriptions keep it: before an 'Args:' section if
+    there is one (FastMCP drops everything from 'Args:' on), else at the end."""
+    match = re.search(r"^[ \t]*Args:[ \t]*$", doc, flags=re.MULTILINE)
+    if match:
+        return doc[:match.start()].rstrip() + _HANDOFF_NOTE + "\n" + doc[match.start():]
+    return doc.rstrip() + _HANDOFF_NOTE
+
+
 def _with_dict_result(func, wrapper):
     """An in_progress response is a dict: tools declared to return a list may now also
     return a dict (MCP clients validate results against the declared output schema)."""
@@ -367,6 +389,7 @@ def operation_tool(func):
         }
 
     _with_dict_result(func, wrapper)
+    wrapper.__doc__ = _doc_with_handoff_note(func.__doc__ or '')
     return wrapper
 
 
