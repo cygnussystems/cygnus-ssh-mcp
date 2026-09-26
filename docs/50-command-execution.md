@@ -340,6 +340,23 @@ ssh_cmd_kill(
 
 ---
 
+## Long-Running Tools (archives, transfers, searches, ...)
+
+Every tool that works on the remote host follows the same rules as `ssh_cmd_run`:
+
+- **It never blocks the server.** Status tools (`ssh_cmd_check_status`, `ssh_cmd_history`,
+  `ssh_task_status`, `ssh_conn_is_connected`, `ssh_host_list`) always answer immediately.
+- **It returns within the wait cap (50s).** If it isn't finished by then, the response is
+  `{"status": "in_progress", "handle_id": ..., "tool": ..., "next_step": ...}`. The work
+  keeps running; `ssh_cmd_check_status(handle_id=...)` returns `running`, then
+  `completed` with `result` (the tool's normal response) or `failed` with `error`.
+  Handed-off operations also appear in `ssh_cmd_history` with `origin: "operation"`.
+- **One operation at a time.** Starting another tool (or `ssh_cmd_run`) while one is still
+  running fails immediately with a `busy` error that names the running handle - poll it
+  instead of starting it again. Commands already handed off by `ssh_cmd_run` don't count.
+
+Fast calls are unchanged: they return their normal result directly.
+
 ## Concurrency
 
 ### Single Connection Behavior

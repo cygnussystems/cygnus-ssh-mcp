@@ -737,13 +737,20 @@ class SshDirectoryOperations(ABC):
 
             if grep_rc is not None and grep_rc >= 2:
                 stderr_text = handle.get_full_stderr().strip()
-                if not results:
+                # Only a problem with the starting directory itself (missing, unreadable)
+                # is an error. Unreadable files/subdirectories inside it (e.g. systemd's
+                # private dirs under /tmp) are skipped: the search result - including
+                # "no matches" = [] - still stands.
+                root = path.rstrip('/') or '/'
+                root_failed = any(line.startswith((f"grep: {root}: ", f"grep: {root}/: "))
+                                  for line in stderr_text.splitlines())
+                if root_failed or not stderr_text:
                     raise SshError(
                         f"Content search under '{path}' failed (grep exit {grep_rc}): "
                         f"{stderr_text or 'no error details'}"
                     )
-                self.logger.warning(f"Search found {len(results)} matches but some files "
-                                    f"couldn't be read (grep exit {grep_rc}): {stderr_text[:300]}")
+                self.logger.warning(f"Search skipped some unreadable entries under '{path}' "
+                                    f"(grep exit {grep_rc}): {stderr_text[:300]}")
 
             self.logger.info(f"Found {len(results)} matches for '{pattern}'")
             return results

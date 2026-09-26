@@ -6,6 +6,11 @@ import asyncio
 import tempfile
 import shlex
 import time
+import functools
+import inspect
+import itertools
+import threading
+from collections import OrderedDict
 from pathlib import Path
 
 # Allow running directly from source without pip install
@@ -204,6 +209,195 @@ def _connection_metadata() -> dict:
 
 # Add this within your mcp_ssh_server.py file, similar to other tools
 
+# ===================
+# Long operations: worker threads, one foreground operation, 50s handoff
+# ===================
+#
+# Every tool that works on the remote host runs in a worker thread, so the event loop
+# (and with it ssh_conn_is_connected, ssh_cmd_history, ssh_cmd_check_status, ...) always
+# stays responsive. Before this, only ssh_cmd_run did: an archive/transfer/search tool
+# blocked the whole server for as long as it ran (archive ops allow up to 30 minutes),
+# and a client that gave up at 60s then saw every later call time out too.
+#
+# - Operation tools (@operation_tool): one at a time. A second one - or an ssh_cmd_run -
+#   while one is running fails fast with a "busy" error naming the running operation and
+#   its handle, instead of queueing (a queued call would just time out at the client).
+# - If an operation hasn't finished within max_foreground_wait (50s), the call returns
+#   {status: 'in_progress', handle_id, ...}. The operation keeps running; its real result
+#   or error is collected with ssh_cmd_check_status(handle_id=...).
+# - Control/status tools (@threaded_tool: task status/kill, command kill) also run in a
+#   worker thread but never wait for the operation lock, so they always work.
+
+class _Operation:
+    """A long-running tool call that may outlive the request that started it."""
+
+    def __init__(self, op_id, tool, summary):
+        self.id = op_id
+        self.tool = tool
+        self.summary = summary
+        self.start_ts = datetime.now(UTC)
+        self.end_ts = None
+        self.done = threading.Event()
+        self.result = None
+        self.error = None
+
+    def status(self):
+        if not self.done.is_set():
+            return 'running'
+        return 'failed' if self.error is not None else 'completed'
+
+    def history_entry(self):
+        return {
+            'id': self.id,
+            'cmd': f"[{self.tool}] {self.summary}",
+            'exit_code': None if not self.done.is_set() else (1 if self.error is not None else 0),
+            'start_ts': self.start_ts.isoformat(),
+            'end_ts': self.end_ts.isoformat() if self.end_ts else None,
+            'pid': None,
+            'origin': 'operation',
+            'parent_tool': self.tool,
+        }
+
+
+# Operation handle IDs start high so they never collide with per-connection command IDs.
+_operation_ids = itertools.count(1_000_001)
+_operations = OrderedDict()   # id -> _Operation (handed-off or still running)
+_MAX_OPERATIONS_KEPT = 50
+_foreground_lock = threading.Lock()
+_foreground_op = None         # the _Operation holding _foreground_lock, if any
+
+_SECRET_ARG_NAMES = {'password', 'sudo_password', 'key_passphrase', 'content'}
+
+
+def _summarize_args(kwargs):
+    parts = []
+    for name, value in kwargs.items():
+        if value is None or name in _SECRET_ARG_NAMES:
+            continue
+        text = repr(value)
+        parts.append(f"{name}={text[:80] + '...' if len(text) > 80 else text}")
+    summary = ", ".join(parts)
+    return summary[:300]
+
+
+def _busy_message():
+    op = _foreground_op
+    if op is None:
+        return ("Another operation is still running on this server. Wait for it to finish, "
+                "then retry.")
+    return (f"busy: {op.tool} ({op.summary}) is still running as handle_id={op.id}, started "
+            f"{op.start_ts.isoformat()}. Only one operation runs at a time. Poll it with "
+            f"ssh_cmd_check_status(handle_id={op.id}) and retry after it finishes - do not "
+            f"start it again. Status tools (ssh_cmd_check_status, ssh_cmd_history, "
+            f"ssh_task_status, ssh_conn_is_connected) keep working meanwhile.")
+
+
+def _remember_operation(op):
+    _operations[op.id] = op
+    while len(_operations) > _MAX_OPERATIONS_KEPT:
+        oldest_id = next(iter(_operations))
+        if not _operations[oldest_id].done.is_set():
+            break
+        _operations.pop(oldest_id)
+
+
+def _with_dict_result(func, wrapper):
+    """An in_progress response is a dict: tools declared to return a list may now also
+    return a dict (MCP clients validate results against the declared output schema)."""
+    sig = inspect.signature(func)
+    ret = sig.return_annotation
+    if ret is not inspect.Signature.empty and ret is not dict:
+        new_ret = Union[ret, dict]
+        wrapper.__signature__ = sig.replace(return_annotation=new_ret)
+        wrapper.__annotations__ = {**getattr(func, '__annotations__', {}), 'return': new_ret}
+
+
+def operation_tool(func):
+    """Run a remote tool in a worker thread, one operation at a time, handing off to
+    ssh_cmd_check_status if it takes longer than max_foreground_wait (see above)."""
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        global _foreground_op
+        if not _foreground_lock.acquire(blocking=False):
+            raise SshError(_busy_message())
+        op = _Operation(next(_operation_ids), func.__name__, _summarize_args(kwargs))
+        _foreground_op = op
+        # Registered up front, so a result is still discoverable (ssh_cmd_history /
+        # ssh_cmd_check_status) even if the client abandons this request early.
+        _remember_operation(op)
+
+        def work():
+            global _foreground_op
+            try:
+                op.result = asyncio.run(func(*args, **kwargs))
+            except BaseException as e:  # noqa: BLE001 - reported via the operation
+                op.error = e
+            finally:
+                op.end_ts = datetime.now(UTC)
+                _foreground_op = None
+                _foreground_lock.release()
+                op.done.set()
+
+        threading.Thread(target=work, name=f"mcp-op-{op.id}", daemon=True).start()
+        finished = await asyncio.to_thread(op.done.wait, max_foreground_wait)
+        if finished:
+            _operations.pop(op.id, None)  # delivered directly - no handle needed
+            if op.error is not None:
+                raise op.error
+            return op.result
+        return {
+            'status': 'in_progress',
+            'handle_id': op.id,
+            'tool': op.tool,
+            'operation': op.summary,
+            'started': op.start_ts.isoformat(),
+            'waited_seconds': max_foreground_wait,
+            'next_step': (
+                f"{op.tool} is still running on the server (it was NOT cancelled). Poll "
+                f"ssh_cmd_check_status(handle_id={op.id}) - it returns this call's full result "
+                f"(or its error) once finished. Do not start it again. Other status tools keep "
+                f"working meanwhile; other operations are refused until it finishes."
+            ),
+        }
+
+    _with_dict_result(func, wrapper)
+    return wrapper
+
+
+def threaded_tool(func):
+    """Run a quick remote status/control tool in a worker thread - never blocked by a
+    running operation, and never blocking the event loop."""
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        return await asyncio.to_thread(lambda: asyncio.run(func(*args, **kwargs)))
+
+    return wrapper
+
+
+def _operation_status_response(op, waited):
+    response = {
+        'handle_id': op.id,
+        'waited_seconds': waited,
+        'status': op.status(),
+        'tool': op.tool,
+        'operation': op.summary,
+        'started': op.start_ts.isoformat(),
+        'ended': op.end_ts.isoformat() if op.end_ts else None,
+        'timestamp': datetime.now(UTC).isoformat(),
+    }
+    if response['status'] == 'running':
+        response['next_step'] = (f"Still running. Call ssh_cmd_check_status(handle_id={op.id}) "
+                                 f"again to keep polling. Do not start it again.")
+    elif response['status'] == 'completed':
+        response['result'] = op.result
+    else:
+        response['error'] = str(op.error)
+        response['error_type'] = type(op.error).__name__
+    return response
+
+
 @mcp.tool()
 async def list_tools() -> list:
     """
@@ -255,6 +449,7 @@ async def ssh_conn_is_connected() -> bool:
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_conn_connect(
     host_name: Annotated[str, Field(description="The 'user@hostname' identifier or alias of a pre-configured host")]
 ) -> dict:
@@ -619,6 +814,7 @@ async def ssh_host_update(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_conn_status() -> dict:
     """
     Get essential SSH connection status information.
@@ -652,6 +848,7 @@ async def ssh_conn_status() -> dict:
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_conn_host_info() -> dict:
     """
     Get detailed SSH connection status and system information.
@@ -829,6 +1026,7 @@ async def ssh_host_remove(
         raise
 
 @mcp.tool()
+@operation_tool
 async def ssh_host_disconnect() -> dict:
     """
     Disconnect the current SSH connection if one exists.
@@ -870,6 +1068,7 @@ async def ssh_host_disconnect() -> dict:
         }
 
 @mcp.tool()
+@operation_tool
 async def ssh_conn_verify_sudo() -> dict:
     """
     Check whether elevated access is available on the remote system, without running
@@ -972,6 +1171,7 @@ async def ssh_conn_verify_sudo() -> dict:
 
 
 @mcp.tool()
+@threaded_tool
 async def ssh_task_status(
     pid: Annotated[int, Field(description="Process ID to check status for")]
 ) -> dict:
@@ -1013,6 +1213,7 @@ async def ssh_task_status(
 
 
 @mcp.tool()
+@threaded_tool
 async def ssh_task_kill(
     pid: Annotated[int, Field(description="Process ID to terminate")],
     signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
@@ -1240,10 +1441,22 @@ async def ssh_cmd_run(
         # Run in a worker thread: client.run() blocks, and blocking the event loop would
         # stall every other tool call (even ssh_cmd_history/ssh_cmd_check_status) until
         # this command finished.
-        handle = await asyncio.to_thread(
-            mcp.ssh_client.run, command, io_timeout, runtime_timeout, use_sudo,
-            cwd=cwd, wait_timeout=effective_wait
-        )
+        # One foreground operation at a time (see operation_tool). Held only while this
+        # call waits - a command handed off at io/wait_timeout keeps running without it.
+        if not _foreground_lock.acquire(blocking=False):
+            return {
+                'status': 'busy',
+                'command': command,
+                'error': _busy_message(),
+                'timestamp': datetime.now(UTC).isoformat()
+            }
+        try:
+            handle = await asyncio.to_thread(
+                mcp.ssh_client.run, command, io_timeout, runtime_timeout, use_sudo,
+                cwd=cwd, wait_timeout=effective_wait
+            )
+        finally:
+            _foreground_lock.release()
         return {
             'status': 'success',
             'id': handle.id,
@@ -1359,6 +1572,7 @@ async def ssh_cmd_run(
 
 
 @mcp.tool()
+@threaded_tool
 async def ssh_cmd_kill(
     handle_id: Annotated[int, Field(description="Command handle ID to kill - the 'id' field from ssh_cmd_run's response")],
     signal: Annotated[int, Field(description="Signal to send (15=TERM, 9=KILL)", ge=1, le=15)] = 15,
@@ -1495,7 +1709,21 @@ async def ssh_cmd_check_status(
         `{'handle_id', 'waited_seconds', 'status', 'exit_code', 'pid',
         'output_available', 'output_lines', 'timestamp'}`, plus `'next_step'` (guidance
         text) when `status` is non-terminal.
+
+        For an OPERATION handle (the handle_id of an 'in_progress' response from a
+        long-running tool such as ssh_archive_extract or ssh_file_transfer): returns
+        `{'handle_id', 'status', 'tool', 'operation', 'started', 'ended', ...}` with status
+        'running', 'completed' (plus 'result': the tool's full normal result) or 'failed'
+        (plus 'error'). The wait ends early as soon as the operation finishes.
     """
+    op = _operations.get(handle_id)
+    if op is not None:
+        wait = wait_seconds
+        if max_foreground_wait and wait > max_foreground_wait:
+            wait = max_foreground_wait
+        await asyncio.to_thread(op.done.wait, wait)
+        return _operation_status_response(op, wait)
+
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
         
@@ -1664,6 +1892,10 @@ async def ssh_cmd_output(
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
 
+    if handle_id in _operations:
+        raise SshError(f"handle_id={handle_id} is an operation ({_operations[handle_id].tool}), not "
+                       f"a shell command - get its result with ssh_cmd_check_status(handle_id={handle_id}).")
+
     try:
         if start_line is not None:
             return mcp.ssh_client.output(handle_id, mode='chunk', start=start_line - 1,
@@ -1733,6 +1965,9 @@ async def ssh_cmd_history(
 
     try:
         history = mcp.ssh_client.history()
+        # Long-running tool operations (handed off, or still running) - see operation_tool
+        history = sorted(history + [op.history_entry() for op in list(_operations.values())],
+                         key=lambda entry: entry.get('start_ts') or '')
 
         # Filter by pattern if specified
         if pattern is not None:
@@ -1740,7 +1975,7 @@ async def ssh_cmd_history(
 
         # Filter out internal/plumbing commands unless explicitly requested
         if not include_internal:
-            history = [entry for entry in history if entry.get('origin', 'user') == 'user']
+            history = [entry for entry in history if entry.get('origin', 'user') in ('user', 'operation')]
 
         # Apply limit if specified
         if limit is not None:
@@ -1782,6 +2017,7 @@ async def ssh_cmd_history(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_task_launch(
         command: Annotated[str, Field(description="Command to execute in the background")],
         use_sudo: Annotated[bool, Field(description="Run command with sudo")] = False,
@@ -1844,6 +2080,7 @@ async def ssh_task_launch(
 # ===================
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_mkdir(
     path: Annotated[str, Field(description="Directory path to create")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
@@ -1887,6 +2124,7 @@ async def ssh_dir_mkdir(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_remove(
     path: Annotated[str, Field(description="Directory path to remove")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
@@ -1927,6 +2165,7 @@ async def ssh_dir_remove(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_list_files_basic(
     path: Annotated[str, Field(description="Directory path to list")]
 ) -> list:
@@ -1957,6 +2196,7 @@ async def ssh_dir_list_files_basic(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_stat(
     path: Annotated[str, Field(description="File or directory path to get information about")]
 ) -> dict:
@@ -2029,6 +2269,7 @@ async def ssh_file_stat(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_read(
     file_path: Annotated[str, Field(description="Path to the file to read")],
     encoding: Annotated[str, Field(description="Character encoding (default: utf-8)")] = "utf-8",
@@ -2083,6 +2324,7 @@ async def ssh_file_read(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_find_lines_with_pattern(
     file_path: Annotated[str, Field(description="Path to the file to search")],
     pattern: Annotated[str, Field(description="Text or regex pattern to search for")],
@@ -2124,6 +2366,7 @@ async def ssh_file_find_lines_with_pattern(
         raise
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_get_context_around_line(
     file_path: Annotated[str, Field(description="Path to the file")],
     match_line: Annotated[str, Field(description="Exact line content to match")],
@@ -2157,6 +2400,7 @@ async def ssh_file_get_context_around_line(
         raise
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_replace_line(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
@@ -2253,6 +2497,7 @@ class NewLinesModel(BaseModel):
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_replace_line_multi(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
@@ -2335,6 +2580,7 @@ async def ssh_file_replace_line_multi(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_transfer(
         direction: Annotated[Literal['upload', 'download'], Field(description="Transfer direction")],
         local_path: Annotated[str, Field(description="Local file path")],
@@ -2422,6 +2668,7 @@ async def ssh_file_transfer(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_transfer(
         direction: Annotated[Literal['upload', 'download'], Field(description="Transfer direction")],
         local_path: Annotated[str, Field(description="Local directory path")],
@@ -2474,6 +2721,7 @@ async def ssh_dir_transfer(
 
 #
 @mcp.tool()
+@operation_tool
 async def ssh_file_insert_lines_after_match(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match")],
@@ -2540,6 +2788,7 @@ async def ssh_file_insert_lines_after_match(
         raise
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_delete_line_by_content(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and delete")],
@@ -2572,6 +2821,7 @@ async def ssh_file_delete_line_by_content(
         raise
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_copy(
     source_path: Annotated[str, Field(description="Source file path")],
     destination_path: Annotated[str, Field(description="Destination file path")],
@@ -2606,6 +2856,7 @@ async def ssh_file_copy(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_write(
         file_path: Annotated[str, Field(description="Path to the file to write to")],
         content: Annotated[str, Field(description="Content to write to the file")],
@@ -2867,6 +3118,7 @@ async def ssh_file_write(
         }
 
 @mcp.tool()
+@operation_tool
 async def ssh_file_move(
         source: Annotated[str, Field(description="Source file or directory path")],
         destination: Annotated[str, Field(description="Destination path")],
@@ -2902,6 +3154,7 @@ async def ssh_file_move(
 # ===========================
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_search_glob(
     path: Annotated[str, Field(description="Base directory to search from")],
     pattern: Annotated[str, Field(description="Filename glob pattern (e.g. *.log)")],
@@ -2944,6 +3197,7 @@ async def ssh_dir_search_glob(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_calc_size(
     path: Annotated[str, Field(description="Directory path to calculate size for")]
 ) -> dict:
@@ -2977,6 +3231,7 @@ async def ssh_dir_calc_size(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_delete(
     path: Annotated[str, Field(description="Directory path to delete")],
     dry_run: Annotated[bool, Field(description="Preview deletion without actually deleting")] = True,
@@ -3012,6 +3267,7 @@ async def ssh_dir_delete(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_batch_delete_files(
     path: Annotated[str, Field(description="Base directory to search in")],
     pattern: Annotated[str, Field(description="File pattern to match for deletion (e.g. *.tmp)")],
@@ -3051,6 +3307,7 @@ async def ssh_dir_batch_delete_files(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_list_advanced(
     path: Annotated[str, Field(description="Directory path to list")],
     max_depth: Annotated[Optional[int], Field(description="Maximum recursion depth (None for unlimited)", ge=1)] = None,
@@ -3094,6 +3351,7 @@ async def ssh_dir_list_advanced(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_search_files_content(
         dir_path: Annotated[str, Field(description="Directory to search in")],
         pattern: Annotated[str, Field(description="Text or pattern to search for")],
@@ -3142,6 +3400,7 @@ async def ssh_dir_search_files_content(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_dir_copy(
         source_path: Annotated[str, Field(description="Source directory path")],
         destination_path: Annotated[str, Field(description="Destination directory path")],
@@ -3189,6 +3448,7 @@ async def ssh_dir_copy(
 # ===========================
 
 @mcp.tool()
+@operation_tool
 async def ssh_archive_create(
     source_path: Annotated[str, Field(description="Directory to archive")],
     archive_path: Annotated[str, Field(description="Path for the created archive")],
@@ -3228,6 +3488,7 @@ async def ssh_archive_create(
 
 
 @mcp.tool()
+@operation_tool
 async def ssh_archive_extract(
     archive_path: Annotated[str, Field(description="Path to the archive file")],
     destination_path: Annotated[str, Field(description="Directory to extract to")],

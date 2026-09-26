@@ -136,6 +136,17 @@ Three independent timeout knobs, checked every poll iteration in `_monitor_comma
   (even `ssh_conn_is_connected`) until the command ended. A concurrent `ssh_cmd_run`
   still gets `busy` from the non-blocking `_busy_lock`, same as before.
 
+**Every remote tool (2026-09-26, `issues/2026-09-26-opencode-retest-round2.md` W2/W3):**
+server.py's `@operation_tool` runs each remote tool's body in a worker thread
+(`asyncio.run(func(...))` in a daemon thread) under a server-wide non-blocking
+`_foreground_lock` (one operation at a time; others raise a `busy` SshError naming the
+running handle). If it isn't done within `max_foreground_wait`, the call returns
+`status: in_progress` + an operation handle (IDs from 1,000,001, in the server-level
+`_operations` registry, since `ssh_conn_connect` itself can be one). `ssh_cmd_check_status`
+returns the operation's stored result/error. `ssh_cmd_run` takes the same lock while it
+waits. `@threaded_tool` (task status/kill, command kill) runs in a thread without the lock.
+List-returning tools' output schema is widened to list-or-dict for the in_progress case.
+
 **When `io_timeout` or `wait_timeout` fires** (`ops/run.py:_handoff_to_background`),
 the channel is **not** closed. Monitoring is handed off to a daemon thread
 (`_continue_monitoring_in_background`) that keeps draining stdout/stderr into the

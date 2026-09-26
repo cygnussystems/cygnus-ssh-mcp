@@ -205,7 +205,7 @@ Wait, then check the status of a command started with `ssh_cmd_run`.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `handle_id` | int | Yes | - | Command handle ID (the `id` field from `ssh_cmd_run`'s response) |
-| `wait_seconds` | float | No | 5.0 | Seconds to wait before checking. Clamped to the per-call wait cap (default 50s); `waited_seconds` in the response shows the wait actually applied. Short waits (1-10s) with repeated polling work best. |
+| `wait_seconds` | float | No | 5.0 | Seconds to wait before checking (ends early when an operation finishes). Clamped to the per-call wait cap (default 50s); `waited_seconds` in the response shows the wait actually applied. Short waits (1-10s) with repeated polling work best. |
 
 **Returns:** Dictionary with `status`, `exit_code`, `pid`, output metadata
 

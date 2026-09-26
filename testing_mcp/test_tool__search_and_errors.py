@@ -122,3 +122,21 @@ async def test_unknown_handle_error_mentions_reconnect(mcp_test_environment):
         finally:
             await disconnect_ssh(client)
             print_test_footer()
+
+
+@pytest.mark.asyncio
+@skip_on_windows
+async def test_search_skips_unreadable_subdirectories(mcp_test_environment):
+    """Unreadable entries inside the search root (e.g. systemd's private dirs under /tmp)
+    are skipped: no match is still an empty list, not an error."""
+    print_test_header("Testing content search with unreadable subdirectories")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            none = _search_results(await client.call_tool("ssh_dir_search_files_content", {
+                "dir_path": "/tmp", "pattern": f"never-matches-{int(time.time())}"}))
+            assert none == [], none
+        finally:
+            await disconnect_ssh(client)
+            print_test_footer()
