@@ -3672,6 +3672,41 @@ async def ssh_archive_create(
         raise
 
 
+_EXTRACT_SAMPLE_SIZE = 50
+
+
+def _summarize_extraction(result, strip_top_level):
+    """Keep the ssh_archive_extract result concise: counts plus a short sample of file
+    paths (relative to the destination), instead of every extracted name - an
+    18,000-file archive used to produce ~300 KB of JSON, which clients like OpenCode
+    can't show inline. The files themselves are on disk and can be listed any time."""
+    entries = [e.replace('\\', '/') for e in result.get('extracted_files') or []]
+    if strip_top_level:
+        # tar's listing includes the archive's top folder, which extraction strips
+        # (--strip-components=1); make paths relative to the destination, like Windows
+        entries = [e.split('/', 1)[1] if '/' in e else '' for e in entries]
+    files = [e for e in entries if e and not e.endswith('/')]
+    directories = {e.rstrip('/') for e in entries if e.endswith('/') and e.rstrip('/')}
+    for path in files:
+        parts = path.split('/')[:-1]
+        directories.update('/'.join(parts[:i]) for i in range(1, len(parts) + 1))
+    summary = {
+        **{k: v for k, v in result.items() if k != 'extracted_files'},
+        'files_extracted': len(files),
+        'directories': len(directories),
+        'extracted_files': files[:_EXTRACT_SAMPLE_SIZE],
+        'extracted_files_truncated': len(files) > _EXTRACT_SAMPLE_SIZE,
+    }
+    if len(files) > _EXTRACT_SAMPLE_SIZE:
+        summary['note'] = (f"extracted_files shows the first {_EXTRACT_SAMPLE_SIZE} of "
+                           f"{len(files)} files. List them all with "
+                           f"ssh_dir_search_glob(path='{result.get('destination_path')}', pattern='*').")
+    if result.get('existing_files_kept'):
+        summary['note'] = (summary.get('note', '') + " Some files already existed in the destination "
+                           "and were kept, not overwritten (overwrite=False).").strip()
+    return summary
+
+
 @mcp.tool()
 @operation_tool
 async def ssh_archive_extract(
@@ -3708,16 +3743,20 @@ async def ssh_archive_extract(
     one specifically.
 
     Returns:
-        On success: `{'status': 'success', 'success': True, 'extracted_files': [str,
-        ...] (paths as listed inside the archive), 'destination_path'}`. On failure
-        (wrong format for this platform, extraction error): `{'status': 'error',
-        'message': str, 'extracted_files': []}` - not a raised exception.
+        On success: `{'status': 'success', 'success': True, 'destination_path',
+        'files_extracted' (number of files), 'directories' (number of folders),
+        'extracted_files' (the first 50 file paths, relative to destination_path),
+        'extracted_files_truncated' (True if there are more), 'note' (how to list them all,
+        and whether existing files were kept because overwrite=False)}`. On failure:
+        `{'status': 'error', 'message': str, 'extracted_files': []}` - not a raised exception.
     """
     if not mcp.ssh_client:
         raise SshError(_not_connected_message())
         
     try:
         result = mcp.ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, use_sudo)
+        if result.get('status') == 'success':
+            result = _summarize_extraction(result, strip_top_level=mcp.ssh_client.os_type != 'windows')
         result['connection'] = _connection_metadata()
         return result
     except Exception as e:

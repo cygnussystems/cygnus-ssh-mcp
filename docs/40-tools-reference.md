@@ -702,7 +702,7 @@ Extract a tar or tar.gz archive to a directory (or a `.zip` on Windows).
 | `overwrite` | bool | No | False | Overwrite existing files |
 | `use_sudo` | bool | No | False | Use sudo |
 
-**Returns:** Extraction status dictionary
+**Returns:** `status`, `destination_path`, `files_extracted` (number of files), `directories` (number of folders), `extracted_files` (the first 50 file paths, relative to the destination), `extracted_files_truncated`, and a `note` when there are more (list them with `ssh_dir_search_glob` on the destination) or when existing files were kept because `overwrite=False`
 
 ---
 

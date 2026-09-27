@@ -634,6 +634,7 @@ class SshDirectoryOperations(ABC):
                 if not overwrite:
                     extract_cmd += " --keep-old-files"
 
+            kept_existing = False
             extract_handle = self.ssh_client.run(extract_cmd, io_timeout=300, runtime_timeout=1800, sudo=sudo, **history_tag)
 
             # Check for non-zero exit code but handle the special case for tar --keep-old-files
@@ -642,6 +643,7 @@ class SshDirectoryOperations(ABC):
                 if archive_type == 'tar.gz' and not overwrite and extract_handle.exit_code == 1:
                     # This is expected with --keep-old-files if files exist
                     self.logger.warning("Some files already exist and were not overwritten")
+                    kept_existing = True
                 else:
                     self.logger.error(f"Failed to extract archive: {extract_handle.tail(5)}")
                     return {
@@ -651,12 +653,15 @@ class SshDirectoryOperations(ABC):
                     }
 
             self.logger.info(f"Successfully extracted {len(files)} files to {destination_path}")
-            return {
+            result = {
                 'status': 'success',
                 'success': True,  # Add this for compatibility with tests
                 'extracted_files': files,
                 'destination_path': destination_path
             }
+            if kept_existing:
+                result['existing_files_kept'] = True
+            return result
 
         except Exception as e:
             self.logger.error(f"Error extracting archive: {e}", exc_info=True)

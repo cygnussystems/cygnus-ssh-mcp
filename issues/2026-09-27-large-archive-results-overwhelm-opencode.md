@@ -9,3 +9,22 @@
 ## Why it matters / suggested contract
 
 The model should see a concise terminal summary **without** having to parse a many-hundred-KB tool artifact: operation status, actual destination/format, extracted file and directory counts, conflicts/skipped/error counts, and a deterministic way to page names when needed. Keep a full manifest accessible separately for detailed audits. This can be addressed at the MCP response shape level and should preserve the current successful `in_progress`/poll lifecycle. Exact archive calls and timings are in `findings/2026-09-26-opencode-session2-directory-ops.md` and the archived round-3 retest.
+
+## Fix (2026-09-27, branch `fix/round4-search-and-connection`)
+
+- **Root cause:** `ssh_archive_extract` returned every extracted name inline. On Linux/macOS
+  that was tar's raw listing (the archive's top folder plus every folder and file entry, with the
+  top folder in each path); on Windows every file path. 2,001 files gave ~52 KB of JSON and
+  18,001 files ~306 KB, too much for OpenCode to show inline.
+- **Fix:** the tool now returns a concise summary on every platform: `files_extracted`,
+  `directories`, `destination_path`, `extracted_files` = the **first 50 file paths, relative to
+  the destination** (Linux/macOS paths no longer include the stripped top folder, matching
+  Windows), `extracted_files_truncated`, and a `note` when there are more, naming
+  `ssh_dir_search_glob(path=<destination>, pattern='*')` to list them. The files are on disk, so
+  that's the paged/retrievable manifest. When `overwrite=False` kept existing files (tar
+  `--keep-old-files`), the note says so (previously only logged).
+  `in_progress`/terminal-result behavior is unchanged.
+- **Tests:** `testing_mcp/test_tool__archive_extract_summary.py`: 120 files in 2 folders gives
+  exact counts, a 50-path relative sample, the truncation flag and note, and a response under
+  8 KB; 4 files gives the complete list with no truncation. Pass on Linux, macOS and Windows;
+  fail on the old code.
