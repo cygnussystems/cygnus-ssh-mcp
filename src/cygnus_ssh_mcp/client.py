@@ -507,9 +507,29 @@ rm -rf "$PROBE_DIR" 2>/dev/null
         try:
             self._client.connect(**kwargs)
             self._logger.info("Connection successful.")
+            # Keepalives keep an idle connection from being dropped silently by NAT /
+            # firewall idle timeouts, and let paramiko notice a dead peer (it used to
+            # look "active" after an overnight idle while the link was long gone).
+            self._client.get_transport().set_keepalive(self.KEEPALIVE_SECONDS)
         except Exception as e:
             self._logger.error(f"Connection failed: {e}", exc_info=True)
             raise SshError(f"Connection failed: {e}") from e
+
+    KEEPALIVE_SECONDS = 30
+
+    def probe_alive(self, timeout: float = 5.0) -> bool:
+        """A real liveness check: one round trip to the host (open and close a
+        channel). is_connected() only reads paramiko's local flag, which can stay True
+        for a connection that died silently."""
+        if not self.is_connected():
+            return False
+        try:
+            channel = self._client.get_transport().open_session(timeout=timeout)
+            channel.close()
+            return True
+        except Exception as e:
+            self._logger.warning(f"Liveness check failed: {e!r}")
+            return False
 
     def is_connected(self) -> bool:
         """

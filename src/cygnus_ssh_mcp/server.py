@@ -229,6 +229,107 @@ def _connection_metadata() -> dict:
 # - Control/status tools (@threaded_tool: task status/kill, command kill) also run in a
 #   worker thread but never wait for the operation lock, so they always work.
 
+# ===================
+# Lost connections
+# ===================
+#
+# A connection can die without paramiko noticing (e.g. dropped by a firewall after a long
+# idle - seen 2026-09-27: ssh_conn_is_connected said true while the next call failed with
+# "[WinError 10054] An existing connection was forcibly closed"). When a call fails with a
+# connection-level error, the link is checked; if it's really gone, the connection is
+# dropped and the caller gets one clear CONNECTION_LOST message with the next step.
+
+_CONNECTION_LOST_MARKERS = (
+    'ssh session not active', 'socket is closed', 'connection reset', 'forcibly closed',
+    'broken pipe', 'connection aborted', 'server connection dropped', 'eof during negotiation',
+    'winerror 10054', 'winerror 10053', 'winerror 10060', 'connection timed out',
+    'no existing session', 'transport is not active',
+)
+_last_connection_loss = None   # human-readable reason, reported by later not-connected errors
+
+
+def _looks_like_connection_loss(exc):
+    """True if an exception (or anything in its cause chain) is a connection failure."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, (ConnectionError, EOFError, BrokenPipeError)):
+            return True
+        text = str(exc).lower()
+        if any(marker in text for marker in _CONNECTION_LOST_MARKERS):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def _not_connected_message():
+    message = ("No active SSH connection. Connect (or reconnect) with ssh_conn_connect(host_name=...) - see ssh_host_list for configured hosts.")
+    if _last_connection_loss:
+        message += f" (The previous connection was {_last_connection_loss}.)"
+    return message
+
+
+def _connection_label():
+    """The configured alias, else user@host - from local state only (no remote call:
+    this runs right after a connection failure)."""
+    client = mcp.ssh_client
+    if client is None:
+        return "the host"
+    return getattr(client, 'alias', None) or f"{client.user}@{client.host}"
+
+
+def _connection_lost_message(label, reason):
+    return (f"CONNECTION_LOST: the SSH connection to {label} is gone ({reason}). Reconnect "
+            f"with ssh_conn_connect(host_name='{label}'). If the call that failed could have "
+            f"changed something on the host, check whether it took effect before running it "
+            f"again - it may have completed, partly completed, or not run at all.")
+
+
+def _handle_possible_connection_loss(exc):
+    """If `exc` is a connection failure and the link is really dead, drop the connection
+    and return a CONNECTION_LOST SshError to raise instead; otherwise return None."""
+    global _last_connection_loss
+    if not _looks_like_connection_loss(exc):
+        return None
+    client = mcp.ssh_client
+    if client is not None and client.probe_alive():
+        return None  # a one-off failure; the connection itself is fine
+    label = _connection_label()
+    reason = str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__
+    _last_connection_loss = f"lost at {datetime.now(UTC).isoformat()}: {reason}"
+    logger.warning(f"Connection to {label} lost: {reason}")
+    if client is not None and mcp.ssh_client is client:
+        try:
+            client.close()
+        except Exception:
+            pass
+        mcp.ssh_client = None
+    return SshError(_connection_lost_message(label, reason))
+
+
+def _check_result_for_connection_loss(result):
+    """Many tools catch errors themselves and RETURN them ({'error': ...} or
+    {'message': ...}) rather than raising. Give those the same CONNECTION_LOST treatment:
+    same response shape, but the error text replaced and error_type='connection_lost'."""
+    if not isinstance(result, dict):
+        return result
+    for key in ('error', 'message'):
+        text = result.get(key)
+        if isinstance(text, str) and text and _looks_like_connection_loss(SshError(text)):
+            lost = _handle_possible_connection_loss(SshError(text))
+            if lost is not None:
+                # Keep only what identifies the request; drop result fields that would
+                # now be misleading (e.g. ssh_file_stat's 'exists': False)
+                kept = {k: v for k, v in result.items() if k in _REQUEST_KEYS}
+                return {**kept, 'status': 'error', 'success': False, 'error': str(lost),
+                        'error_type': 'connection_lost'}
+    return result
+
+
+_REQUEST_KEYS = ('path', 'file_path', 'dir_path', 'source_path', 'destination_path',
+                 'archive_path', 'local_path', 'remote_path', 'command', 'pattern', 'direction')
+
+
 class _Operation:
     """A long-running tool call that may outlive the request that started it."""
 
@@ -357,9 +458,9 @@ def operation_tool(func):
         def work():
             global _foreground_op
             try:
-                op.result = asyncio.run(func(*args, **kwargs))
+                op.result = _check_result_for_connection_loss(asyncio.run(func(*args, **kwargs)))
             except BaseException as e:  # noqa: BLE001 - reported via the operation
-                op.error = e
+                op.error = _handle_possible_connection_loss(e) or e
             finally:
                 op.end_ts = datetime.now(UTC)
                 _foreground_op = None
@@ -399,7 +500,12 @@ def threaded_tool(func):
 
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
-        return await asyncio.to_thread(lambda: asyncio.run(func(*args, **kwargs)))
+        def work():
+            try:
+                return _check_result_for_connection_loss(asyncio.run(func(*args, **kwargs)))
+            except Exception as e:
+                raise (_handle_possible_connection_loss(e) or e)
+        return await asyncio.to_thread(work)
 
     return wrapper
 
@@ -468,12 +574,31 @@ async def list_tools() -> list:
 @mcp.tool()
 async def ssh_conn_is_connected() -> bool:
     """
-    Check if there is an active SSH connection.
-    
+    Check whether there is a WORKING SSH connection - a real round trip to the host (a
+    few milliseconds normally, at most ~5s), not just a cached flag. A connection that
+    died while idle (e.g. dropped by a firewall overnight) is detected, dropped, and
+    reported as False.
+
     Returns:
-        bool: True if an active connection exists, False otherwise.
+        bool: True if the connection works, False otherwise - then reconnect with
+        ssh_conn_connect(host_name=...).
     """
-    return mcp.ssh_client is not None and mcp.ssh_client.is_connected()
+    global _last_connection_loss
+    client = mcp.ssh_client
+    if client is None:
+        return False
+    if await asyncio.to_thread(client.probe_alive):
+        return True
+    label = _connection_label()
+    _last_connection_loss = f"lost at {datetime.now(UTC).isoformat()}: liveness check failed"
+    logger.warning(f"Connection to {label} failed its liveness check - dropping it")
+    if mcp.ssh_client is client:
+        try:
+            client.close()
+        except Exception:
+            pass
+        mcp.ssh_client = None
+    return False
 
 
 @mcp.tool()
@@ -851,7 +976,7 @@ async def ssh_conn_status() -> dict:
         Dictionary containing basic connection status (user, working directory, OS type)
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         status = mcp.ssh_client.get_connection_status(parent_tool='ssh_conn_status')
@@ -890,7 +1015,7 @@ async def ssh_conn_host_info() -> dict:
         ssh_conn_connect's docstring for what these mean.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         status = mcp.ssh_client.get_connection_status(parent_tool='ssh_conn_host_info')
@@ -1123,7 +1248,7 @@ async def ssh_conn_verify_sudo() -> dict:
           False on Windows)
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         # Windows: Check elevation status
@@ -1219,7 +1344,7 @@ async def ssh_task_status(
           does NOT mean the process exited, just that its status is unknown.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         status = mcp.ssh_client.task_status(pid)
@@ -1286,7 +1411,7 @@ async def ssh_task_kill(
         `force=False` so no fallback was ever attempted.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         force_kill_signal = 9 if force else None
@@ -1452,7 +1577,7 @@ async def ssh_cmd_run(
     if not mcp.ssh_client:
         return {
             'status': 'error',
-            'error': "No active SSH connection",
+            'error': _not_connected_message(),
             'command': command,
             'timestamp': datetime.now(UTC).isoformat()
         }
@@ -1596,6 +1721,15 @@ async def ssh_cmd_run(
         }
     except Exception as e:
         logger.error(f"Command execution failed: {e}")
+        lost = await asyncio.to_thread(_handle_possible_connection_loss, e)
+        if lost is not None:
+            return {
+                'status': 'error',
+                'error_type': 'connection_lost',
+                'command': command,
+                'error': str(lost),
+                'timestamp': datetime.now(UTC).isoformat()
+            }
         return {
             'status': 'error',
             'command': command,
@@ -1650,7 +1784,7 @@ async def ssh_cmd_kill(
         `handle_id` will report status `'killed'`.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         # Get the command handle from history
@@ -1759,7 +1893,7 @@ async def ssh_cmd_check_status(
         return _operation_status_response(op, wait)
 
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         # Log the wait operation
@@ -1924,7 +2058,7 @@ async def ssh_cmd_output(
         (output_lines) or ssh_cmd_history.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     if handle_id in _operations:
         raise SshError(f"handle_id={handle_id} is an operation ({_operations[handle_id].tool}), not "
@@ -1949,7 +2083,7 @@ async def ssh_cmd_clear_history() -> dict:
         Dictionary with operation status
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         cleared_count = mcp.ssh_client.history_manager.clear()
@@ -1995,7 +2129,7 @@ async def ssh_cmd_history(
           failed command; retrieved the same way ssh_cmd_output(stream='stderr') would
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         history = mcp.ssh_client.history()
@@ -2091,7 +2225,7 @@ async def ssh_task_launch(
         `C:\\Windows\\Temp\\task-<pid>.log` plus `task-<pid>_err.log` on Windows.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         # Don't add tasks to command history
@@ -2141,7 +2275,7 @@ async def ssh_dir_mkdir(
         parent directory without sudo on Linux/macOS).
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         mcp.ssh_client.mkdir(path, use_sudo, mode)
@@ -2182,7 +2316,7 @@ async def ssh_dir_remove(
         returning an error dict.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         mcp.ssh_client.rmdir(path, use_sudo, recursive)
@@ -2214,7 +2348,7 @@ async def ssh_dir_list_files_basic(
         (use ssh_file_stat on an entry, or ssh_dir_list_advanced, if you need that).
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         files = mcp.ssh_client.listdir(path)
@@ -2255,7 +2389,7 @@ async def ssh_file_stat(
         this is a normal, non-exceptional return value, not a raised error.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         # SshClient.stat() itself returns SFTPAttributes object from Paramiko
@@ -2330,7 +2464,7 @@ async def ssh_file_read(
         - encoding: The encoding used to decode the content
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         content = mcp.ssh_client.read_file(file_path, encoding, max_size)
@@ -2391,7 +2525,7 @@ async def ssh_file_find_lines_with_pattern(
         instead.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         return mcp.ssh_client.find_lines_with_pattern(file_path, pattern, regex, use_sudo)
@@ -2425,7 +2559,7 @@ async def ssh_file_get_context_around_line(
         matching line, so you can pick a more specific `match_line`).
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         return mcp.ssh_client.get_context_around_line(file_path, match_line, context, use_sudo)
@@ -2478,7 +2612,7 @@ async def ssh_file_replace_line(
     To replace/insert MULTIPLE lines in one call, use ssh_file_replace_line_multi instead.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         # Convert the single line to a list as required by the underlying method
@@ -2597,7 +2731,7 @@ async def ssh_file_replace_line_multi(
     ```
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         # Use the Pydantic model to parse and validate the new_lines parameter
@@ -2641,7 +2775,7 @@ async def ssh_file_transfer(
         exception on failure rather than returning a `success: False` dict.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     if use_sudo and mcp.ssh_client.os_type == 'windows':
         raise SshError(
@@ -2737,7 +2871,7 @@ async def ssh_dir_transfer(
         - bytes_transferred: Total bytes transferred (archive size)
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         result = mcp.ssh_client.transfer_directory(
@@ -2807,7 +2941,7 @@ async def ssh_file_insert_lines_after_match(
     ```
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         # Use the Pydantic model to parse and validate the lines_to_insert parameter
@@ -2844,7 +2978,7 @@ async def ssh_file_delete_line_by_content(
         exception.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         result = mcp.ssh_client.delete_line_by_content(file_path, match_line, use_sudo, force)
@@ -2878,7 +3012,7 @@ async def ssh_file_copy(
         exception.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         result = mcp.ssh_client.copy_file(source_path, destination_path, append_timestamp, use_sudo)
@@ -2918,7 +3052,7 @@ async def ssh_file_write(
         `{'success': False, 'file_path', 'error'}` - not a raised exception.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         # Create a local temporary file with the content
@@ -3172,7 +3306,7 @@ async def ssh_file_move(
         `overwrite=False`, permission error) - not a raised exception.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         result = mcp.ssh_client.safe_move_or_rename(source, destination, overwrite, use_sudo)
@@ -3219,7 +3353,7 @@ async def ssh_dir_search_glob(
         output, not a spelled-out word.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         # Check the signature of search_files_recursive and pass only the arguments it accepts
@@ -3250,7 +3384,7 @@ async def ssh_dir_calc_size(
         "3.50 GB" - 2 decimal places, binary/1024-based units)}`.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         size_bytes = mcp.ssh_client.calculate_directory_size(path)
@@ -3289,7 +3423,7 @@ async def ssh_dir_delete(
         recognized critical directory.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         result = mcp.ssh_client.delete_directory_recursive(path, dry_run, use_sudo)
@@ -3329,7 +3463,7 @@ async def ssh_dir_batch_delete_files(
         here, vs. `deleted_items` on ssh_dir_delete.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         result = mcp.ssh_client.batch_delete_by_pattern(path, pattern, dry_run, use_sudo)
@@ -3374,7 +3508,7 @@ async def ssh_dir_list_advanced(
         `user` still reflects the real file owner there.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         results = mcp.ssh_client.list_directory_recursive(path, max_depth, use_sudo)
@@ -3419,7 +3553,7 @@ async def ssh_dir_search_files_content(
         `dir_path` itself is an error.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         results = mcp.ssh_client.search_file_contents(dir_path, pattern, regex, case_sensitive, use_sudo)
@@ -3473,7 +3607,7 @@ async def ssh_dir_copy(
         merging into a non-empty destination, these counts include pre-existing files too.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
 
     try:
         result = mcp.ssh_client.copy_directory_recursive(
@@ -3519,7 +3653,7 @@ async def ssh_archive_create(
         `{'status': 'error', 'message': str}` - not a raised exception.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         result = mcp.ssh_client.create_archive_from_directory(source_path, archive_path, format, use_sudo)
@@ -3572,7 +3706,7 @@ async def ssh_archive_extract(
         'message': str, 'extracted_files': []}` - not a raised exception.
     """
     if not mcp.ssh_client:
-        raise SshError("No active SSH connection")
+        raise SshError(_not_connected_message())
         
     try:
         result = mcp.ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, use_sudo)

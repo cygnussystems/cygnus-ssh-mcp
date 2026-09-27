@@ -21,7 +21,15 @@ All tools follow a consistent naming pattern: `ssh_{category}_{action}`
 ## Connection Management (`ssh_conn_*`)
 
 ### ssh_conn_is_connected
-Check if there's an active SSH connection.
+Check whether there's a **working** SSH connection: a real round trip to the host (normally a
+few milliseconds, at most ~5s), not just a cached flag. A connection that died while idle is
+detected, dropped and reported as `false`; reconnect with `ssh_conn_connect`.
+
+Connections send SSH keepalives every 30s. When any call fails because the connection is
+gone, the server confirms the link is dead, drops it, and returns a `CONNECTION_LOST` error
+(`error_type: "connection_lost"` in dict responses) that names the host, says to reconnect,
+and warns to check whether a side-effecting call took effect before re-running it. Later
+calls say "No active SSH connection … (The previous connection was lost at …)".
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
