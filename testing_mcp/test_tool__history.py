@@ -849,7 +849,8 @@ async def test_connection_probes_labeled_as_internal_and_filterable(mcp_test_env
 
             full_history = await client.call_tool("ssh_cmd_history", {"include_internal": True})
             full_history_json = json.loads(extract_result_text(full_history))
-            connect_probes = [e for e in full_history_json if e.get('parent_tool') == 'ssh_conn_connect']
+            connect_probes = [e for e in full_history_json if e.get('parent_tool') == 'ssh_conn_connect'
+                              and e.get('origin') != 'operation']  # a handed-off connect's record isn't a probe command
             assert connect_probes, (
                 f"Expected at least one entry tagged parent_tool='ssh_conn_connect' from the "
                 f"initial connect's system-info/cwd probes, got: {full_history_json}"
@@ -861,7 +862,8 @@ async def test_connection_probes_labeled_as_internal_and_filterable(mcp_test_env
 
             filtered_history = await client.call_tool("ssh_cmd_history", {"include_internal": False})
             filtered_history_json = json.loads(extract_result_text(filtered_history))
-            assert not any(e.get('parent_tool') == 'ssh_conn_connect' for e in filtered_history_json), (
+            assert not any(e.get('parent_tool') == 'ssh_conn_connect' and e.get('origin') != 'operation'
+                           for e in filtered_history_json), (
                 f"include_internal=False should filter out ssh_conn_connect's probes, got: "
                 f"{filtered_history_json}"
             )

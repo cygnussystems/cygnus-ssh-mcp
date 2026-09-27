@@ -407,3 +407,31 @@ async def test_real_archive_roundtrip_through_handoff(mcp_test_environment, monk
             await client.call_tool("ssh_cmd_run", {"command": cleanup_command(base), "wait_timeout": 45})
             await disconnect_ssh(client)
             print_test_footer()
+
+
+
+@pytest.mark.asyncio
+async def test_clear_history_clears_finished_operations(mcp_test_environment, monkeypatch):
+    """ssh_cmd_clear_history also removes finished long-running operations (they used to
+    linger in ssh_cmd_history), while a still-running one stays pollable."""
+    print_test_header("Testing clear_history with operations")
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+            monkeypatch.setattr(server, 'max_foreground_wait', CAP)
+            _slow_down(monkeypatch, 'calculate_directory_size', delay=4)
+            finished = _json(await client.call_tool("ssh_dir_calc_size", {"path": TEST_WORKSPACE}))
+            await _wait_for_operation(client, finished['handle_id'])
+            _slow_down(monkeypatch, 'calculate_directory_size', delay=8)
+            running = _json(await client.call_tool("ssh_dir_calc_size", {"path": TEST_WORKSPACE}))
+
+            await client.call_tool("ssh_cmd_clear_history", {})
+            history = _unwrap(await client.call_tool("ssh_cmd_history", {}))
+            ids = {e['id'] for e in history} if isinstance(history, list) else set()
+            assert finished['handle_id'] not in ids, "a finished operation survived clear_history"
+            assert running['handle_id'] in ids, "a running operation must stay pollable"
+            await _wait_for_operation(client, running['handle_id'])
+        finally:
+            await disconnect_ssh(client)
+            print_test_footer()

@@ -151,7 +151,7 @@ class SshClient:
         raw_stderr = ''
         try:
             marker = "___SSH_MCP_PROBE_ALIVE___"
-            stdin, stdout, stderr = self._client.exec_command(f'echo {marker}', timeout=5)
+            stdin, stdout, stderr = self._client.exec_command(f'echo {marker}', timeout=self.PROBE_TIMEOUT)
             raw_out = stdout.read().decode('utf-8', errors='replace').strip()
             raw_stderr = stderr.read().decode('utf-8', errors='replace').strip()
             raw_exit = stdout.channel.recv_exit_status()
@@ -207,7 +207,7 @@ class SshClient:
             uname_stderr = ''
             uname_probe_error = None
             try:
-                stdin, stdout, stderr = self._client.exec_command('uname -s', timeout=5)
+                stdin, stdout, stderr = self._client.exec_command('uname -s', timeout=self.PROBE_TIMEOUT)
                 result = stdout.read().decode('utf-8', errors='replace').strip()
                 uname_stderr = stderr.read().decode('utf-8', errors='replace').strip()
                 exit_status = stdout.channel.recv_exit_status()
@@ -236,7 +236,7 @@ class SshClient:
                 # uname failed or returned unknown - try Windows detection
                 # Use 'echo %OS%' which is fast and returns 'Windows_NT' on Windows
                 try:
-                    stdin, stdout, stderr = self._client.exec_command('echo %OS%', timeout=5)
+                    stdin, stdout, stderr = self._client.exec_command('echo %OS%', timeout=self.PROBE_TIMEOUT)
                     win_result = stdout.read().decode('utf-8', errors='replace').strip()
                     win_exit = stdout.channel.recv_exit_status()
 
@@ -246,7 +246,7 @@ class SshClient:
                     else:
                         # Try PowerShell as a fallback
                         stdin, stdout, stderr = self._client.exec_command(
-                            _powershell_encoded_command('$PSVersionTable.PSVersion.Major'), timeout=5)
+                            _powershell_encoded_command('$PSVersionTable.PSVersion.Major'), timeout=self.PROBE_TIMEOUT)
                         ps_result = stdout.read().decode('utf-8', errors='replace').strip()
                         ps_exit = stdout.channel.recv_exit_status()
 
@@ -287,7 +287,7 @@ class SshClient:
         try:
             # Raw exec, like _detect_windows_version: this runs during OS detection,
             # before run_ops exists, so self.run() isn't available yet
-            stdin, stdout, stderr = self._client.exec_command('cat /etc/os-release', timeout=5)
+            stdin, stdout, stderr = self._client.exec_command('cat /etc/os-release', timeout=self.PROBE_TIMEOUT)
             result = stdout.read().decode('utf-8', errors='replace').lower()
             if 'debian' in result:
                 self.os_subtype = 'debian'
@@ -304,7 +304,7 @@ class SshClient:
         try:
             # 'ver' is a cmd.exe builtin - call it via cmd /c, since the SSH default
             # shell is often PowerShell, where a bare 'ver' doesn't exist
-            stdin, stdout, stderr = self._client.exec_command('cmd /c ver', timeout=5)
+            stdin, stdout, stderr = self._client.exec_command('cmd /c ver', timeout=self.PROBE_TIMEOUT)
             result = stdout.read().decode('utf-8', errors='replace').strip()
 
             if 'Windows Server 2019' in result or '10.0.17' in result:
@@ -516,6 +516,11 @@ rm -rf "$PROBE_DIR" 2>/dev/null
             raise SshError(f"Connection failed: {e}") from e
 
     KEEPALIVE_SECONDS = 30
+    # Connect-time OS detection probes. 5s proved too tight for a busy Windows host
+    # (2026-09-27: 'uname -s' and the Windows probe both timed out while a plain echo
+    # worked, failing the connect). Connecting is a handed-off operation anyway, so a
+    # slow host yields in_progress rather than a hang.
+    PROBE_TIMEOUT = 20
 
     def probe_alive(self, timeout: float = 5.0) -> bool:
         """A real liveness check: one round trip to the host (open and close a

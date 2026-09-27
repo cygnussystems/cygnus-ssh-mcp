@@ -2077,7 +2077,8 @@ async def ssh_cmd_output(
 @mcp.tool()
 async def ssh_cmd_clear_history() -> dict:
     """
-    Clear the command history for the current SSH connection.
+    Clear the command history for the current SSH connection, including finished
+    long-running operations (ones still running stay, so they can still be polled).
     
     Returns:
         Dictionary with operation status
@@ -2087,6 +2088,12 @@ async def ssh_cmd_clear_history() -> dict:
         
     try:
         cleared_count = mcp.ssh_client.history_manager.clear()
+        # Finished long-running operations are part of history too; running ones stay
+        # so they can still be polled
+        for op_id, op in list(_operations.items()):
+            if op.done.is_set():
+                _operations.pop(op_id, None)
+                cleared_count += 1
 
         return {
             'status': 'success',
