@@ -8,7 +8,7 @@ import tarfile
 import zipfile
 from abc import ABC, abstractmethod
 from typing import Optional, Callable, Dict, Any
-from cygnus_ssh_mcp.models import SshError, CommandFailed
+from cygnus_ssh_mcp.models import SshError, CommandFailed, sftp_progress_callback
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 
 
@@ -294,7 +294,7 @@ class SshFileOperations(ABC):
         try:
             self.logger.info(f"Downloading {remote_path} to {local_path}")
             sftp = self.ssh_client._client.open_sftp()
-            sftp.get(remote_path, local_path)
+            sftp.get(remote_path, local_path, callback=sftp_progress_callback)
             self.logger.info("Download complete.")
         except Exception as e:
             self.logger.error(f"SFTP get failed for {remote_path}: {e}", exc_info=True)
@@ -309,7 +309,7 @@ class SshFileOperations(ABC):
         try:
             self.logger.info(f"Uploading {local_path} to {remote_path}")
             sftp = self.ssh_client._client.open_sftp()
-            sftp.put(local_path, remote_path)
+            sftp.put(local_path, remote_path, callback=sftp_progress_callback)
             self.logger.info("Upload complete.")
         except Exception as e:
             self.logger.error(f"SFTP put failed for {local_path} to {remote_path}: {e}", exc_info=True)

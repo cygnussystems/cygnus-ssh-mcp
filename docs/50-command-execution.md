@@ -355,6 +355,13 @@ Every tool that works on the remote host follows the same rules as `ssh_cmd_run`
   running fails immediately with a `busy` error that names the running handle - poll it
   instead of starting it again. Commands already handed off by `ssh_cmd_run` don't count.
 
+While an operation runs, `ssh_cmd_check_status` also returns `elapsed_seconds` and
+`progress`: the current `stage` (e.g. `archiving locally` → `uploading archive` →
+`extracting on host` for a directory upload), `bytes_done` / `bytes_total` / `percent` for
+file and directory transfers, counts such as `files_searched` (Windows content search), and
+`last_update` / `seconds_since_update`. A long transfer over a slow link keeps advancing
+`bytes_done`; if `last_update` stops moving for a long time, the operation may be stuck.
+
 Fast calls are unchanged: they return their normal result directly.
 
 ## Concurrency

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from collections import deque
+import threading
 from datetime import datetime, UTC
 from typing import Optional, Deque, Any, List, Literal # Added List and Literal
 
@@ -93,6 +94,74 @@ class TaskNotFound(SshError):
             f"ssh_task_launch can still be checked by PID with ssh_task_status."
         )
         self.identifier = identifier
+
+
+class OperationProgress:
+    """Live progress of one long-running operation, shown by ssh_cmd_check_status while
+    it runs: the current stage, bytes done/total for transfers, item counts (e.g. files
+    searched), and when progress last changed - so "slow but moving" can be told apart
+    from "stuck". Updated from the operation's worker thread, read by status polls."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.stage = None
+        self.bytes_done = None
+        self.bytes_total = None
+        self.items = {}
+        self.last_update = None
+
+    def update(self, stage=None, bytes_done=None, bytes_total=None, items=None):
+        with self._lock:
+            if stage is not None and stage != self.stage:
+                self.stage = stage
+                self.bytes_done = self.bytes_total = None  # bytes belong to a stage
+            if bytes_done is not None:
+                self.bytes_done = bytes_done
+            if bytes_total is not None:
+                self.bytes_total = bytes_total
+            if items:
+                self.items.update(items)
+            self.last_update = datetime.now(UTC)
+
+    def snapshot(self):
+        with self._lock:
+            if self.last_update is None:
+                return None
+            info = {'stage': self.stage}
+            if self.bytes_done is not None:
+                info['bytes_done'] = self.bytes_done
+                if self.bytes_total:
+                    info['bytes_total'] = self.bytes_total
+                    info['percent'] = round(100.0 * self.bytes_done / self.bytes_total, 1)
+            if self.items:
+                info.update(self.items)
+            info['last_update'] = self.last_update.isoformat()
+            info['seconds_since_update'] = round((datetime.now(UTC) - self.last_update).total_seconds(), 1)
+            return info
+
+
+_progress_local = threading.local()
+
+
+def set_current_progress(progress):
+    """Called by the server's operation wrapper in the operation's worker thread."""
+    _progress_local.progress = progress
+
+
+def report_progress(stage=None, bytes_done=None, bytes_total=None, items=None):
+    """Report progress for the operation running in this thread, if any. Never raises -
+    progress reporting must not be able to break the work it describes."""
+    try:
+        progress = getattr(_progress_local, 'progress', None)
+        if progress is not None:
+            progress.update(stage=stage, bytes_done=bytes_done, bytes_total=bytes_total, items=items)
+    except Exception:
+        pass
+
+
+def sftp_progress_callback(done, total):
+    """paramiko SFTP get/put callback: bytes so far of the current stage."""
+    report_progress(bytes_done=done, bytes_total=total)
 
 
 class OutputLimits:

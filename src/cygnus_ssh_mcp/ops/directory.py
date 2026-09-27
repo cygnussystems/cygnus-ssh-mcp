@@ -5,7 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
-from cygnus_ssh_mcp.models import SshError
+from cygnus_ssh_mcp.models import SshError, report_progress
 
 
 class SshDirectoryOperations(ABC):
@@ -1285,6 +1285,7 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                 raise SshError(f"Content search failed: '{path}' is not a directory")
 
             results = []
+            files_searched = 0
             pending = [root]
             while pending:
                 directory = pending.pop()
@@ -1312,6 +1313,8 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
                     except Exception as e:
                         self.last_search_skipped.append({'path': full_path, 'reason': f"can't read: {e}"})
                         continue
+                    files_searched += 1
+                    report_progress(items={'files_searched': files_searched})
                     content = raw.decode('utf-8-sig', errors='replace')
                     for line_num, line in enumerate(content.splitlines(), start=1):
                         if regex:

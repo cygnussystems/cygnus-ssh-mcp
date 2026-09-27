@@ -12,6 +12,7 @@ import select
 from typing import Optional, Callable, Dict, Deque, Any, Union, List, Literal
 from cygnus_ssh_mcp.ops.history import CommandHistoryManager
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command as _powershell_encoded_command
+from cygnus_ssh_mcp.models import report_progress
 from cygnus_ssh_mcp.models import (
     SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed,
     SudoRequired, BusyError, OutputPurged, TaskNotFound, CommandHandle
@@ -1149,6 +1150,7 @@ rm -rf "$PROBE_DIR" 2>/dev/null
 
                 # Create local archive
                 stats = local_tree_stats(local_path)
+                report_progress(stage='archiving locally')
                 local_temp_archive = create_local_archive(local_path, archive_format)
                 archive_size = os.path.getsize(local_temp_archive)
 
@@ -1164,10 +1166,12 @@ rm -rf "$PROBE_DIR" 2>/dev/null
 
                 # Transfer archive to remote
                 self._logger.info(f"Transferring archive ({archive_size} bytes) to {remote_temp_archive}")
+                report_progress(stage='uploading archive')
                 self.put(local_temp_archive, remote_temp_archive)
 
                 # Extract on remote
                 self._logger.info(f"Extracting archive to {remote_path}")
+                report_progress(stage='extracting on host')
                 extract_result = self.extract_archive_to_directory(
                     remote_temp_archive, remote_path, overwrite=True, sudo=sudo,
                     parent_tool='ssh_dir_transfer'
@@ -1210,6 +1214,7 @@ rm -rf "$PROBE_DIR" 2>/dev/null
 
                 # Create archive on remote
                 self._logger.info(f"Creating archive on remote: {remote_temp_archive}")
+                report_progress(stage='archiving on host')
                 archive_result = self.create_archive_from_directory(
                     remote_path, remote_temp_archive, format=archive_format, sudo=sudo,
                     parent_tool='ssh_dir_transfer'
@@ -1233,6 +1238,7 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                 # Transfer archive to local
                 archive_size = archive_result.get('size_bytes', 0)
                 self._logger.info(f"Transferring archive ({archive_size} bytes) to local")
+                report_progress(stage='downloading archive')
                 self.get(remote_temp_archive, local_temp_archive)
 
                 # Get actual size if not reported
@@ -1243,6 +1249,7 @@ rm -rf "$PROBE_DIR" 2>/dev/null
 
                 # Extract locally
                 self._logger.info(f"Extracting archive to {local_path}")
+                report_progress(stage='extracting locally')
                 extract_local_archive(local_temp_archive, local_path, archive_format)
                 # The archive holds the remote folder itself, so the files land in
                 # local_path/<remote folder name>/ (unlike upload, which places the

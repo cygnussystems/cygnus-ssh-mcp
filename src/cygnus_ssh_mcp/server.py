@@ -24,7 +24,7 @@ from pydantic import Field, BaseModel
 from typing import Annotated, Optional, Literal, Dict, Any, List, Union
 from datetime import datetime, UTC
 from cygnus_ssh_mcp.client import SshClient
-from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, CwdNotFound, OutputLimits
+from cygnus_ssh_mcp.models import SshError, CommandTimeout, CommandRuntimeTimeout, CommandFailed, SudoRequired, BusyError, CwdNotFound, OutputLimits, OperationProgress, set_current_progress, report_progress
 from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 from cygnus_ssh_mcp.ops.capability_gate import describe_capabilities
 import stat as stat_module
@@ -342,6 +342,7 @@ class _Operation:
         self.done = threading.Event()
         self.result = None
         self.error = None
+        self.progress = OperationProgress()
 
     def status(self):
         if not self.done.is_set():
@@ -457,11 +458,13 @@ def operation_tool(func):
 
         def work():
             global _foreground_op
+            set_current_progress(op.progress)
             try:
                 op.result = _check_result_for_connection_loss(asyncio.run(func(*args, **kwargs)))
             except BaseException as e:  # noqa: BLE001 - reported via the operation
                 op.error = _handle_possible_connection_loss(e) or e
             finally:
+                set_current_progress(None)
                 op.end_ts = datetime.now(UTC)
                 _foreground_op = None
                 _foreground_lock.release()
@@ -481,6 +484,7 @@ def operation_tool(func):
             'operation': op.summary,
             'started': op.start_ts.isoformat(),
             'waited_seconds': max_foreground_wait,
+            **({'progress': op.progress.snapshot()} if op.progress.snapshot() else {}),
             'next_step': (
                 f"{op.tool} is still running on the server (it was NOT cancelled). Poll "
                 f"ssh_cmd_check_status(handle_id={op.id}) - it returns this call's full result "
@@ -522,8 +526,15 @@ def _operation_status_response(op, waited):
         'timestamp': datetime.now(UTC).isoformat(),
     }
     if response['status'] == 'running':
+        progress = op.progress.snapshot()
+        if progress:
+            response['progress'] = progress
+        response['elapsed_seconds'] = round((datetime.now(UTC) - op.start_ts).total_seconds(), 1)
         response['next_step'] = (f"Still running. Call ssh_cmd_check_status(handle_id={op.id}) "
-                                 f"again to keep polling. Do not start it again.")
+                                 f"again to keep polling. Do not start it again. 'progress' shows "
+                                 f"the current stage and, for transfers, bytes done; if its "
+                                 f"last_update stops advancing for a long time, the operation may "
+                                 f"be stuck.")
     elif response['status'] == 'completed':
         response['result'] = op.result
     else:
@@ -1882,7 +1893,12 @@ async def ssh_cmd_check_status(
         long-running tool such as ssh_archive_extract or ssh_file_transfer): returns
         `{'handle_id', 'status', 'tool', 'operation', 'started', 'ended', ...}` with status
         'running', 'completed' (plus 'result': the tool's full normal result) or 'failed'
-        (plus 'error'). The wait ends early as soon as the operation finishes.
+        (plus 'error'). The wait ends early as soon as the operation finishes. While
+        running it also returns 'elapsed_seconds' and 'progress': the current 'stage'
+        (e.g. 'uploading archive', 'extracting on host'), 'bytes_done'/'bytes_total'/
+        'percent' for transfers, counts such as 'files_searched', and 'last_update' /
+        'seconds_since_update' - if those stop advancing for a long time, the operation
+        may be stuck rather than just slow.
     """
     op = _operations.get(handle_id)
     if op is not None:
@@ -2796,6 +2812,7 @@ async def ssh_file_transfer(
             if use_sudo:
                 # Upload to a temporary location first
                 temp_remote_path = f"/tmp/ssh_transfer_{os.path.basename(remote_path)}_{int(time.time())}"
+                report_progress(stage='uploading file')
                 mcp.ssh_client.put(local_path, temp_remote_path)
                 
                 # Then move it to the final location with sudo
@@ -2803,6 +2820,7 @@ async def ssh_file_transfer(
                 mcp.ssh_client.run(move_cmd, sudo=True)
                 operation = f"Uploaded {local_path} to {remote_path} with sudo"
             else:
+                report_progress(stage='uploading file')
                 mcp.ssh_client.put(local_path, remote_path)
                 operation = f"Uploaded {local_path} to {remote_path}"
         else:  # download
@@ -2818,6 +2836,7 @@ async def ssh_file_transfer(
                 mcp.ssh_client.run(chmod_cmd, sudo=True)
                 
                 # Download from the temporary location
+                report_progress(stage='downloading file')
                 mcp.ssh_client.get(temp_remote_path, local_path)
                 
                 # Clean up
@@ -2826,6 +2845,7 @@ async def ssh_file_transfer(
                 
                 operation = f"Downloaded {remote_path} to {local_path} with sudo"
             else:
+                report_progress(stage='downloading file')
                 mcp.ssh_client.get(remote_path, local_path)
                 operation = f"Downloaded {remote_path} to {local_path}"
 
@@ -3372,6 +3392,7 @@ async def ssh_dir_search_glob(
         
     try:
         # Check the signature of search_files_recursive and pass only the arguments it accepts
+        report_progress(stage='searching file names')
         results = mcp.ssh_client.search_files_recursive(path, pattern, max_depth, include_dirs)
         return results
     except Exception as e:
@@ -3402,6 +3423,7 @@ async def ssh_dir_calc_size(
         raise SshError(_not_connected_message())
         
     try:
+        report_progress(stage='calculating size')
         size_bytes = mcp.ssh_client.calculate_directory_size(path)
         return {
             'path': path,
@@ -3571,6 +3593,7 @@ async def ssh_dir_search_files_content(
         raise SshError(_not_connected_message())
 
     try:
+        report_progress(stage='searching file contents')
         results = mcp.ssh_client.search_file_contents(dir_path, pattern, regex, case_sensitive, use_sudo)
         skipped = getattr(mcp.ssh_client.dir_ops, 'last_search_skipped', None) or []
         if skipped:
@@ -3625,6 +3648,7 @@ async def ssh_dir_copy(
         raise SshError(_not_connected_message())
 
     try:
+        report_progress(stage='copying')
         result = mcp.ssh_client.copy_directory_recursive(
             source_path, destination_path, overwrite, preserve_symlinks, preserve_permissions, use_sudo
         )
@@ -3671,6 +3695,7 @@ async def ssh_archive_create(
         raise SshError(_not_connected_message())
         
     try:
+        report_progress(stage='creating archive')
         result = mcp.ssh_client.create_archive_from_directory(source_path, archive_path, format, use_sudo)
         result['connection'] = _connection_metadata()
         return result
@@ -3761,6 +3786,7 @@ async def ssh_archive_extract(
         raise SshError(_not_connected_message())
         
     try:
+        report_progress(stage='extracting archive')
         result = mcp.ssh_client.extract_archive_to_directory(archive_path, destination_path, overwrite, use_sudo)
         if result.get('status') == 'success':
             result = _summarize_extraction(result, strip_top_level=mcp.ssh_client.os_type != 'windows')
