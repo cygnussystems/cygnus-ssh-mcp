@@ -41,7 +41,7 @@ actually depend on:
 | `find_printf` | Fast recursive directory listing (`ssh_dir_list_advanced`, `ssh_dir_search_glob`) |
 | `find_depth` | Depth-limited recursive `find` |
 | `stat_c` | GNU `stat -c` format strings (permission restoration after a sudo'd file edit) |
-| `du_sb` | Combined `du -s -b` (directory size in exact bytes) |
+| `du_sb` | Combined `du -s -b` (probed; no longer required - directory size now sums regular files with `find -printf`) |
 | `tar_strip_components` | Archive extraction with path stripping |
 | `tar_keep_old_files` | Archive extraction without overwriting existing files |
 | `ps_pgid` | Killing a sudo'd command's whole process group, not just its outer wrapper PID |

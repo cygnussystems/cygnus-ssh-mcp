@@ -150,7 +150,7 @@ instead of a generic `1`.
 | Operation | Linux | Windows |
 |-----------|-------|---------|
 | List files | `find` | `Get-ChildItem` |
-| Directory size | `du -sb` | `Measure-Object -Sum Length` |
+| Directory size | `find -type f -printf '%s'` summed (regular files only) | `Measure-Object -Sum Length` |
 | Search content | `grep -r` | `Select-String -Recurse` |
 
 ### File Operations

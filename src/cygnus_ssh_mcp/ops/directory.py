@@ -808,19 +808,19 @@ class SshDirectoryOperations(ABC):
         mkdir_cmd = f"mkdir -p {shlex.quote(destination_path)}"
         self.ssh_client.run(mkdir_cmd, io_timeout=30, sudo=sudo)
 
-        # Build cp command with appropriate options
-        cp_opts = ["-r"]  # Recursive copy
-
+        # Copy the CONTENTS of source into destination with one cp: 'src/.' includes
+        # hidden files, -P keeps symlinks as symlinks (-L follows them), -p preserves
+        # mode/timestamps. Works the same with GNU, BSD (macOS) and BusyBox cp.
+        # (This used to be 'cd src && find . -type f -o -type d | xargs -I{} cp -a {} dest/',
+        # which copied every subdirectory AND every file inside it into the destination
+        # root, so nested files were duplicated, flattened, at the top level - found
+        # 2026-09-27 while fixing issues/2026-09-26-linux-dir-size-counts-directory-bytes.md.
+        # The other branch used 'src/*', which skipped hidden files.)
+        cp_opts = ["-R", "-P" if preserve_symlinks else "-L"]
         if preserve_permissions:
-            cp_opts.append("-p")  # Preserve mode, ownership, timestamps
-
-        if preserve_symlinks:
-            # Default behavior of cp is to follow symlinks, we need to handle them specially
-            # First, copy everything except symlinks
-            cp_cmd = f"cd {shlex.quote(source_path)} && find . -type f -o -type d | xargs -I{{}} cp -a {{}} {shlex.quote(destination_path)}/"
-        else:
-            # Use standard cp command
-            cp_cmd = f"cp {' '.join(cp_opts)} {shlex.quote(source_path)}/* {shlex.quote(destination_path)}/"
+            cp_opts.append("-p")
+        cp_cmd = (f"cp {' '.join(cp_opts)} {shlex.quote(source_path + '/.')} "
+                  f"{shlex.quote(destination_path + '/')}")
 
         try:
             # Execute the copy command
@@ -835,30 +835,6 @@ class SshDirectoryOperations(ABC):
                     'bytes_copied': 0,
                     'destination_path': destination_path
                 }
-
-            # If preserving symlinks, we need to recreate them
-            if preserve_symlinks:
-                # Find all symlinks in the source directory
-                find_links_cmd = self._cmd_find_symlinks(source_path)
-                links_handle = self.ssh_client.run(find_links_cmd, io_timeout=60, sudo=sudo)
-
-                # Process each symlink
-                for line in links_handle.tail(links_handle.total_lines):
-                    if not line.strip():
-                        continue
-
-                    parts = line.strip().split('\t')
-                    if len(parts) == 2:
-                        link_path, target = parts
-                        # Create relative path in destination - use posix paths
-                        rel_path = os.path.relpath(link_path, source_path)
-                        # Convert Windows backslashes to forward slashes for Linux
-                        rel_path = rel_path.replace('\\', '/')
-                        dest_link = f"{destination_path}/{rel_path}"
-
-                        # Create the symlink in destination
-                        ln_cmd = f"ln -sf {shlex.quote(target)} {shlex.quote(dest_link)}"
-                        self.ssh_client.run(ln_cmd, io_timeout=30, sudo=sudo)
 
             # Count files copied by listing destination
             count_cmd = f"find {shlex.quote(destination_path)} -type f | wc -l"
@@ -917,8 +893,12 @@ class SshDirectoryOperations_Linux(SshDirectoryOperations):
         return " ".join(cmd_parts)
 
     def _cmd_dir_size(self, path: str) -> str:
-        """Return du command for directory size in bytes."""
-        return f"du -sb {shlex.quote(path)} | cut -f1"
+        """Sum of the sizes of all regular files under path, in bytes - the documented
+        contract, and what the macOS version computes. (It used 'du -sb', which also
+        counts each directory's own size: 17 directories added 69,632 bytes to a
+        2,001-file tree - issues/2026-09-26-linux-dir-size-counts-directory-bytes.md.)"""
+        return (f"find {shlex.quote(path)} -type f -printf '%s\\n' | "
+                f"awk '{{s+=$1}} END {{printf \"%.0f\\n\", s}}'")
 
     def _cmd_list_with_metadata(self, path: str, max_depth: Optional[int]) -> str:
         """Return find command with -printf for full metadata."""

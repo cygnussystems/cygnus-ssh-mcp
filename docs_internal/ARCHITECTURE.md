@@ -291,7 +291,7 @@ plumbing.
 | Permission stat | `stat -c '%a %u %g'` | `stat -f '%Lp %u %g'` (BSD `-f` flag) | `Get-Acl` → owner name only, no octal bits, no group concept |
 | Pattern search | `grep -F`/`-E` (POSIX ERE) | same as Linux | SFTP read + local Python `re` matching (not `Select-String` - avoids OEM code page corruption of matched content, see 3.8 note below; different regex flavor from POSIX ERE) |
 | Recursive find w/ metadata | GNU `find -printf '%p\t%y\n'` | BSD `find -exec stat -f %HT` + manual type-letter translation (no `-printf` on BSD find) | `Get-ChildItem` + `PSIsContainer` check |
-| Directory size | `du -sb` (GNU `-b` for raw bytes) | `find -type f -exec stat -f %z + \| awk` (no `-b` flag on BSD `du`) | `Get-ChildItem -Recurse -File \| Measure-Object -Sum Length` |
+| Directory size | `find -type f -printf '%s'` summed with awk (regular files only; `du -sb` counted directories too) | `find -type f -exec stat -f %z + \| awk` (no `-b` flag on BSD `du`) | `Get-ChildItem -Recurse -File \| Measure-Object -Sum Length` |
 | Archive create | `tar -czf` (tar.gz) | `tar -czf` (tar.gz) | `Compress-Archive` (`.zip`, extension auto-corrected if a `.tar.gz` was requested) |
 | Archive extract | `tar -xzf --strip-components=1` | same as Linux | Extract to temp dir, detect single top-level folder, move contents up, delete temp dir (emulates `--strip-components` since `Expand-Archive` has no equivalent) |
 | Symlink handling in directory copy | `find`+`cp -a` for files/dirs, then re-created explicitly via `ln -sf` for symlinks | same as Linux | Not supported - `Copy-Item -Recurse` has no symlink concept to preserve, `preserve_symlinks` is effectively ignored |

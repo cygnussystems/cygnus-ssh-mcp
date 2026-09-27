@@ -25,3 +25,25 @@ Likewise `ssh_dir_copy({"source_path":"/tmp/llm_test/session2-20260926/uploaded"
 ## Expected / suggested resolution
 
 Either report the sum of regular-file sizes (matching the documented contract and macOS) or explicitly document that Linux includes directory entries and name the returned metric accordingly. Keep `ssh_dir_calc_size` and `ssh_dir_copy.bytes_copied` consistent. The scratch trees were removed and their parent path verified absent after the test.
+
+## Fix (2026-09-27, branch `fix/round4-search-and-connection`)
+
+- **Root cause:** Linux computed directory size with `du -sb`, which counts each directory's
+  own size (4,096 bytes per directory; 17 directories = the 69,632 extra bytes).
+  `ssh_dir_copy`'s `bytes_copied` uses the same helper.
+- **Fix:** Linux now sums regular-file sizes (`find <path> -type f -printf '%s\n' | awk`),
+  like macOS and Windows and as the tool description says. The capability guard for this
+  method is now `find_printf` instead of `du_sb`.
+- **Bigger bug found while testing this:** on **Linux and macOS**, `ssh_dir_copy` ran
+  `cd src && find . -type f -o -type d | xargs -I{} cp -a {} dest/`, which copied every
+  subdirectory *and* every file inside it into the destination root: nested files were
+  **duplicated, flattened, at the top level** (e.g. `copy/c.txt` next to `copy/d1/c.txt`),
+  inflating `files_copied`/`bytes_copied` and leaving a wrong tree. The `preserve_symlinks=False`
+  branch used `src/*`, which skipped hidden files. Both are replaced by one
+  `cp -R -P|-L [-p] 'src/.' 'dest/'` (GNU, BSD and BusyBox compatible): exact tree, hidden
+  files included, symlinks kept as symlinks by default.
+- **Tests:** `testing_mcp/test_tool__dir_size.py`: a 12-file tree in 8 folders, including hidden
+  files. `ssh_dir_calc_size` must equal the exact file-size sum, and `ssh_dir_copy` must produce
+  exactly the same file list with the exact `files_copied`/`bytes_copied` (all platforms;
+  fails on the old Linux code: 45,135 vs 12,367 bytes). `test_copy_keeps_symlinks_as_symlinks`
+  (Linux/macOS). Existing sudo copy tests pass.

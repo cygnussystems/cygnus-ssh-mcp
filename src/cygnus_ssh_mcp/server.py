@@ -3370,14 +3370,14 @@ async def ssh_dir_calc_size(
     path: Annotated[str, Field(description="Directory path to calculate size for")]
 ) -> dict:
     """
-    Calculate the total size of a directory recursively (sum of all file sizes
-    under it).
+    Calculate the total size of a directory recursively: the sum of the sizes of all
+    regular files under it (directories' own sizes are not counted - same on every
+    platform).
 
-    On a 'linux'/'flex' connection with a BusyBox-style `du` that doesn't
-    support `-s`+`-b` combined (check `ssh_conn_connect`/`ssh_conn_host_info`'s
-    `capabilities`), this raises a clear error instead of running. Fallback:
-    `ssh_cmd_run("du -sk <path>")` - kilobytes instead of exact bytes, but
-    works on most BusyBox `du` builds even when `-sb` doesn't.
+    On a 'linux' connection whose `find` lacks `-printf` (check `ssh_conn_connect`/
+    `ssh_conn_host_info`'s `capabilities`), this raises a clear error instead of running.
+    Fallback: `ssh_cmd_run("du -sk <path>")` - kilobytes, and it includes directory
+    overhead, but works on most BusyBox builds.
 
     Returns:
         `{'path', 'size_bytes' (int), 'size_human' (e.g. "1.23 MB", "512.00 KB",
