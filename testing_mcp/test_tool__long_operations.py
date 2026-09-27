@@ -180,7 +180,15 @@ async def test_list_tool_in_progress_then_list_result(mcp_test_environment, monk
                 "dir_path": TEST_WORKSPACE, "pattern": f"never-matches-{int(time.time())}"}))
             assert first['status'] == 'in_progress', first
             done = await _wait_for_operation(client, first['handle_id'])
-            assert done['status'] == 'completed' and done['result'] == [], done
+            assert done['status'] == 'completed', done
+            # No match anywhere. The shared workspace can contain root-owned leftovers from
+            # sudo tests, which the search reports as 'incomplete' (skipped) rather than
+            # silently ignoring - either form is right here.
+            result = done['result']
+            if isinstance(result, dict):
+                assert result['status'] == 'incomplete' and result['matches'] == [], result
+            else:
+                assert result == [], result
         finally:
             await disconnect_ssh(client)
             print_test_footer()
