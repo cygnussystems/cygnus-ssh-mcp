@@ -603,7 +603,7 @@ Search file contents (grep-like).
 | `case_sensitive` | bool | No | True | Perform case-sensitive search |
 | `use_sudo` | bool | No | False | Use sudo |
 
-**Returns:** List of matches with file, line number, content
+**Returns:** List of matches with file, line number, content (empty list = no matches, and every file was searched). If some files or folders could not be searched (unreadable; on Windows also files over 10 MB), it returns `{"status": "incomplete", "matches": [...], "skipped": [{"path", "reason"}], "skipped_count", "note"}` instead, so a missing result is never presented as "not found". On Windows the whole search runs over SFTP, so non-ASCII file names and content are handled correctly.
 
 ---
 

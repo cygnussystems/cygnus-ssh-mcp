@@ -3400,33 +3400,42 @@ async def ssh_dir_search_files_content(
 
     Regex flavor differs by platform when `regex=True`: POSIX extended regex
     (`grep -E`) on Linux/macOS - avoid PCRE-only syntax like `\\d`, use `[0-9]` or
-    `[[:digit:]]` instead; Python's `re` module on Windows (matched locally after
-    an SFTP read per file, not via PowerShell - see below). When `regex=False`
+    `[[:digit:]]` instead; Python's `re` module on Windows. When `regex=False`
     (default), the pattern is matched as a literal fixed string.
 
-    On Windows, filenames are enumerated via PowerShell but each file's content is
-    read via SFTP and matched locally in Python, rather than piping matched line
-    content back through PowerShell/Select-String - that content could otherwise
-    come back corrupted for non-ASCII text, since Windows' console encodes stdout
-    in its OEM code page rather than UTF-8 (the same problem ssh_file_read's SFTP
-    approach avoids).
-
-    On a 'linux'/'flex' connection with a BusyBox-style `xargs` that doesn't
-    support `-0` (check `ssh_conn_connect`/`ssh_conn_host_info`'s `capabilities`),
-    this raises a clear error instead of running. Fallback: `ssh_cmd_run` with
-    `find <dir_path> -type f -exec grep -l '<pattern>' {} +` instead - portable,
-    and still safe with spaces in filenames.
+    On Windows the whole search runs over SFTP (directory listings + raw file reads,
+    matched locally), so non-ASCII file names and content are handled correctly.
 
     Returns:
         List of `{'file': str, 'line': int, 'content': str}` - one entry per matching
         line, across all files under `dir_path`. Empty list if nothing matches (not
-        an error).
+        an error) - but only when every file could be searched.
+
+        If some files or subdirectories could NOT be searched (unreadable, or on
+        Windows larger than 10 MB), the result is instead
+        `{'status': 'incomplete', 'matches': [...same entries...], 'skipped': [{'path',
+        'reason'}, ...], 'skipped_count': int, 'note': str}` - so "no matches" is never
+        claimed for files that weren't actually searched. A missing or unreadable
+        `dir_path` itself is an error.
     """
     if not mcp.ssh_client:
         raise SshError("No active SSH connection")
 
     try:
         results = mcp.ssh_client.search_file_contents(dir_path, pattern, regex, case_sensitive, use_sudo)
+        skipped = getattr(mcp.ssh_client.dir_ops, 'last_search_skipped', None) or []
+        if skipped:
+            shown = skipped[:50]
+            return {
+                'status': 'incomplete',
+                'matches': results,
+                'skipped': shown,
+                'skipped_count': len(skipped),
+                'note': (f"{len(skipped)} file(s)/folder(s) under {dir_path} could not be searched "
+                         f"(see 'skipped'{', first 50 shown' if len(skipped) > 50 else ''}), so "
+                         f"'matches' may be missing results from them. The other files were "
+                         f"searched normally."),
+            }
         return results
     except Exception as e:
         logger.error(f"Failed to search file contents: {e}")

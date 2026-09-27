@@ -686,6 +686,7 @@ class SshDirectoryOperations(ABC):
             List of dicts with file, line, content
         """
         self.logger.info(f"Searching for '{pattern}' in files under {path} (regex={regex}, case_sensitive={case_sensitive}, sudo={sudo})")
+        self.last_search_skipped = []
 
         # Build grep command with appropriate options
         grep_opts = []
@@ -751,6 +752,10 @@ class SshDirectoryOperations(ABC):
                     )
                 self.logger.warning(f"Search skipped some unreadable entries under '{path}' "
                                     f"(grep exit {grep_rc}): {stderr_text[:300]}")
+                for line in stderr_text.splitlines():
+                    if line.startswith("grep: "):
+                        where, _, why = line[len("grep: "):].rpartition(": ")
+                        self.last_search_skipped.append({'path': where or line, 'reason': why or line})
 
             self.logger.info(f"Found {len(results)} matches for '{pattern}'")
             return results
@@ -1247,69 +1252,98 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
             self.logger.error(f"Error extracting archive: {e}", exc_info=True)
             return {'status': 'error', 'message': str(e), 'extracted_files': []}
 
+    # Files bigger than this are skipped (and reported) by the Windows content search
+    SEARCH_MAX_FILE_BYTES = 10 * 1024 * 1024
+
     def search_file_contents(self,
                             path: str,
                             pattern: str,
                             regex: bool = False,
                             case_sensitive: bool = True,
                             sudo: bool = False) -> List[Dict[str, Any]]:
-        """Search file contents: enumerate candidate files via PowerShell (paths
-        only - no file content crosses the console here), then read each one via
-        SFTP and match locally in Python. Reading matched line content back through
-        PowerShell/Select-String's stdout would decode Windows' OEM console code
-        page bytes as UTF-8, corrupting any non-ASCII content (verified live:
-        "café" came back corrupted) - ssh_file_read's SFTP approach avoids exactly
-        this, and this reuses the same idea for search.
+        """Search file contents entirely over ONE SFTP session: walk the tree with
+        SFTP directory listings, read each file's raw bytes, match locally in Python.
 
-        Regex flavor is now Python's `re` (previously .NET, via Select-String).
-        Also fixes a latent bug: the old Select-String-based version never
-        correctly enabled case-sensitive matching (Select-String defaults to
-        case-INsensitive, and `case_sensitive=True` - this method's own default -
-        passed no flag to override that, silently doing case-insensitive search
-        even when explicitly asked for case-sensitive).
+        - Filenames come from SFTP, which returns them as proper UTF-8. (They used to
+          come from PowerShell's stdout, in Windows' OEM console code page: 'cafe' with
+          an accent came back garbled, reading the garbled path failed, and the file
+          was silently skipped - a false "no match", verified 2026-09-27.)
+        - One SFTP session for the whole search: opening a new session per file cost
+          ~0.4s each (300 small files took ~2 minutes); reads on one session take
+          milliseconds.
+        - Content is read as bytes and decoded client-side (UTF-8, BOM tolerated), so
+          non-ASCII content is never corrupted either.
+        - Nothing is skipped silently: unreadable directories/files and files over
+          SEARCH_MAX_FILE_BYTES are recorded in self.last_search_skipped, which
+          ssh_dir_search_files_content reports as an 'incomplete' result.
+
+        Regex flavor is Python's `re`.
         """
+        import stat as stat_module
         self.logger.info(f"Searching for '{pattern}' in files under {path}")
+        self.last_search_skipped = []
+        root = path.replace('/', '\\').rstrip('\\') or path
+        if root.endswith(':'):
+            root += '\\'  # a drive root like C:\ - 'C:' alone means the current dir on C:
+        compiled_pattern = None
+        if regex:
+            compiled_pattern = re.compile(pattern, 0 if case_sensitive else re.IGNORECASE)
+        needle = pattern if case_sensitive else pattern.lower()
 
-        ps_path = path.replace("'", "''")
+        sftp = self.ssh_client._client.open_sftp()
         try:
-            list_script = (
-                f"Get-ChildItem -Path '{ps_path}' -Recurse -File -ErrorAction SilentlyContinue | "
-                'ForEach-Object { $_.FullName }'
-            )
-            list_cmd = powershell_encoded_command(list_script)
-            handle = self.ssh_client.run(list_cmd, io_timeout=300, runtime_timeout=1800)
-            candidate_files = [line.strip() for line in handle.tail(handle.total_lines) if line.strip()]
-
-            compiled_pattern = None
-            if regex:
-                flags = 0 if case_sensitive else re.IGNORECASE
-                compiled_pattern = re.compile(pattern, flags)
+            try:
+                root_attr = sftp.stat(root)
+            except Exception as e:
+                raise SshError(f"Content search failed: can't access '{path}': {e}")
+            if not stat_module.S_ISDIR(root_attr.st_mode):
+                raise SshError(f"Content search failed: '{path}' is not a directory")
 
             results = []
-            for file_path in candidate_files:
+            pending = [root]
+            while pending:
+                directory = pending.pop()
                 try:
-                    content = self.ssh_client.file_ops.read_file(file_path)
+                    entries = sftp.listdir_attr(directory)
                 except Exception as e:
-                    self.logger.debug(f"Skipping unreadable file {file_path}: {e}")
+                    self.last_search_skipped.append({'path': directory, 'reason': f"can't list directory: {e}"})
                     continue
-
-                for line_num, line in enumerate(content.splitlines(), start=1):
-                    if regex:
-                        is_match = compiled_pattern.search(line) is not None
-                    elif case_sensitive:
-                        is_match = pattern in line
-                    else:
-                        is_match = pattern.lower() in line.lower()
-
-                    if is_match:
-                        results.append({'file': file_path, 'line': line_num, 'content': line})
-
-            self.logger.info(f"Found {len(results)} matches")
+                for entry in sorted(entries, key=lambda item: item.filename):
+                    full_path = f"{directory}\\{entry.filename}"
+                    mode = entry.st_mode or 0
+                    if stat_module.S_ISDIR(mode):
+                        pending.append(full_path)
+                        continue
+                    if not stat_module.S_ISREG(mode):
+                        continue
+                    if entry.st_size and entry.st_size > self.SEARCH_MAX_FILE_BYTES:
+                        self.last_search_skipped.append({
+                            'path': full_path,
+                            'reason': f"larger than {self.SEARCH_MAX_FILE_BYTES // (1024 * 1024)} MB"})
+                        continue
+                    try:
+                        with sftp.open(full_path, 'rb') as handle:
+                            raw = handle.read()
+                    except Exception as e:
+                        self.last_search_skipped.append({'path': full_path, 'reason': f"can't read: {e}"})
+                        continue
+                    content = raw.decode('utf-8-sig', errors='replace')
+                    for line_num, line in enumerate(content.splitlines(), start=1):
+                        if regex:
+                            is_match = compiled_pattern.search(line) is not None
+                        elif case_sensitive:
+                            is_match = needle in line
+                        else:
+                            is_match = needle in line.lower()
+                        if is_match:
+                            results.append({'file': full_path, 'line': line_num, 'content': line})
+            self.logger.info(f"Found {len(results)} matches, skipped {len(self.last_search_skipped)} entries")
             return results
-
         except Exception as e:
             self.logger.error(f"Error searching file contents: {e}", exc_info=True)
             raise
+        finally:
+            sftp.close()
 
     def copy_directory_recursive(self,
                                 source_path: str,
