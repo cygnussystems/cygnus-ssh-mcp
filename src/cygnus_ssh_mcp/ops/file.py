@@ -16,6 +16,58 @@ from cygnus_ssh_mcp.ps_encode import powershell_encoded_command
 # Local Archive Utilities (for directory transfer)
 # =============================================================================
 
+def local_tree_stats(root: str) -> Dict[str, int]:
+    """Regular files, subdirectories (not counting root itself) and total file bytes
+    of a local directory tree - what a directory transfer actually carries."""
+    files = directories = payload = 0
+    for current, dirnames, filenames in os.walk(root):
+        directories += len(dirnames)
+        for name in filenames:
+            path = os.path.join(current, name)
+            if os.path.isfile(path) and not os.path.islink(path):
+                files += 1
+                payload += os.path.getsize(path)
+    return {'files': files, 'directories': directories, 'payload_bytes': payload}
+
+
+def archive_member_stats(archive_path: str, archive_format: str) -> Dict[str, Any]:
+    """Regular files, subdirectories (not counting the archive's top-level folder) and
+    total file bytes in an archive, plus the name of its single top-level folder (None
+    if the archive doesn't have exactly one)."""
+    entries = []  # (normalized path, is_dir, size)
+    if archive_format == 'tar.gz':
+        with tarfile.open(archive_path, 'r:gz') as tar:
+            for m in tar.getmembers():
+                if m.isreg() or m.isdir():
+                    entries.append((m.name.replace('\\', '/').strip('/'), m.isdir(), m.size if m.isreg() else 0))
+    elif archive_format == 'zip':
+        with zipfile.ZipFile(archive_path, 'r') as zf:
+            for info in zf.infolist():
+                name = info.filename.replace('\\', '/')
+                entries.append((name.strip('/'), name.endswith('/'), 0 if name.endswith('/') else info.file_size))
+    else:
+        raise SshError(f"Unsupported archive format: {archive_format}")
+
+    tops = {path.split('/')[0] for path, _, _ in entries if path}
+    top = tops.pop() if len(tops) == 1 else None
+    directories = set()
+    files = payload = 0
+    for path, is_dir, size in entries:
+        if not path:
+            continue
+        parts = path.split('/')
+        # every ancestor folder, and the entry itself if it's a folder
+        for i in range(1, len(parts) + (1 if is_dir else 0)):
+            directories.add('/'.join(parts[:i]))
+        if not is_dir:
+            files += 1
+            payload += size
+    if top is not None:
+        directories.discard(top)
+    return {'files': files, 'directories': len(directories), 'payload_bytes': payload,
+            'top_level': top}
+
+
 def create_local_archive(source_dir: str, archive_format: str) -> str:
     """
     Create a local archive from a directory.

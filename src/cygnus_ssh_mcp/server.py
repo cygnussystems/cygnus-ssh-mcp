@@ -2854,21 +2854,29 @@ async def ssh_dir_transfer(
     - Linux/macOS: tar.gz
     - Windows: zip
 
+    Where the files end up (check `files_location` in the result):
+    - upload: the CONTENTS of local_path are placed directly in remote_path
+      (local /x/proj/a.txt -> remote_path/a.txt)
+    - download: the remote folder itself is placed inside local_path
+      (remote /srv/proj/a.txt -> local_path/proj/a.txt)
+
+    What it returns (a dictionary):
+        - success: whether the transfer succeeded
+        - operation: 'upload' or 'download'
+        - local_path, remote_path: as given
+        - files_location: the folder where the transferred files now are
+        - archive_format: 'tar.gz' or 'zip'
+        - files_transferred: number of regular files (folders not counted)
+        - directories: number of subfolders (the top folder itself not counted)
+        - payload_bytes: total size of the transferred files
+        - archive_bytes: size of the compressed archive actually sent
+        - bytes_transferred: same as archive_bytes (kept for compatibility)
+
     Args:
         direction: 'upload' (local to remote) or 'download' (remote to local)
         local_path: Local directory path
         remote_path: Remote directory path
         use_sudo: Use sudo for remote archive/extract operations (Linux/macOS only)
-
-    Returns:
-        Dictionary containing transfer status and metadata:
-        - success: Boolean indicating if transfer succeeded
-        - operation: 'upload' or 'download'
-        - local_path: Local directory path
-        - remote_path: Remote directory path
-        - archive_format: 'tar.gz' or 'zip'
-        - files_transferred: Number of files transferred
-        - bytes_transferred: Total bytes transferred (archive size)
     """
     if not mcp.ssh_client:
         raise SshError(_not_connected_message())

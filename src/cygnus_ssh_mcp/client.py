@@ -1114,7 +1114,9 @@ rm -rf "$PROBE_DIR" 2>/dev/null
         Returns:
             Dict with transfer status and metadata
         """
-        from cygnus_ssh_mcp.ops.file import create_local_archive, extract_local_archive
+        from cygnus_ssh_mcp.ops.file import (
+            create_local_archive, extract_local_archive, local_tree_stats, archive_member_stats
+        )
 
         # Determine archive format based on remote OS
         if self.os_type == 'windows':
@@ -1141,6 +1143,7 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                     }
 
                 # Create local archive
+                stats = local_tree_stats(local_path)
                 local_temp_archive = create_local_archive(local_path, archive_format)
                 archive_size = os.path.getsize(local_temp_archive)
 
@@ -1171,17 +1174,19 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                         'error': extract_result.get('message', 'Failed to extract archive on remote')
                     }
 
-                # Count files from extraction result
-                files_count = len(extract_result.get('extracted_files', []))
-
                 return {
                     'success': True,
                     'operation': 'upload',
                     'local_path': local_path,
                     'remote_path': remote_path,
                     'archive_format': archive_format,
-                    'files_transferred': files_count,
-                    'bytes_transferred': archive_size
+                    # The CONTENTS of local_path are placed directly in remote_path
+                    'files_location': remote_path,
+                    'files_transferred': stats['files'],        # regular files only
+                    'directories': stats['directories'],       # subfolders (not the root)
+                    'payload_bytes': stats['payload_bytes'],   # sum of the files' sizes
+                    'archive_bytes': archive_size,             # compressed archive sent
+                    'bytes_transferred': archive_size          # same as archive_bytes
                 }
 
             elif direction == 'download':
@@ -1229,18 +1234,28 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                 if archive_size <= 0:
                     archive_size = os.path.getsize(local_temp_archive)
 
+                stats = archive_member_stats(local_temp_archive, archive_format)
+
                 # Extract locally
                 self._logger.info(f"Extracting archive to {local_path}")
-                extract_result = extract_local_archive(local_temp_archive, local_path, archive_format)
-
+                extract_local_archive(local_temp_archive, local_path, archive_format)
+                # The archive holds the remote folder itself, so the files land in
+                # local_path/<remote folder name>/ (unlike upload, which places the
+                # contents directly in remote_path) - reported explicitly.
+                files_location = (os.path.join(local_path, stats['top_level'])
+                                  if stats['top_level'] else local_path)
                 return {
                     'success': True,
                     'operation': 'download',
                     'local_path': local_path,
                     'remote_path': remote_path,
                     'archive_format': archive_format,
-                    'files_transferred': extract_result.get('files_extracted', 0),
-                    'bytes_transferred': archive_size
+                    'files_location': files_location,
+                    'files_transferred': stats['files'],        # regular files only
+                    'directories': stats['directories'],       # subfolders (not the root)
+                    'payload_bytes': stats['payload_bytes'],   # sum of the files' sizes
+                    'archive_bytes': archive_size,             # compressed archive received
+                    'bytes_transferred': archive_size          # same as archive_bytes
                 }
 
             else:

@@ -266,3 +266,69 @@ async def test_ssh_dir_transfer_nonexistent_source(mcp_test_environment):
             await disconnect_ssh(client)
 
     print_test_footer()
+
+
+
+# ---- round-4 issue 5: explicit layout and exact counters ----------------------------
+
+TREE = {"a.txt": 10, ".hidden": 3, "d1/b.txt": 2048, "d1/d2/c.txt": 1}   # 4 files, 2 subfolders
+
+
+async def _transfer_result(client, params):
+    """The transfer's result, following an in_progress handoff if one happens."""
+    response = json.loads(extract_result_text(await client.call_tool("ssh_dir_transfer", params)))
+    if response.get('status') == 'in_progress':
+        for _ in range(120):
+            status = json.loads(extract_result_text(await client.call_tool(
+                "ssh_cmd_check_status", {"handle_id": response['handle_id'], "wait_seconds": 2})))
+            if status['status'] != 'running':
+                return status.get('result', status)
+    return response
+
+
+@pytest.mark.asyncio
+async def test_dir_transfer_layout_and_counters(mcp_test_environment):
+    """Upload puts the CONTENTS of local_path directly in remote_path; download puts the
+    remote folder inside local_path. Both report files_location and exact counters:
+    regular files only (was files + the root folder), subfolders, payload and archive bytes."""
+    print_test_header("Testing ssh_dir_transfer layout and counters")
+    local_src = tempfile.mkdtemp(prefix='xfer_src_')
+    local_down = tempfile.mkdtemp(prefix='xfer_down_')
+    remote_dir = f"{TEST_WORKSPACE}{PATH_SEP}xfer_layout_{os.getpid()}"
+    for rel, size in TREE.items():
+        path = os.path.join(local_src, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(b"x" * size)
+    payload = sum(TREE.values())
+
+    async with Client(mcp) as client:
+        try:
+            assert await make_connection(client), "Failed to establish SSH connection"
+
+            up = await _transfer_result(client, {"direction": "upload", "local_path": local_src,
+                                                 "remote_path": remote_dir})
+            assert up['success'], up
+            assert up['files_location'] == remote_dir, up
+            assert (up['files_transferred'], up['directories'], up['payload_bytes']) == (4, 2, payload), up
+            assert up['archive_bytes'] > 0 and up['bytes_transferred'] == up['archive_bytes'], up
+            nested = json.loads(extract_result_text(await client.call_tool("ssh_file_stat", {
+                "path": f"{remote_dir}{PATH_SEP}d1{PATH_SEP}d2{PATH_SEP}c.txt"})))
+            assert nested.get('exists') is not False and nested.get('size') == 1, \
+                f"upload should place the contents directly in remote_path: {nested}"
+
+            down = await _transfer_result(client, {"direction": "download", "local_path": local_down,
+                                                   "remote_path": remote_dir})
+            assert down['success'], down
+            expected_location = os.path.join(local_down, cross_platform_basename(remote_dir))
+            assert down['files_location'] == expected_location, down
+            assert (down['files_transferred'], down['directories'], down['payload_bytes']) == (4, 2, payload), down
+            for rel, size in TREE.items():
+                path = os.path.join(expected_location, *rel.split("/"))
+                assert os.path.isfile(path) and os.path.getsize(path) == size, f"missing/wrong: {path}"
+        finally:
+            await client.call_tool("ssh_cmd_run", {"command": cleanup_command(remote_dir), "wait_timeout": 45})
+            shutil.rmtree(local_src, ignore_errors=True)
+            shutil.rmtree(local_down, ignore_errors=True)
+            await disconnect_ssh(client)
+            print_test_footer()

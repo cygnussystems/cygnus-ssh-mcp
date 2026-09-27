@@ -531,7 +531,9 @@ is chosen automatically by remote OS: `tar.gz` on Linux/macOS, `zip` on Windows.
 | `remote_path` | str | Yes | - | Remote directory path |
 | `use_sudo` | bool | No | False | Use sudo for remote archive/extract operations (Linux/macOS only) |
 
-**Returns:** Dictionary with `success`, `operation`, `local_path`, `remote_path`, `archive_format`, `files_transferred`, `bytes_transferred`
+**Where the files end up** (`files_location` in the result): upload places the *contents* of `local_path` directly in `remote_path`; download places the remote folder itself inside `local_path` (`local_path/<folder name>/...`).
+
+**Returns:** Dictionary with `success`, `operation`, `local_path`, `remote_path`, `archive_format`, `files_location`, `files_transferred` (regular files only), `directories` (subfolders, not counting the top folder), `payload_bytes` (total size of the files), `archive_bytes` (compressed archive actually sent) and `bytes_transferred` (same as `archive_bytes`)
 
 ---
 
