@@ -499,12 +499,14 @@ class SshDirectoryOperations(ABC):
                 'message': error_msg
             }
 
+        tar_started = False
         try:
             # Get directory name without trailing slash
             source_dir = source_path.rstrip('/')
             parent_dir = os.path.dirname(source_dir)
             base_name = os.path.basename(source_dir)
 
+            tar_started = True
             # Create archive based on format
             if format == "tar.gz":
                 # Create tar.gz archive (compressed)
@@ -533,29 +535,41 @@ class SshDirectoryOperations(ABC):
                     'message': f"Archive was not created at {archive_path}"
                 }
 
-            # Get archive size
-            size_cmd = self._cmd_file_size(archive_path)
-            size_handle = self.ssh_client.run(size_cmd, io_timeout=30, sudo=sudo, **history_tag)
-
+            # Get archive size - best effort only: the archive exists at this point, so a
+            # failing size query (e.g. no `stat` at all on OpenWrt/BusyBox, 2026-09-28) must
+            # never turn a created archive into an error the caller might "fix" by retrying.
+            size_error = None
             try:
+                size_cmd = self._cmd_file_size(archive_path)
+                size_handle = self.ssh_client.run(size_cmd, io_timeout=30, sudo=sudo, **history_tag)
                 archive_size = int(size_handle.last_nonblank())
-            except (ValueError, IndexError):
+            except Exception as e:
                 archive_size = -1
+                size_error = f"Archive created, but its size couldn't be read: {e}"
+                self.logger.warning(size_error)
 
             self.logger.info(f"Successfully created archive at {archive_path} ({archive_size} bytes)")
-            return {
+            result = {
                 'status': 'success',
                 'success': True,  # Add this for compatibility with tests
                 'archive_created': archive_path,
                 'format': format,
                 'size_bytes': archive_size
             }
+            if size_error:
+                result['size_error'] = size_error
+            return result
 
         except Exception as e:
             self.logger.error(f"Error creating archive: {e}", exc_info=True)
+            message = str(e)
+            if tar_started:
+                message += (f" - note: tar was started, so a complete or partial archive may exist "
+                            f"at {archive_path}; check it (e.g. ssh_cmd_run 'ls -l {archive_path}') "
+                            f"before retrying.")
             return {
                 'status': 'error',
-                'message': str(e)
+                'message': message
             }
 
     def extract_archive_to_directory(self,
@@ -925,8 +939,11 @@ class SshDirectoryOperations_Linux(SshDirectoryOperations):
         return " ".join(cmd_parts)
 
     def _cmd_file_size(self, path: str) -> str:
-        """Return stat command for file size."""
-        return f"stat -c %s {shlex.quote(path)}"
+        """Return stat command for file size (POSIX `wc -c` where GNU `stat -c` isn't
+        confirmed - OpenWrt's BusyBox has no `stat` at all)."""
+        if self.ssh_client.capabilities.get('stat_c', True):
+            return f"stat -c %s {shlex.quote(path)}"
+        return f"wc -c < {shlex.quote(path)}"
 
     def _cmd_find_symlinks(self, path: str) -> str:
         """Return find command for symlinks with targets."""
@@ -1282,7 +1299,7 @@ class SshDirectoryOperations_Win(SshDirectoryOperations):
             compiled_pattern = re.compile(pattern, 0 if case_sensitive else re.IGNORECASE)
         needle = pattern if case_sensitive else pattern.lower()
 
-        sftp = self.ssh_client._client.open_sftp()
+        sftp = self.ssh_client.open_sftp()
         try:
             try:
                 root_attr = sftp.stat(root)

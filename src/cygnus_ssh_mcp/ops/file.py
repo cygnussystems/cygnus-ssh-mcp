@@ -248,7 +248,7 @@ class SshFileOperations(ABC):
         sftp = None
         try:
             self.logger.info(f"Reading file via SFTP: {remote_path}")
-            sftp = self.ssh_client._client.open_sftp()
+            sftp = self.ssh_client.open_sftp()
 
             # Check file size first if max_size is set
             if max_size > 0:
@@ -293,7 +293,7 @@ class SshFileOperations(ABC):
         sftp = None
         try:
             self.logger.info(f"Downloading {remote_path} to {local_path}")
-            sftp = self.ssh_client._client.open_sftp()
+            sftp = self.ssh_client.open_sftp()
             sftp.get(remote_path, local_path, callback=sftp_progress_callback)
             self.logger.info("Download complete.")
         except Exception as e:
@@ -308,7 +308,7 @@ class SshFileOperations(ABC):
         sftp = None
         try:
             self.logger.info(f"Uploading {local_path} to {remote_path}")
-            sftp = self.ssh_client._client.open_sftp()
+            sftp = self.ssh_client.open_sftp()
             sftp.put(local_path, remote_path, callback=sftp_progress_callback)
             self.logger.info("Upload complete.")
         except Exception as e:
@@ -324,7 +324,7 @@ class SshFileOperations(ABC):
         if sudo:
             self.ssh_client.run(f"mkdir -p -m {mode:o} {shlex.quote(path)}", sudo=True)
         else:
-            with self.ssh_client._client.open_sftp() as sftp:
+            with self.ssh_client.open_sftp() as sftp:
                 sftp.mkdir(path, mode)
 
     def rmdir(self, path: str, sudo: bool = False, recursive: bool = False) -> None:
@@ -339,13 +339,13 @@ class SshFileOperations(ABC):
     def listdir(self, path: str) -> list:
         """List contents of a remote directory."""
         self.logger.info(f"Listing directory {path}")
-        with self.ssh_client._client.open_sftp() as sftp:
+        with self.ssh_client.open_sftp() as sftp:
             return sftp.listdir(path)
 
     def stat(self, path: str) -> dict:
         """Get file/directory status info."""
         self.logger.debug(f"Getting stats for {path}")
-        with self.ssh_client._client.open_sftp() as sftp:
+        with self.ssh_client.open_sftp() as sftp:
             return sftp.stat(path)
 
     def find_lines_with_pattern(self, remote_file: str, pattern: str, 
@@ -500,7 +500,7 @@ class SshFileOperations(ABC):
         if that's denied and sudo was requested (Linux/macOS) - with 'sudo cat'. Raises
         SshError with a clear message if the content can't be read either way."""
         try:
-            with self.ssh_client._client.open_sftp() as sftp:
+            with self.ssh_client.open_sftp() as sftp:
                 with sftp.file(remote_file, 'r') as f:
                     return f.read().decode('utf-8', errors='replace')
         except Exception as e:
@@ -534,7 +534,7 @@ class SshFileOperations(ABC):
             new_lines = [new_lines]
         
         try:
-            with self.ssh_client._client.open_sftp() as sftp:
+            with self.ssh_client.open_sftp() as sftp:
                 sftp.stat(remote_file)
         except FileNotFoundError:
             return {"success": False, "error": f"File not found: {remote_file}"}
@@ -645,7 +645,7 @@ class SshFileOperations(ABC):
             lines_to_insert = [lines_to_insert]
         
         try:
-            with self.ssh_client._client.open_sftp() as sftp:
+            with self.ssh_client.open_sftp() as sftp:
                 sftp.stat(remote_file)
         except FileNotFoundError:
             return {"success": False, "error": f"File not found: {remote_file}"}
@@ -751,7 +751,7 @@ class SshFileOperations(ABC):
         normalized_match_line = match_line.strip()
         
         try:
-            with self.ssh_client._client.open_sftp() as sftp:
+            with self.ssh_client.open_sftp() as sftp:
                 sftp.stat(remote_file)
         except FileNotFoundError:
             return {"success": False, "error": f"File not found: {remote_file}"}
@@ -868,7 +868,7 @@ class SshFileOperations(ABC):
         self.logger.info(f"Copying file from {source_path} to {actual_destination} (sudo={sudo})")
         
         try:
-            with self.ssh_client._client.open_sftp() as sftp:
+            with self.ssh_client.open_sftp() as sftp:
                 sftp.stat(source_path) 
         except FileNotFoundError:
             self.logger.error(f"Source file not found: {source_path}")

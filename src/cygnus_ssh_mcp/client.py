@@ -426,6 +426,49 @@ rm -rf "$PROBE_DIR" 2>/dev/null
             self._logger.info(f"Probed capabilities: {self.capabilities}")
         except Exception as e:
             self._logger.warning(f"Capability probe failed, proceeding with no confirmed capabilities: {e}")
+        # SFTP: some servers (e.g. Dropbear on OpenWrt) have no SFTP subsystem. Every file
+        # tool that reads/writes/stats over SFTP then failed with "EOF during negotiation",
+        # and ssh_file_stat even reported existing files as missing (2026-09-28).
+        self.capabilities['sftp'] = self._probe_sftp()
+
+    SFTP_UNAVAILABLE_MESSAGE = (
+        "SFTP is not available on this host (its SSH server has no SFTP subsystem - common on "
+        "routers/embedded systems, e.g. Dropbear on OpenWrt), so tools that read, write, stat or "
+        "transfer files over SFTP can't work here. Use ssh_cmd_run instead - e.g. 'cat <file>', "
+        "'ls -la <dir>', 'wc -c <file>', or printf/redirection to write a file."
+    )
+
+    def _probe_sftp(self, timeout: float = 10.0) -> bool:
+        """True if the host's SFTP subsystem negotiates. Done by hand (not open_sftp()) so a
+        misbehaving server can't hang the connect: the channel has a timeout."""
+        import paramiko
+        channel = None
+        try:
+            channel = self._client.get_transport().open_session(timeout=timeout)
+            channel.settimeout(timeout)
+            channel.invoke_subsystem('sftp')
+            paramiko.SFTPClient(channel).close()
+            return True
+        except Exception as e:
+            self._logger.warning(f"SFTP subsystem not available: {e!r}")
+            if channel is not None:
+                try:
+                    channel.close()
+                except Exception:
+                    pass
+            return False
+
+    def open_sftp(self):
+        """Open an SFTP session - the one place every file tool goes through, so a host
+        without SFTP gives one clear, actionable error instead of 'EOF during negotiation'."""
+        if self.capabilities.get('sftp') is False:
+            raise SshError(self.SFTP_UNAVAILABLE_MESSAGE)
+        try:
+            return self._client.open_sftp()
+        except Exception as e:
+            if isinstance(e, EOFError) or 'eof during negotiation' in str(e).lower():
+                raise SshError(self.SFTP_UNAVAILABLE_MESSAGE) from e
+            raise
 
     def _create_operations(self):
         """Create platform-specific operation classes based on detected OS."""

@@ -130,7 +130,8 @@ _FIND_PRINTF_MSG = (
     "support (looks like a BusyBox-style find). Fallback: ssh_dir_list_files_basic "
     "(non-recursive filenames) plus ssh_file_stat per entry for metadata - both are "
     "SFTP-based and unaffected by this, at the cost of one call per directory level "
-    "instead of one call for the whole tree."
+    "instead of one call for the whole tree. If this host has no SFTP either "
+    "(capabilities.sftp is false), use ssh_cmd_run with 'ls -la <dir>' instead."
 )
 _DU_SB_MSG = (
     "This operation needs du's combined -s and -b flags, which this host's "
@@ -229,6 +230,9 @@ CAPABILITY_DESCRIPTIONS = {
     'xargs_0': "xargs's -0 null-delimited input (used for batch file operations)",
     'sudo': "sudo",
     'tmp_writable': "a writable /tmp",
+    'sftp': ("an SFTP subsystem (used by ssh_file_read/write/stat, ssh_dir_list_files_basic, "
+             "file/dir transfers and line edits) - use ssh_cmd_run (cat, ls -la, wc -c, "
+             "printf > file) instead"),
 }
 
 

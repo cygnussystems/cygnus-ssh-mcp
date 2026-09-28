@@ -13,3 +13,20 @@ ssh_archive_create({"source_path":"/tmp/llm_test/openwrt","archive_path":"/tmp/l
 `ssh_archive_extract` correctly rejected this host's missing tar `--strip-components` before extraction with a clear manual fallback; that is expected and separate. The test archive and scratch were removed and absence verified.
 
 **Expected/fix direction:** probe whether `stat` exists at all; use a supported alternative such as `wc -c < file` to report archive size, or return a truthful partial-success response with the actual archive path and an explicit size-metadata error. On a post-create failure, clearly tell the caller that remote output may exist and must be checked before retrying. Never report an unqualified operation failure after leaving a created archive without naming it.
+
+## Fix (2026-09-28, branch `feature/operation-progress`)
+
+- **Root cause:** after `tar` succeeded, the archive size was read with `stat -c %s`. OpenWrt's
+  BusyBox has no `stat` at all; `run()` raises on exit 127, and the tool's catch-all turned that
+  into `status: error` for an archive that existed.
+- **Fix:**
+  - Linux-class hosts without a confirmed GNU `stat -c` now get the size with POSIX
+    `wc -c < file`.
+  - The size query is best-effort. If it still fails, the result is
+    `status: success, archive_created: <path>, size_bytes: -1` plus a `size_error` explaining why.
+  - If anything fails once `tar` has started, the error message now says a complete or partial
+    archive may exist at `<path>` and to check it (`ls -l`) before retrying.
+- **Verified live:** `ssh_archive_create` returns success with the exact size, matching
+  `wc -c`, on OpenWrt (143 bytes), Alpine (150), FreeBSD (161) and Debian (160).
+- **Tests:** `testing_mcp/test_unit_archive_create_size.py` (offline, 4 tests); all fail on the old
+  code.

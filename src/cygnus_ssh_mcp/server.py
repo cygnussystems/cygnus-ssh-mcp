@@ -2409,7 +2409,9 @@ async def ssh_file_stat(
         strings - convert with `datetime.fromtimestamp()` if you need a readable date.
         If the path does NOT exist (or stat failed for another reason, e.g.
         permission denied), returns `{'exists': False, 'path', 'error'}` instead -
-        this is a normal, non-exceptional return value, not a raised error.
+        this is a normal, non-exceptional return value, not a raised error. If the check
+        itself fails (permission denied, no SFTP on this host, ...), `exists` is None
+        (unknown), not False, with the reason in `error`.
     """
     if not mcp.ssh_client:
         raise SshError(_not_connected_message())
@@ -2453,10 +2455,13 @@ async def ssh_file_stat(
         else:
             # Other IOErrors (e.g., permission denied on stat itself)
             logger.error(f"IOError getting file status for {path}: {e}")
-            return {"exists": False, "path": path, "error": f"Permission denied or other IOError: {str(e)}"}
+            return {"exists": None, "path": path,
+                    "error": f"Couldn't check this path (permission denied or other IOError): {str(e)}"}
     except Exception as e: # Catch-all for other unexpected errors
+        # exists: None = unknown. Only a real "not found" answers exists: False - a failed
+        # check (e.g. no SFTP on this host) used to be reported as a missing file.
         logger.error(f"Unexpected error in ssh_file_stat for {path}: {e} (type: {type(e).__name__})")
-        return {"exists": False, "path": path, "error": f"Unexpected error: {str(e)}"}
+        return {"exists": None, "path": path, "error": f"Couldn't check this path: {str(e)}"}
 
 
 @mcp.tool()
@@ -3129,7 +3134,7 @@ async def ssh_file_write(
                 if not create_dirs:
                     parent_dir = os.path.dirname(file_path)
                     try:
-                        with mcp.ssh_client._client.open_sftp() as sftp:
+                        with mcp.ssh_client.open_sftp() as sftp:
                             sftp.stat(parent_dir)
                     except FileNotFoundError:
                         logger.error(f"Parent directory {parent_dir} does not exist and create_dirs=False")

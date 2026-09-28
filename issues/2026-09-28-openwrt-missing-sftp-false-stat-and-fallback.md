@@ -19,3 +19,28 @@ After `ssh_cmd_run({"command":"if [ -e /tmp/llm_test ]; then echo EXISTS; else e
 ## Expected/fix direction
 
 Probe SFTP negotiation as a **separate host capability** at connect time, or fail the connection clearly for SFTP-dependent tools. Do not use `exists:false` for a transport/subsystem failure; return a distinct `sftp_unavailable`/`status:error` without a false existence field and an actionable explanation. Capability-gate tools whose only implementation requires SFTP, and recommend only fallbacks that actually work on this target. If POSIX-command fallback is intentionally supported, document its limitations (encoding and permissions) rather than forcing the model to discover it by trial and error. A recent command-only success must not be treated as proof SFTP works.
+
+## Fix (2026-09-28, branch `feature/operation-progress`)
+
+- **Detected at connect:** Linux/flex hosts now also probe the SFTP subsystem (by hand, with a
+  10 s channel timeout, so a misbehaving server can't hang the connect). `capabilities.sftp` is
+  `false` on OpenWrt, and `capability_warnings` from `ssh_conn_connect` / `ssh_conn_host_info`
+  says so up front: "Not available on this host: an SFTP subsystem (used by
+  ssh_file_read/write/stat, ssh_dir_list_files_basic, file/dir transfers and line edits) - use
+  ssh_cmd_run (cat, ls -la, wc -c, printf > file) instead."
+- **One clear error:** every SFTP session (13 call sites) now opens through
+  `SshClient.open_sftp()`. On a host without SFTP, whether detected at connect or seen as
+  "EOF during negotiation" on a host that was never probed (macOS/Windows), the tools return
+  "SFTP is not available on this host ... Use ssh_cmd_run instead - e.g. 'cat <file>', 'ls -la
+  <dir>', 'wc -c <file>', or printf/redirection to write a file."
+- **No false answer:** `ssh_file_stat` only returns `exists: false` for a real "not found". When
+  the check itself fails (no SFTP, permission denied, ...) it returns `exists: null` with the
+  reason in `error`. The docstring says so.
+- **Advice:** the `find -printf` fallback message (which pointed to SFTP-based listing tools) now
+  adds "If this host has no SFTP either (capabilities.sftp is false), use ssh_cmd_run with
+  'ls -la <dir>' instead."
+- **Verified live:** on `openwrt-test`, connect took 0.7 s with `sftp: false` and the warning;
+  stat on an existing file gives `exists: null` plus the SFTP message; read, write and list all
+  give the same clear message. On `linux-test`, `sftp: true` and stat, read, write and list are
+  unchanged.
+- **Tests:** `testing_mcp/test_unit_no_sftp.py` (offline, 5 tests); all fail on the old code.
