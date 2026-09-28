@@ -902,8 +902,15 @@ class SshDirectoryOperations_Linux(SshDirectoryOperations):
         contract, and what the macOS version computes. (It used 'du -sb', which also
         counts each directory's own size: 17 directories added 69,632 bytes to a
         2,001-file tree - issues/2026-09-26-linux-dir-size-counts-directory-bytes.md.)"""
-        return (f"find {shlex.quote(path)} -type f -printf '%s\\n' | "
-                f"awk '{{s+=$1}} END {{printf \"%.0f\\n\", s}}'")
+        if self.ssh_client.capabilities.get('find_printf', True):
+            return (f"find {shlex.quote(path)} -type f -printf '%s\\n' | "
+                    f"awk '{{s+=$1}} END {{printf \"%.0f\\n\", s}}'")
+        # BusyBox (Alpine, OpenWrt) has no find -printf: sum the size column of
+        # 'ls -ln' (POSIX; field 5 = size, before the name, so odd names are fine).
+        # Without this, ssh_dir_copy silently reported bytes_copied: 0 there, and
+        # ssh_dir_calc_size refused to run (found 2026-09-28).
+        return (f"find {shlex.quote(path)} -type f -exec ls -ln {{}} + | "
+                f"awk '{{s+=$5}} END {{printf \"%.0f\\n\", s}}'")
 
     def _cmd_list_with_metadata(self, path: str, max_depth: Optional[int]) -> str:
         """Return find command with -printf for full metadata."""

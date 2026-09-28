@@ -172,8 +172,8 @@ _PS_PGID_MSG = (
 LINUX_DIRECTORY_GUARDS = {
     'search_files_recursive': require_capability('find_printf', _FIND_PRINTF_MSG),
     'list_directory_recursive': require_capability('find_printf', _FIND_PRINTF_MSG),
-    # sums regular files with find -printf (not du -sb, which counts directories too)
-    'calculate_directory_size': require_capability('find_printf', _FIND_PRINTF_MSG),
+    # calculate_directory_size: no guard - sums regular files with find -printf, or
+    # 'find -exec ls -ln' where -printf is missing (BusyBox)
     # extract_archive_to_directory(archive_path, destination_path, overwrite, sudo)
     # - client.py's wrapper passes overwrite positionally as the 3rd arg
     # (index 2 after archive_path/destination_path).

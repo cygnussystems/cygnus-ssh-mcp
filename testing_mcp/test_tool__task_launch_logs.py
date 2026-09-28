@@ -14,7 +14,8 @@ import logging
 import time
 from conftest import (
     print_test_header, print_test_footer, make_connection, disconnect_ssh,
-    mcp_test_environment, extract_result_text, sleep_then_echo, skip_on_windows, windows_only
+    mcp_test_environment, extract_result_text, sleep_then_echo, skip_on_windows, windows_only,
+    TEST_WORKSPACE
 )
 
 from cygnus_ssh_mcp import server
@@ -95,6 +96,10 @@ async def test_unwritable_log_fails_launch_clearly(mcp_test_environment):
             await asyncio.sleep(2)
             check = await _run(client, f"test -e {marker} && echo EXISTS || echo ABSENT")
             assert "ABSENT" in check['output'], "the command must not have run"
+            # The failed launch must not leave its launcher script (which can hold the
+            # sudo password) in /tmp - the early exit used to skip the cleanup (2026-09-28)
+            leftovers = await _run(client, f"find /tmp -maxdepth 1 -name 'launch_script_*.sh' -newer {TEST_WORKSPACE} 2>/dev/null | wc -l")
+            assert leftovers['output'].strip() == "0", f"launcher script left behind: {leftovers}"
         finally:
             await _run(client, f"rm -f {marker}")
             await disconnect_ssh(client)

@@ -466,7 +466,12 @@ class SshTaskOperations_Linux(SshTaskOperations):
         # race the rename). If a log can't be created at all, or sudo itself fails,
         # the launcher exits non-zero with a marker instead of reporting the PID of a
         # job that never started.
+        # trap: the script (which can hold the sudo password) is removed on every exit
+        # path - the early 'sudo failed' / 'log not writable' exits used to skip the
+        # final rm and leave it in /tmp (found 2026-09-28 on Alpine). Background
+        # children don't inherit an EXIT trap.
         header = f"""#!/bin/sh
+trap 'rm -f {script_path}' EXIT
 export __TASK_CMD={shlex.quote(cmd)}
 export __OUT={shlex.quote(out_path)}
 export __ERR={shlex.quote(err_path)}
