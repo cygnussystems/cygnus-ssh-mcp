@@ -808,7 +808,8 @@ exit $proc.ExitCode
         script = script.replace('__CMD_B64__', cmd_b64)
         script = script.replace('__PID_MARKER__', self.PID_MARKER)
         script = script.replace('__EXITCODE_MARKER__', self.EXIT_CODE_MARKER)
-        return powershell_encoded_command(script)
+        # This script relays the user's command's own output - leave its encoding alone
+        return powershell_encoded_command(script, utf8_output=False)
 
     def _capture_pid(self, chan, handle):
         """Capture the real remote Windows PID via the marker _wrap_for_pid_capture

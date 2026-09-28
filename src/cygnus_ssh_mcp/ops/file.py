@@ -204,6 +204,16 @@ def extract_local_archive(archive_path: str, dest_dir: str, archive_format: str)
         raise SshError(f"Failed to extract archive: {e}") from e
 
 
+
+def _restore_line_endings(original: str, edited: str) -> str:
+    """The line-edit tools work on LF-normalized text; give an edited file back its own
+    CRLF line endings if that's what it used. They used to write every edited file back
+    as LF, silently converting a CRLF (Windows) file (found 2026-09-28)."""
+    crlf = original.count('\r\n')
+    if crlf and crlf * 2 >= original.count('\n'):
+        return edited.replace('\r\n', '\n').replace('\n', '\r\n')
+    return edited
+
 class SshFileOperations(ABC):
     """Base class for file operations. Platform-specific commands are abstract methods."""
 
@@ -590,7 +600,7 @@ class SshFileOperations(ABC):
                 else:
                     result.append(line_iter) 
             
-            return "".join(result) if modified else text_normalized
+            return _restore_line_endings(text, "".join(result)) if modified else text_normalized
 
         # On Windows, sudo is not applicable - use the non-sudo path
         is_windows = self.ssh_client.os_type == 'windows'
@@ -699,7 +709,7 @@ class SshFileOperations(ABC):
                         result.append(new_line_content + '\n') 
                     modified = True
             
-            return "".join(result) if modified else text_normalized
+            return _restore_line_endings(text, "".join(result)) if modified else text_normalized
 
         # On Windows, sudo is not applicable - use the non-sudo path
         is_windows = self.ssh_client.os_type == 'windows'
@@ -804,7 +814,7 @@ class SshFileOperations(ABC):
                 else:
                     result.append(line_iter)
             
-            return "".join(result) if modified else text_normalized
+            return _restore_line_endings(text, "".join(result)) if modified else text_normalized
 
         # On Windows, sudo is not applicable - use the non-sudo path
         is_windows = self.ssh_client.os_type == 'windows'
@@ -927,7 +937,8 @@ class SshFileOperations(ABC):
 
         try:
             self.get(remote_file, local_temp_path)
-            with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
+            # newline='' keeps CRLF as-is (text mode would silently turn it into LF)
+            with open(local_temp_path, 'r', encoding='utf-8', errors='replace', newline='') as f:
                 original_text = f.read() 
                 
             modified_text = modify_func(original_text) 
@@ -973,8 +984,8 @@ class SshFileOperations(ABC):
             if original_text is None: 
                 try:
                     self.get(remote_file, local_temp_path) 
-                    with open(local_temp_path, 'r', encoding='utf-8', errors='replace') as f:
-                        original_text = f.read()
+                    with open(local_temp_path, 'r', encoding='utf-8', errors='replace', newline='') as f:
+                        original_text = f.read()  # newline='' keeps CRLF (see _restore_line_endings)
                     self.logger.debug(f"Successfully downloaded original file {remote_file} for sudo op.")
                 except Exception as e:
                     self.logger.warning(f"Could not download original {remote_file} for sudo op: {e}.")
