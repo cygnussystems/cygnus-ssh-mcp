@@ -89,6 +89,34 @@ All VMs must be running and accessible before running tests.
 | **User** | Test user with admin access |
 | **Purpose** | macOS target testing |
 
+### Limited-Platform Hosts (`testing_limited/`)
+
+The main suite assumes sudo, bash, SFTP and GNU tools, so these hosts get their own suite,
+`testing_limited/`. Each test there runs once per host and knows what that host supports
+(`KNOWN_HOSTS` in its conftest).
+
+| Host | Address | Notes |
+|------|---------|-------|
+| `freebsd-test` | 192.168.1.37 (Proxmox VMID 130, 512 MB) | FreeBSD, detected as `flex`; sudo, SFTP, no GNU tools |
+| `alpine-test` | 192.168.1.38 (VMID 131, 256 MB) | Alpine/BusyBox; **no sudo**, no bash, SFTP |
+| `openwrt-test` | 192.168.1.39 (VMID 132, 192 MB) | OpenWrt/BusyBox/Dropbear, user root; **no sudo, bash or SFTP**, no `stat`/`hostname`/`whoami` |
+| Synology NAS | 192.168.1.3 | **PRODUCTION** (DS216play, DSM 7.1.1). Tests only use a scratch folder in the login user's home directory and never use sudo (`production=True`). DSM blocks IPs after repeated failed logins - don't retry logins in a loop |
+
+- **Credentials:** `ALPINE_SSH_*`, `FREEBSD_SSH_*`, `OPENWRT_SSH_*` and `SYNOLOGY_SSH_*` in
+  `testing_mcp/.env` (`HOST`/`USER`/`PASSWORD`, optional `PORT`/`SUDO_PASSWORD`). A host
+  without credentials is skipped.
+- **Two modules:**
+  - `test_limited_platforms.py` covers the bugs these hosts exposed.
+  - `test_limited_admin.py` walks an everyday administration workflow (inspection,
+    privileged read-only commands, long commands and tasks, file work, archives) and
+    checks each tool's answer against the shell.
+- **Separate conftest:** it never touches the main suite's workspace, so it can run
+  alongside a main-suite run on a different machine.
+
+```bash
+.venv/Scripts/python.exe -m pytest testing_limited/ -v    # ~3 minutes for all four hosts
+```
+
 ## Platform Test Matrix
 
 | Client (runs tests) | Target (SSH to) | Status |

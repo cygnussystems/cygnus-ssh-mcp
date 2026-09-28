@@ -413,16 +413,24 @@ embedded/BusyBox-based devices only support a smaller flag set than full GNU
 coreutils. The results come back from `ssh_conn_connect` as `capabilities`
 and, for anything missing, `capability_warnings`. A tool that needs a missing
 capability fails with a clear error naming exactly what's unavailable and,
-where one exists, a concrete fallback - nothing silently degrades.
+where one exists, a concrete fallback - nothing silently degrades. Where a
+portable alternative exists (e.g. glob search and directory size without GNU
+`find -printf`), the tool simply uses it.
 
-**Verified against:**
+The probe also checks that **SFTP is usable**: some devices have no SFTP at all
+(OpenWrt), and some offer an SFTP that shows a different filesystem than the
+shell (Synology DSM's share-only SFTP). Either way, SFTP-based file tools then
+say so and point to `ssh_cmd_run`, instead of giving wrong answers.
+
+**Verified against** (each by an automated suite that walks an everyday
+administration workflow and checks every tool's answer against the shell):
 
 | Device | Result |
 |---|---|
-| Alpine Linux (BusyBox) | Connects as `linux`; no `bash`/GNU `find`/`ps -o pgid=` - gated tools fail with clear fallback messages, everything else works |
-| OpenWrt | Connects as `linux`; root-only, most GNU extensions absent |
+| Alpine Linux (BusyBox) | Connects as `linux`; no `bash`/`sudo`/GNU `find -printf`/`ps -o pgid=` - gated tools fail with clear fallback messages, everything else works |
+| OpenWrt | Connects as `linux`; root-only, no SFTP, most GNU extensions absent - shell-based tools work, file work goes through `ssh_cmd_run` |
 | FreeBSD | Connects as `flex`; no `bash` by default, sudo/task tooling adapted to use `sh` |
-| Synology DSM (NAS) | Connects as `linux`; full GNU coreutils and working `sudo` - behaves like a normal Linux server |
+| Synology DSM (NAS) | Connects as `linux`; full GNU coreutils and `sudo`, but its SFTP only shows shared folders, so SFTP-based file tools are disabled and file work goes through `ssh_cmd_run` |
 
 **Known limitation:** some devices reject SSH shell access entirely for an
 account, even one with admin-level permissions - this shows up as every
@@ -545,7 +553,7 @@ Write and read files with emojis, international text, and special characters—o
 ✅ ❌ 🎉 • → ≥ ∞ │ ┌ ─ 你好 مرحبا Привет café naïve
 ```
 
-**How it works:** `ssh_file_read` and `ssh_file_write` use SFTP for direct binary transfer, completely bypassing shell encoding issues. This means Unicode works perfectly even on Windows targets where PowerShell's console encoding would normally corrupt special characters.
+**How it works:** `ssh_file_read` and `ssh_file_write` use SFTP for direct binary transfer, completely bypassing shell encoding issues. This means Unicode works perfectly even on Windows targets where PowerShell's console encoding would normally corrupt special characters. The server's own PowerShell scripts write UTF-8 too, so file names in Windows results (delete previews, glob search, listings) keep their exact spelling. Line edits keep a file's own line endings (CRLF stays CRLF).
 
 ---
 

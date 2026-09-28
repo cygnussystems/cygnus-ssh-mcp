@@ -46,7 +46,11 @@ Connect to a configured SSH host.
 |-----------|------|----------|---------|-------------|
 | `host_name` | str | Yes | - | Host key (`user@host`) or alias |
 
-**Returns:** Connection status dictionary
+**Returns:** Connection status dictionary, including `system` (OS, user, hostname,
+memory in MB, disk). For Linux-class and `flex` hosts it also has `capabilities`
+(which shell tools and features were confirmed - including `sftp`, see
+[Alternate Platforms](26-alternate-platforms.md#sftp)) and `capability_warnings`
+for anything missing.
 
 ---
 
@@ -199,7 +203,7 @@ afterward. Only `runtime_timeout` ever kills. See
 | `use_sudo` | bool | No | False | Run with sudo privileges |
 | `cwd` | str | No | None | Run this call in this directory (Linux/macOS only). Not remembered between calls; fails closed if the directory doesn't exist |
 
-**Returns:** Dictionary with `status`, `output` (stdout), `stderr`, `exit_code`, `id` (the handle ID - NOT `handle_id`, despite `handle_id` being the parameter name other `ssh_cmd_*` tools use to accept it), `pid`, `cwd`, timestamps. `output`/`stderr` are always separate, never interleaved - a command that succeeds can still have written to `stderr` (warnings, progress meters), so check it even on `status='success'`. Each stream is returned inline up to its last ~32 KB; `output_truncated` / `stderr_truncated` are always present, and when true the response adds line counts and an `output_note` explaining how to page the rest with `ssh_cmd_output(start_line=...)` (see [Command Execution](50-command-execution.md#output-management)).
+**Returns:** Dictionary with `status`, `output` (stdout), `stderr`, `exit_code`, `handle_id` (pass it to `ssh_cmd_check_status`/`ssh_cmd_output`/`ssh_cmd_kill`; also returned as `id`, same value), `pid`, `cwd`, timestamps. `output`/`stderr` are always separate, never interleaved - a command that succeeds can still have written to `stderr` (warnings, progress meters), so check it even on `status='success'`. Each stream is returned inline up to its last ~32 KB; `output_truncated` / `stderr_truncated` are always present, and when true the response adds line counts and an `output_note` explaining how to page the rest with `ssh_cmd_output(start_line=...)` (see [Command Execution](50-command-execution.md#output-management)).
 
 **Status values:** `success`, `command_failed`, `cwd_not_found`, `io_timeout`, `wait_timeout`, `runtime_timeout`, `sudo_required`, `busy`, `error`
 
@@ -212,7 +216,7 @@ Wait, then check the status of a command started with `ssh_cmd_run`.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `handle_id` | int | Yes | - | Command handle ID (the `id` field from `ssh_cmd_run`'s response) |
+| `handle_id` | int | Yes | - | Command handle ID (the `handle_id` field from `ssh_cmd_run`'s response) |
 | `wait_seconds` | float | No | 5.0 | Seconds to wait before checking (ends early when an operation finishes). Clamped to the per-call wait cap (default 50s); `waited_seconds` in the response shows the wait actually applied. Short waits (1-10s) with repeated polling work best. |
 
 **Returns:** Dictionary with `status`, `exit_code`, `pid`, output metadata
@@ -274,7 +278,7 @@ Get command execution history.
 | `reverse` | bool | No | False | Reverse chronological order |
 | `pattern` | str | No | None | Filter by command pattern |
 
-**Returns:** List of command history entries
+**Returns:** List of command history entries, each with `handle_id` (also as `id`)
 
 ---
 
@@ -348,7 +352,9 @@ Get file or directory metadata.
 | `path` | str | Yes | - | Path to file/directory |
 | `use_sudo` | bool | No | False | Use sudo |
 
-**Returns:** Dictionary with size, permissions, ownership, timestamps
+**Returns:** Dictionary with `exists`, `type`, size, permissions, ownership, timestamps.
+`exists: false` only for a real "not found". If the check itself fails (permission denied,
+or no usable SFTP on this host), `exists` is `null` with the reason in `error`.
 
 ---
 
@@ -460,6 +466,8 @@ Get surrounding context for a line.
 
 ### ssh_file_replace_line
 Replace a unique line in a file with a new line. The match must be exact (whitespace-trimmed) and unique in the file.
+Like the other line-edit tools, it keeps the file's own line endings (CRLF stays CRLF),
+and a `use_sudo` edit keeps the file's owner and mode.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -467,7 +475,7 @@ Replace a unique line in a file with a new line. The match must be exact (whites
 | `match_line` | str | Yes | - | Exact line content to match and replace |
 | `new_line` | str | Yes | - | Replacement line |
 | `use_sudo` | bool | No | False | Use sudo |
-| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
+| `force` | bool | No | False | No longer needed (kept for compatibility) - a sudo edit reads the file with sudo, and fails with "Nothing was changed" if it can't |
 
 **Returns:** Dictionary with `success`, `lines_written` (or `error` on failure)
 
@@ -482,7 +490,7 @@ Replace a unique line with one or more new lines (or delete it, with an empty li
 | `match_line` | str | Yes | - | Exact line content to match and replace |
 | `new_lines` | list[str] | Yes | - | Lines to insert in place of the match (`[]` deletes the line) |
 | `use_sudo` | bool | No | False | Use sudo |
-| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
+| `force` | bool | No | False | No longer needed (kept for compatibility) - a sudo edit reads the file with sudo, and fails with "Nothing was changed" if it can't |
 
 **Returns:** Dictionary with `success`, `lines_written` (or `error` on failure)
 
@@ -497,7 +505,7 @@ Insert lines after a matching line.
 | `match_line` | str | Yes | - | Line to match |
 | `lines_to_insert` | list | Yes | - | Lines to insert |
 | `use_sudo` | bool | No | False | Use sudo |
-| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
+| `force` | bool | No | False | No longer needed (kept for compatibility) - a sudo edit reads the file with sudo, and fails with "Nothing was changed" if it can't |
 
 **Returns:** Dictionary with `success`, `lines_inserted`
 
@@ -511,7 +519,7 @@ Delete a line matching a unique content string.
 | `file_path` | str | Yes | - | File path |
 | `match_line` | str | Yes | - | Exact line content to match and delete |
 | `use_sudo` | bool | No | False | Use sudo |
-| `force` | bool | No | False | Force operation even if file can't be read (sudo only) |
+| `force` | bool | No | False | No longer needed (kept for compatibility) - a sudo edit reads the file with sudo, and fails with "Nothing was changed" if it can't |
 
 **Returns:** Dictionary with `success` (or `error` on failure - no `lines_deleted` count is returned)
 
@@ -688,7 +696,10 @@ Create a compressed archive from a directory.
 via `ssh_dir_transfer`/internal archive helpers, regardless of `format` - there is no
 `format` choice on Windows and `zip` is not a valid value for this tool's `format` parameter.
 
-**Returns:** Archive info dictionary
+**Returns:** `status`, `archive_created` (path), `format`, `size_bytes`. If the archive was
+created but its size couldn't be read, it's still `success`, with `size_bytes: -1` and a
+`size_error`. If `tar` itself fails, the error says a complete or partial archive may exist
+at `archive_path` - check it before retrying.
 
 ---
 

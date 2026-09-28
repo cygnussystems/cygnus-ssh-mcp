@@ -37,7 +37,7 @@ if it fires, and kills.
 > (OpenCode and anything else built on the MCP TypeScript SDK's defaults) abort a tool
 > call after **60 seconds** with `MCP error -32001: Request timed out`. If that happens,
 > the agent never sees the `io_timeout`/`wait_timeout` handoff, so it loses the command's
-> `id` and `pid`. To prevent this, the server caps how long a single `ssh_cmd_run` call
+> `handle_id` and `pid`. To prevent this, the server caps how long a single `ssh_cmd_run` call
 > blocks: **50s by default**, set with `--max-wait <seconds>` or `MCP_SSH_MAX_WAIT`
 > (`0` disables it). A larger `wait_timeout` (or none) is clamped to the cap, and the
 > call returns a normal `status='wait_timeout'` handoff with `wait_capped: true` and
@@ -75,7 +75,7 @@ only one that ever kills).
   thread that keeps collecting output and watching for the real exit code, so the
   command genuinely keeps running and finishing normally is still fully observable
   later. The response has `status='io_timeout'`, `still_running=True`, and an
-  `id`/`pid` to check back with via `ssh_cmd_check_status`/`ssh_cmd_output` - or to
+  `handle_id`/`pid` to check back with via `ssh_cmd_check_status`/`ssh_cmd_output` - or to
   end it early with `ssh_cmd_kill` if you decide you don't want to wait for it
 - Default: 60 seconds
 - Use for: Commands that should produce regular output
@@ -278,7 +278,7 @@ ssh_task_launch(
 result = ssh_cmd_run(command="make", io_timeout=5.0)
 
 if result['status'] == 'io_timeout':
-    handle_id = result['id']  # ssh_cmd_run returns 'id'; check_status/kill/output take it as 'handle_id'
+    handle_id = result['handle_id']  # also returned as 'id' (same value)
 
     # Check periodically
     while True:
@@ -310,7 +310,7 @@ result = ssh_cmd_run(
 )
 
 if result['status'] in ('io_timeout', 'wait_timeout'):
-    handle_id = result['id']
+    handle_id = result['handle_id']
     # Decide here: keep polling, do something else, or ssh_cmd_kill(handle_id) to
     # end it early - the command is still running either way.
 ```
@@ -436,6 +436,7 @@ ssh_cmd_history(
 ```json
 {
     "id": 1001,
+    "handle_id": 1001,
     "command": "ls -la",
     "exit_code": 0,
     "start_time": "2024-01-15T10:30:00Z",

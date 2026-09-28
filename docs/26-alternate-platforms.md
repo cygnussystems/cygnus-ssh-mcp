@@ -38,20 +38,41 @@ actually depend on:
 | Capability | What it gates |
 |---|---|
 | `bash` | Whether `bash` is used for sudo/background-task command wrapping, or a portable `sh` fallback |
-| `find_printf` | Fast recursive directory listing (`ssh_dir_list_advanced`, `ssh_dir_search_glob`) |
+| `find_printf` | Recursive listing with metadata (`ssh_dir_list_advanced`). Glob search and directory size fall back to portable `find -exec` forms where it's missing |
 | `find_depth` | Depth-limited recursive `find` |
-| `stat_c` | GNU `stat -c` format strings (permission restoration after a sudo'd file edit) |
-| `du_sb` | Combined `du -s -b` (probed; no longer required - directory size now sums regular files with `find -printf`) |
+| `stat_c` | GNU `stat -c` format strings (file sizes and permissions; falls back to `wc -c` for sizes) |
+| `du_sb` | Combined `du -s -b` (probed; no longer required - directory size sums regular files with `find`) |
 | `tar_strip_components` | Archive extraction with path stripping |
 | `tar_keep_old_files` | Archive extraction without overwriting existing files |
 | `ps_pgid` | Killing a sudo'd command's whole process group, not just its outer wrapper PID |
 | `xargs_0` | Null-delimited batch file operations |
 | `sudo` | Whether `sudo` is present at all |
 | `tmp_writable` | Whether `/tmp` can be written to |
+| `sftp` | Whether SFTP is usable - see [SFTP](#sftp) below |
 
 The results are returned by `ssh_conn_connect` (and `ssh_conn_host_info`) as
 `capabilities` (raw per-key `true`/`false`) and `capability_warnings`
 (plain-English notes for anything confirmed missing).
+
+## SFTP
+
+Several file tools use SFTP rather than the shell: reading, writing and
+stat'ing files, `ssh_dir_list_files_basic`, file and directory transfers, and
+line edits. Some devices don't offer a usable SFTP:
+
+- **No SFTP subsystem at all** - e.g. OpenWrt's Dropbear SSH server.
+- **SFTP that shows a different filesystem than the shell** - e.g. Synology DSM,
+  whose SFTP server only shows the shared folders (SFTP `/` is `home`, `music`,
+  `photo`, ... - not the real root). Paths would resolve differently from
+  `ssh_cmd_run`, so a check or a write could hit the wrong file.
+
+Connecting checks both: SFTP must open, and it must be able to see the shell's
+home directory. If either fails, `capabilities.sftp` is `false` with a warning,
+and every SFTP-based tool returns one clear error - *"SFTP is not available on
+this host ... use ssh_cmd_run instead"* (e.g. `cat`, `ls -la`, `wc -c`,
+`printf > file`). `ssh_file_stat` then answers `exists: null` with the reason,
+never a false `exists: false`. Shell-based tools (`ssh_cmd_run`, tasks,
+directory search/copy/size/delete, archives) keep working normally.
 
 **A capability's absence never breaks something that would otherwise work.**
 Only a *confirmed* `false` blocks a tool - a probe hiccup, or simply not
@@ -69,8 +90,13 @@ This operation needs GNU find's -printf, which this host's find doesn't
 support (looks like a BusyBox-style find). Fallback: ssh_dir_list_files_basic
 (non-recursive filenames) plus ssh_file_stat per entry for metadata - both are
 SFTP-based and unaffected by this, at the cost of one call per directory level
-instead of one call for the whole tree.
+instead of one call for the whole tree. If this host has no SFTP either
+(capabilities.sftp is false), use ssh_cmd_run with 'ls -la <dir>' instead.
 ```
+
+Where a portable alternative exists, the tool uses it instead of refusing - e.g.
+`ssh_dir_search_glob`, directory size and `ssh_archive_create`'s size report all
+work on BusyBox.
 
 Nothing silently degrades or produces a cryptic remote command failure - a
 missing capability either has a documented workaround or an honest "no clean
@@ -81,10 +107,15 @@ own docstring.
 
 | Device | `os_type` | `os_subtype` | Notes |
 |---|---|---|---|
-| Alpine Linux (BusyBox) | `linux` | - | No `bash`, no GNU `find -printf`/`ps -o pgid=`; `tar --strip-components` works but `--keep-old-files` doesn't - two independently-gated capabilities, not one |
-| OpenWrt | `linux` | - | Root-only image, dropbear SSH, most GNU extensions absent |
-| FreeBSD | `flex` | `freebsd` | No `bash` by default; login shell is plain `/bin/sh` |
-| Synology DSM (NAS) | `linux` | - | Full GNU coreutils, working `sudo` - behaves like a normal Linux server despite the ARM/embedded hardware |
+| Alpine Linux (BusyBox) | `linux` | - | No `bash`, no `sudo`, no GNU `find -printf`/`ps -o pgid=`; `tar --strip-components` works but `--keep-old-files` doesn't (pass `overwrite=True` to extract) |
+| OpenWrt | `linux` | - | Root-only image, Dropbear SSH with **no SFTP**, no `sudo`/`bash`/`stat`/`hostname`/`whoami`, `tar` without `--strip-components`; file work goes through `ssh_cmd_run` |
+| FreeBSD | `flex` | `freebsd` | No `bash` by default; login shell is plain `/bin/sh`; `sudo` works; connect metadata reports `system.os_type: freebsd` |
+| Synology DSM (NAS) | `linux` | - | Full GNU coreutils and `sudo` (with password; SSH needs an `administrators` account), but SFTP is limited to shared folders, so it's disabled - file work goes through `ssh_cmd_run`; reports `os_name: Synology DSM` |
+
+Each of these is exercised by an automated suite that walks an everyday
+administration workflow - inspecting the system, privileged read-only commands,
+long commands and background tasks, and file work (search, copy, move, delete,
+archives) - and checks every tool's answer against the shell.
 
 ## Known Limitations
 

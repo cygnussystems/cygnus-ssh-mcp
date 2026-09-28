@@ -200,7 +200,7 @@ Windows system info is gathered via CIM/WMI:
 
 **Affected**: Reading files via `ssh_cmd_run` with PowerShell commands like `Get-Content`.
 
-**Not affected**: SFTP-based operations bypass the console entirely and work correctly with Unicode.
+**Not affected**: SFTP-based operations bypass the console entirely and work correctly with Unicode. The server's own PowerShell scripts switch their output to UTF-8, so file names in tool results - `ssh_dir_delete` previews, `ssh_dir_batch_delete_files`, `ssh_dir_search_glob`, `ssh_dir_list_advanced`, archive extraction - keep their exact spelling. Only `ssh_cmd_run` is left as-is, because it relays your program's own output, whose encoding it can't control.
 
 **Solution**: Use `ssh_file_read` to read file contents. This tool uses SFTP to transfer raw bytes and decodes them on the client side, completely avoiding the Windows console encoding problem. Works correctly with emojis, international characters, and any valid UTF-8 content.
 
