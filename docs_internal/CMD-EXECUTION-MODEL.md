@@ -124,7 +124,7 @@ Three independent timeout knobs, checked every poll iteration in `_monitor_comma
   activity — the *only* one of the three that ever kills the remote process.
 
 **Per-call wait cap + non-blocking execution (2026-09-25,
-`issues/2026-09-25-cmd-run-client-timeout-loses-handle.md`):**
+`issues/_archive_/2026-09-25-cmd-run-client-timeout-loses-handle.md`):**
 - `ssh_cmd_run` (server layer only, not `client.run()`) clamps `wait_timeout` to
   `server.max_foreground_wait` (default 50s, `--max-wait`/`MCP_SSH_MAX_WAIT`, `0` =
   off). MCP clients on the TypeScript SDK's defaults abort tool calls at 60s, and the
@@ -136,7 +136,7 @@ Three independent timeout knobs, checked every poll iteration in `_monitor_comma
   (even `ssh_conn_is_connected`) until the command ended. A concurrent `ssh_cmd_run`
   still gets `busy` from the non-blocking `_busy_lock`, same as before.
 
-**Every remote tool (2026-09-26, `issues/2026-09-26-opencode-retest-round2.md` W2/W3):**
+**Every remote tool (2026-09-26, `issues/_archive_/2026-09-26-opencode-retest-round2.md` W2/W3):**
 server.py's `@operation_tool` runs each remote tool's body in a worker thread
 (`asyncio.run(func(...))` in a daemon thread) under a server-wide non-blocking
 `_foreground_lock` (one operation at a time; others raise a `busy` SshError naming the

@@ -1,5 +1,5 @@
 """Unicode file names in the path lists Windows tools build with PowerShell
-(issues/2026-09-28-windows-dir-delete-garbles-unicode-paths.md). PowerShell wrote its output
+(issues/_archive_/2026-09-28-windows-dir-delete-garbles-unicode-paths.md). PowerShell wrote its output
 in the console's OEM code page, so ssh_dir_delete returned "unicode-caf�.txt" and CJK/emoji
 came back as "??" - even though SFTP listing/stat saw the right name."""
 import json

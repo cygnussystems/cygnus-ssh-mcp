@@ -1,4 +1,4 @@
-"""Sudo edits of root-only files (issues/2026-09-28-freebsd-sudo-*; the bugs were general,
+"""Sudo edits of root-only files (issues/_archive_/2026-09-28-freebsd-sudo-*; the bugs were general,
 not FreeBSD-specific):
 
 - ssh_file_replace_line / insert_lines_after_match / delete_line_by_content with use_sudo read

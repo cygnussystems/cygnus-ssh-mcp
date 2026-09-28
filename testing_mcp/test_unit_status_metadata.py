@@ -1,4 +1,4 @@
-"""Connect-time system metadata on minimal hosts (issues/2026-09-28-openwrt-connection-metadata-*):
+"""Connect-time system metadata on minimal hosts (issues/_archive_/2026-09-28-openwrt-connection-metadata-*):
 OpenWrt has no whoami/hostname, so user and hostname came back as "" - and the disconnect
 message read "disconnected from @host". Offline."""
 from types import SimpleNamespace

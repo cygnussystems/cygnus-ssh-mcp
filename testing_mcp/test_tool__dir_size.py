@@ -1,5 +1,5 @@
 """ssh_dir_calc_size and ssh_dir_copy report the SUM OF REGULAR FILE SIZES (round-4
-issue 4, issues/2026-09-26-linux-dir-size-counts-directory-bytes.md), and ssh_dir_copy
+issue 4, issues/_archive_/2026-09-26-linux-dir-size-counts-directory-bytes.md), and ssh_dir_copy
 produces an exact copy of the tree.
 
 Found while fixing issue 4: on Linux/macOS, ssh_dir_copy also copied every subdirectory

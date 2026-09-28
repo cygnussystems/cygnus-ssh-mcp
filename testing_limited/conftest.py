@@ -3,7 +3,7 @@ no sudo, no SFTP, no bash).
 
 The main suite (testing_mcp/) assumes sudo, bash, SFTP and GNU tools, so it can't simply
 be pointed at these hosts. This suite instead covers the behaviors that broke on them
-(issues/2026-09-28-*) and checks each host against what it is known to support.
+(issues/_archive_/2026-09-28-*) and checks each host against what it is known to support.
 
 It deliberately has its own conftest - testing_mcp/conftest.py wipes the Debian test
 workspace on import, which would collide with a main-suite run on that VM.

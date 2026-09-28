@@ -5,13 +5,13 @@
 | **Found** | 2026-09-26, OpenCode (`openai/gpt-6-sol`, default request timeout) against Linux, macOS and Windows |
 | **Source** | `PR_MCP_SSH__LLM_TEST/findings/2026-09-26-opencode-developer-handoff.md` (+ per-issue files there) |
 | **Plan** | `planning/2026-09-26-retest-fix-plan.md` (local) |
-| **Status** | In progress on `fix/opencode-retest-issues`: F2 + small items, W1 and F1 fixed (plus a Windows output-loss bug found on the way); W2/W3 pending |
+| **Status** | **All fixed, released in 1.6.0.** F2 + small items, W1 and F1 fixed (plus a Windows output-loss bug found on the way); W2/W3 fixed by WS4 (`f44459f`: every tool runs in a worker thread and hands off with `in_progress`) |
 
 ## Summary
 
 | ID | Finding | Status |
 |---|---|---|
-| W2/W3 (P1) | `ssh_archive_create` / `ssh_archive_extract` on 18,000 files: client timeout, result lost; during extract **every** tool timed out until OpenCode was restarted | Pending (WS4) |
+| W2/W3 (P1) | `ssh_archive_create` / `ssh_archive_extract` on 18,000 files: client timeout, result lost; during extract **every** tool timed out until OpenCode was restarted | **Fixed** (WS4, `f44459f`) |
 | W1 (P1) | Windows `ssh_task_launch("echo a & echo b 1>&2", stdout_log=…)`: stdout lost, stderr in the stdout log | **Fixed** |
 | F1 (P1) | `ssh_cmd_run("seq 1 105")` returns lines 6–105, no truncation indicator, first lines unrecoverable | **Fixed** |
 | F1b (P1, found while fixing F1) | **Windows `ssh_cmd_run` lost the end of fast output**: a 1000-line command returned `success` with only lines 1–505 | **Fixed** |

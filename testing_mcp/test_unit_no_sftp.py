@@ -1,4 +1,4 @@
-"""Hosts without an SFTP subsystem (issues/2026-09-28-openwrt-missing-sftp-*: Dropbear on
+"""Hosts without an SFTP subsystem (issues/_archive_/2026-09-28-openwrt-missing-sftp-*: Dropbear on
 OpenWrt). Every SFTP-based file tool failed with a bare "EOF during negotiation", and
 ssh_file_stat answered exists: false for a file that existed. Offline - no SSH host needed.
 """

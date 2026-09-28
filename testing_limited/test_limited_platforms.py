@@ -1,4 +1,4 @@
-"""Behaviors that broke on Alpine / FreeBSD / OpenWrt (issues/2026-09-28-*), checked on the
+"""Behaviors that broke on Alpine / FreeBSD / OpenWrt (issues/_archive_/2026-09-28-*), checked on the
 real hosts. Each test runs once per configured host - see conftest.py."""
 import asyncio
 

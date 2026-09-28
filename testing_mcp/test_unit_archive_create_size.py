@@ -1,4 +1,4 @@
-"""ssh_archive_create on a host without `stat` (issues/2026-09-28-openwrt-archive-create-*):
+"""ssh_archive_create on a host without `stat` (issues/_archive_/2026-09-28-openwrt-archive-create-*):
 the archive was created, then the size query (`stat -c %s`) failed with exit 127 and the
 whole call returned status: error - inviting a retry over a valid archive. Offline."""
 from types import SimpleNamespace

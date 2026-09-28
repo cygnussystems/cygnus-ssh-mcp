@@ -1,5 +1,5 @@
 """ssh_archive_extract returns a concise result (round-4 issue 6,
-issues/2026-09-27-large-archive-results-overwhelm-opencode.md).
+issues/_archive_/2026-09-27-large-archive-results-overwhelm-opencode.md).
 
 It used to return every extracted name inline (~300 KB of JSON for 18,000 files), which
 OpenCode couldn't show. Now: counts, the first 50 file paths (relative to the

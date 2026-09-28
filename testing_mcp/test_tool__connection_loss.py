@@ -1,4 +1,4 @@
-"""Stale / lost connections (round-4 issue 2, issues/2026-09-27-stale-connection-health-after-idle.md).
+"""Stale / lost connections (round-4 issue 2, issues/_archive_/2026-09-27-stale-connection-health-after-idle.md).
 
 Seen in OpenCode after an overnight idle: ssh_conn_is_connected said true, while the next
 call failed with "[WinError 10054] An existing connection was forcibly closed" and gave

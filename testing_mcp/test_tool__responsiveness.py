@@ -1,4 +1,4 @@
-"""Regression tests for issues/2026-09-25-*.md:
+"""Regression tests for issues/_archive_/2026-09-25-*.md:
 
 - ssh_cmd_run must not block other tool calls while it waits (it used to block the
   event loop, so even ssh_conn_is_connected hung until the command finished)

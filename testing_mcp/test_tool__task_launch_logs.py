@@ -1,4 +1,4 @@
-"""Regression tests for issues/2026-09-26-*.md:
+"""Regression tests for issues/_archive_/2026-09-26-*.md:
 
 - ssh_task_launch(use_sudo=True) must work when the log's directory is root-owned (the
   launcher used to open the log in the unprivileged shell, so the job silently never ran
