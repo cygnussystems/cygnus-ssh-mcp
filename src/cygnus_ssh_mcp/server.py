@@ -1630,6 +1630,7 @@ async def ssh_cmd_run(
         return {
             'status': 'success',
             'id': handle.id,
+            'handle_id': handle.id,  # same value: the name ssh_cmd_check_status/output/kill take
             'command': command,
             'exit_code': handle.exit_code,
             **_output_fields(handle),
@@ -1659,6 +1660,7 @@ async def ssh_cmd_run(
         result = {
             'status': e.reason,  # 'io_timeout' or 'wait_timeout'
             'id': handle.id if handle else None,
+            'handle_id': handle.id if handle else None,
             'pid': handle.pid if handle else None,
             'command': command,
             'timeout_seconds': e.seconds,
@@ -1692,6 +1694,7 @@ async def ssh_cmd_run(
         return {
             'status': 'runtime_timeout',
             'id': e.handle.id,
+            'handle_id': e.handle.id,
             'command': command,
             'timeout_seconds': e.seconds,
             'pid': e.handle.pid,
@@ -1706,7 +1709,7 @@ async def ssh_cmd_run(
         failed_handle = getattr(e, 'handle', None)
         return {
             'status': 'command_failed',
-            **({'id': failed_handle.id} if failed_handle else {}),
+            **({'id': failed_handle.id, 'handle_id': failed_handle.id} if failed_handle else {}),
             'command': command,
             'exit_code': e.exit_code,
             **(_output_fields(failed_handle, stdout_key='stdout') if failed_handle
@@ -1759,8 +1762,8 @@ async def ssh_cmd_kill(
     wait_seconds: Annotated[float, Field(description="Seconds to wait before force kill", gt=0)] = 1.0
 ) -> dict:
     """
-    Terminate a currently running command by its handle ID (the `id` field from
-    ssh_cmd_run's response).
+    Terminate a currently running command by its handle ID (the `handle_id` field -
+    also returned as `id` - from ssh_cmd_run's response).
 
     This tool is specifically for killing commands started with ssh_cmd_run - it
     looks up `handle_id` in this connection's command history, not by raw PID. For
@@ -2180,6 +2183,7 @@ async def ssh_cmd_history(
         for entry in history:
             history_entry = {
                 'id': entry.get('id'),
+                'handle_id': entry.get('id'),
                 'command': entry.get('cmd'),
                 'exit_code': entry.get('exit_code'),
                 'start_time': entry.get('start_ts'),

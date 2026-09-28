@@ -34,7 +34,7 @@ def _refused_without_sftp(s, result):
 
 
 def _handle(result):
-    return result.get('handle_id') or result.get('id')
+    return result['handle_id']
 
 
 async def _exists(s, path, kind='e'):
@@ -80,6 +80,8 @@ async def test_long_command_hands_off_and_completes(session):
     s = session
     r = await s.call("ssh_cmd_run", {"command": "sleep 4; echo finished-ok", "wait_timeout": 1})
     assert r.get('status') == 'wait_timeout' and r.get('still_running') is True, r
+    # the id comes back under the parameter name the follow-up tools take
+    assert r.get('handle_id') is not None and r['handle_id'] == r.get('id'), r
     done = await _wait_until_done(s, _handle(r))
     output = await s.call("ssh_cmd_output", {"handle_id": _handle(r)})
     assert 'finished-ok' in _dump(output) or 'finished-ok' in _dump(done), (done, output)
@@ -126,10 +128,12 @@ async def test_find_and_inspect_files(session):
     etc = await _fixture_tree(s)
     conf = f"{etc}/app.conf"
 
+    # Shell-based everywhere (BusyBox: POSIX fallback for find -printf) - must always work
     r = await s.call("ssh_dir_search_glob", {"path": etc, "pattern": "*.conf"})
-    if not _refused_without_sftp(s, r):
-        paths = sorted(e['path'] for e in r) if isinstance(r, list) else r
-        assert paths == [conf, f"{etc}/sub/other.conf"], r
+    paths = sorted(e['path'] for e in r) if isinstance(r, list) else r
+    assert paths == [conf, f"{etc}/sub/other.conf"], r
+    r = await s.call("ssh_dir_search_glob", {"path": etc, "pattern": "sub*", "include_dirs": True})
+    assert isinstance(r, list) and [(e['path'], e['type']) for e in r] == [(f"{etc}/sub", 'directory')], r
 
     r = await s.call("ssh_dir_list_advanced", {"path": etc, "max_depth": 3})
     if not _refused_without_sftp(s, r):

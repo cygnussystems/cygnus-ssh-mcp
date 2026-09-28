@@ -171,7 +171,8 @@ _PS_PGID_MSG = (
 # GNU-only find/du syntax - not relevant when the Mac-flavored overrides are
 # in use (they never generate these forms in the first place).
 LINUX_DIRECTORY_GUARDS = {
-    'search_files_recursive': require_capability('find_printf', _FIND_PRINTF_MSG),
+    # search_files_recursive: no guard - falls back to a POSIX 'find -exec sh' loop where
+    # -printf is missing (BusyBox)
     'list_directory_recursive': require_capability('find_printf', _FIND_PRINTF_MSG),
     # calculate_directory_size: no guard - sums regular files with find -printf, or
     # 'find -exec ls -ln' where -printf is missing (BusyBox)

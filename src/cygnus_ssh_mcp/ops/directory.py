@@ -895,7 +895,9 @@ class SshDirectoryOperations_Linux(SshDirectoryOperations):
     """Linux implementation of directory operations using GNU coreutils."""
 
     def _cmd_find_with_type(self, path: str, name_pattern: str, max_depth: Optional[int], include_dirs: bool) -> str:
-        """Return find command with -printf for path and type."""
+        """Return find command printing path<TAB>type: GNU find -printf, or where that's
+        missing (BusyBox: Alpine, OpenWrt) a POSIX sh loop over 'find -exec ... {} +' -
+        ssh_dir_search_glob used to refuse outright on those hosts (2026-09-28)."""
         cmd_parts = ["find", shlex.quote(path)]
 
         if max_depth is not None:
@@ -906,8 +908,14 @@ class SshDirectoryOperations_Linux(SshDirectoryOperations):
         if not include_dirs:
             cmd_parts.append("-type f")
 
-        # GNU find -printf: %p=path, %y=type
-        cmd_parts.append("-printf '%p\\t%y\\n'")
+        if self.ssh_client.capabilities.get('find_printf', True):
+            # GNU find -printf: %p=path, %y=type
+            cmd_parts.append("-printf '%p\\t%y\\n'")
+        else:
+            cmd_parts.append(
+                "-exec sh -c 'for f; do if [ -L \"$f\" ]; then t=l; elif [ -d \"$f\" ]; then t=d; "
+                "elif [ -f \"$f\" ]; then t=f; elif [ -p \"$f\" ]; then t=p; elif [ -S \"$f\" ]; then t=s; "
+                "else t=f; fi; printf \"%s\\t%s\\n\" \"$f\" \"$t\"; done' _ {} +")
 
         return " ".join(cmd_parts)
 

@@ -33,3 +33,19 @@ def test_busybox_find_falls_back_to_ls():
 def test_calculate_directory_size_is_not_gated():
     for guards in (capability_gate.LINUX_DIRECTORY_GUARDS, capability_gate.FLEX_DIRECTORY_GUARDS):
         assert 'calculate_directory_size' not in guards
+
+
+# --- ssh_dir_search_glob on BusyBox: POSIX fallback instead of refusing (2026-09-28) ---
+
+def test_glob_search_uses_printf_on_gnu_find():
+    assert r"-printf '%p\t%y\n'" in _ops({})._cmd_find_with_type('/data', '*.log', None, False)
+
+
+def test_glob_search_falls_back_without_printf():
+    cmd = _ops({'find_printf': False})._cmd_find_with_type('/my data', '*.log', 2, True)
+    assert cmd.startswith("find '/my data' -maxdepth 2 -name '*.log' -exec sh -c ") and '-printf' not in cmd
+    assert "_ {} +" in cmd and '[ -d "$f" ]' in cmd
+
+
+def test_glob_search_is_not_gated_on_printf():
+    assert 'search_files_recursive' not in capability_gate.LINUX_DIRECTORY_GUARDS
