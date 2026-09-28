@@ -196,7 +196,9 @@ async def test_list_tool_in_progress_then_list_result(mcp_test_environment, monk
 
 @pytest.mark.asyncio
 async def test_fast_operation_returns_directly(mcp_test_environment):
-    """A quick tool returns its normal result directly and leaves no operation behind."""
+    """A quick tool returns its normal result directly, and doesn't show up in ssh_cmd_history.
+    (It stays in the capped registry, marked returned_directly, so a client that had already
+    given up on the request can still collect it - see test_unit_operation_registry.py.)"""
     print_test_header("Testing fast operation")
 
     async with Client(mcp) as client:
@@ -205,7 +207,12 @@ async def test_fast_operation_returns_directly(mcp_test_environment):
             before = set(server._operations)
             stat = _json(await client.call_tool("ssh_conn_status", {}))
             assert stat.get('connected') is True, stat
-            assert set(server._operations) == before
+            new_ops = [server._operations[i] for i in set(server._operations) - before]
+            assert new_ops and all(op.returned_directly for op in new_ops), new_ops
+            history = _json(await client.call_tool("ssh_cmd_history", {}))
+            entries = history['result'] if isinstance(history, dict) else history
+            assert not [e for e in entries if e.get('origin') == 'operation'
+                        and e.get('parent_tool') == 'ssh_conn_status'], entries
         finally:
             await disconnect_ssh(client)
             print_test_footer()

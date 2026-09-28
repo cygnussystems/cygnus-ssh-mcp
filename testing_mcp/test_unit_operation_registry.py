@@ -46,3 +46,26 @@ def test_operation_status_shapes():
     failed.error = RuntimeError("boom")
     response = server._operation_status_response(failed, 1.0)
     assert response['status'] == 'failed' and response['error'] == 'boom'
+
+
+async def test_result_stays_collectable_after_a_direct_return(monkeypatch):
+    """A client can give up on a request (its own timeout) before the operation finishes and
+    the server returns the result - which then reaches nobody. The result must stay
+    collectable with ssh_cmd_check_status: it used to be removed from the registry on that
+    direct return, so polling fell through to 'not found' (cross-platform matrix, 2026-09-29)."""
+    import json
+    from fastmcp import Client
+    monkeypatch.setattr(server, '_operations', server.OrderedDict())
+
+    @server.operation_tool
+    async def ssh_fake_quick_tool(path: str) -> dict:
+        return {'size_bytes': 42}
+
+    assert await ssh_fake_quick_tool(path='/data') == {'size_bytes': 42}
+    op_id, op = next(iter(server._operations.items()))
+    assert op.returned_directly is True
+
+    async with Client(server.mcp) as client:
+        status = json.loads((await client.call_tool(
+            "ssh_cmd_check_status", {"handle_id": op_id, "wait_seconds": 0.1})).content[0].text)
+    assert status['status'] == 'completed' and status['result'] == {'size_bytes': 42}, status

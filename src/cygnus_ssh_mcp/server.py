@@ -343,6 +343,10 @@ class _Operation:
         self.result = None
         self.error = None
         self.progress = OperationProgress()
+        # Finished within the wait and returned as the call's response. Kept in the registry
+        # anyway (hidden from ssh_cmd_history): the server can't tell whether the client was
+        # still waiting for that response or had already given up on the request.
+        self.returned_directly = False
 
     def status(self):
         if not self.done.is_set():
@@ -364,7 +368,7 @@ class _Operation:
 
 # Operation handle IDs start high so they never collide with per-connection command IDs.
 _operation_ids = itertools.count(1_000_001)
-_operations = OrderedDict()   # id -> _Operation (handed-off or still running)
+_operations = OrderedDict()   # id -> _Operation (every operation, capped - see operation_tool)
 _MAX_OPERATIONS_KEPT = 50
 _foreground_lock = threading.Lock()
 _foreground_op = None         # the _Operation holding _foreground_lock, if any
@@ -473,7 +477,12 @@ def operation_tool(func):
         threading.Thread(target=work, name=f"mcp-op-{op.id}", daemon=True).start()
         finished = await asyncio.to_thread(op.done.wait, max_foreground_wait)
         if finished:
-            _operations.pop(op.id, None)  # delivered directly - no handle needed
+            # Not removed from the registry: a client that gave up on this request before it
+            # finished (its own timeout, below our wait cap) never got this response, and
+            # must still be able to collect it with ssh_cmd_check_status. Removing it here
+            # lost the result whenever that race went the wrong way (found by the
+            # cross-platform matrix, 2026-09-29). The registry is capped (_MAX_OPERATIONS_KEPT).
+            op.returned_directly = True
             if op.error is not None:
                 raise op.error
             return op.result
@@ -2112,7 +2121,8 @@ async def ssh_cmd_clear_history() -> dict:
         for op_id, op in list(_operations.items()):
             if op.done.is_set():
                 _operations.pop(op_id, None)
-                cleared_count += 1
+                if not op.returned_directly:  # those were never shown in the history
+                    cleared_count += 1
 
         return {
             'status': 'success',
@@ -2160,7 +2170,9 @@ async def ssh_cmd_history(
     try:
         history = mcp.ssh_client.history()
         # Long-running tool operations (handed off, or still running) - see operation_tool
-        history = sorted(history + [op.history_entry() for op in list(_operations.values())],
+        # (not ones that already returned as their call's normal response)
+        history = sorted(history + [op.history_entry() for op in list(_operations.values())
+                                    if not op.returned_directly],
                          key=lambda entry: entry.get('start_ts') or '')
 
         # Filter by pattern if specified
