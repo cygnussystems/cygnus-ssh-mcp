@@ -19,6 +19,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -32,8 +33,38 @@ src_path = os.path.join(project_root, 'src')
 sys.path.insert(0, src_path)
 
 from config import RUNNERS, TARGETS, MATRIX_WORKSPACE, TEST_DEPENDENCIES
+import tempfile
+from pathlib import Path
+from cygnus_ssh_mcp import server as _server
+from cygnus_ssh_mcp.host_manager import SshHostManager
 from cygnus_ssh_mcp.server import mcp
 from fastmcp import Client
+
+# Own throwaway host config, like the test suites - never write the runner hosts (and
+# their passwords) into the user's real ~/.mcp_ssh_hosts.toml
+_server.host_manager = _server._default_host_manager = SshHostManager(
+    config_path=Path(tempfile.mkdtemp(prefix="mcp_ssh_matrix_hosts_")) / "mcp_ssh_hosts.toml"
+)
+
+# The runners get the tests but not pyproject.toml - these are the pytest settings the
+# suite depends on (session-wide asyncio loop, see [tool.pytest.ini_options])
+# Same selection as the local full runs: the production sudo tests run separately
+PYTEST_ARGS = ("-p no:cacheprovider -W ignore::DeprecationWarning -rfE "
+               "--ignore=testing_mcp/test_tool__sudo_production.py")
+
+PYTEST_INI = """[pytest]
+asyncio_mode = auto
+asyncio_default_fixture_loop_scope = session
+asyncio_default_test_loop_scope = session
+"""
+
+# Per-target limit for one full pytest run on a runner (a full Windows-target run takes
+# ~70 min from this PC; slower runners need headroom)
+# Full pytest output per combination (runner_to_target.txt), kept locally
+RESULTS_DIR = os.path.join(tempfile.gettempdir(), "mcp_ssh_matrix_results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+TEST_RUNTIME_LIMIT = {'linux': 3600, 'macos': 3600, 'windows': 3 * 3600}
 
 
 @dataclass
@@ -154,6 +185,37 @@ def generate_env_content() -> str:
     return '\n'.join(lines)
 
 
+async def run_to_completion(client, command: str, runtime_timeout: float,
+                            io_timeout: float = 60, tail_lines: int = 400) -> Dict:
+    """Run a command and wait for its real end. Since 1.6.0 a single ssh_cmd_run call
+    hands off after at most ~50s (status wait_timeout/io_timeout, command still
+    running) - poll ssh_cmd_check_status until it finishes, then fetch the last
+    `tail_lines` of output (enough for pytest's summary and failure list)."""
+    result = json.loads(extract_result_text(await client.call_tool("ssh_cmd_run", {
+        "command": command, "runtime_timeout": runtime_timeout, "io_timeout": io_timeout})))
+    if result.get('status') not in ('wait_timeout', 'io_timeout') or not result.get('still_running'):
+        output = result.get('output') if 'output' in result else \
+            (result.get('stdout') or '') + (result.get('stderr') or '')
+        return {'status': result.get('status'), 'exit_code': result.get('exit_code'),
+                'output': output or '', 'raw': result}
+    handle_id = result.get('handle_id') or result.get('id')
+    while True:
+        status = json.loads(extract_result_text(await client.call_tool(
+            "ssh_cmd_check_status", {"handle_id": handle_id, "wait_seconds": 30})))
+        if status.get('status') not in ('running', 'unknown_still_running'):
+            break
+    lines = []
+    for stream in ('stdout', 'stderr'):
+        # .data, not the text content: an empty stream comes back with no text content at all
+        chunk = (await client.call_tool(
+            "ssh_cmd_output", {"handle_id": handle_id, "lines": tail_lines, "stream": stream})).data
+        if isinstance(chunk, list):
+            lines.extend(chunk)
+    output = ''.join(line if line.endswith('\n') else line + '\n' for line in lines)
+    return {'status': status.get('status'), 'exit_code': status.get('exit_code'),
+            'output': output, 'raw': status}
+
+
 async def ensure_disconnected(client):
     """Ensure SSH is disconnected."""
     try:
@@ -188,7 +250,8 @@ async def connect_to_runner(client, runner_name: str) -> bool:
     return result_json.get('status') == 'success'
 
 
-async def run_on_runner(client, runner_name: str, targets: List[str]) -> List[TestResult]:
+async def run_on_runner(client, runner_name: str, targets: List[str],
+                        tests: str = 'testing_mcp/') -> List[TestResult]:
     """Run tests from a runner machine against specified targets."""
     runner = RUNNERS[runner_name]
     results = []
@@ -251,13 +314,15 @@ async def run_on_runner(client, runner_name: str, targets: List[str]) -> List[Te
     # 4. Create venv and install
     print(f"  Creating venv and installing...")
     if runner_name == 'windows':
-        deps_str = ' '.join(TEST_DEPENDENCIES)
+        # Quoted: an unquoted 'pytest-asyncio>=1.0' is a redirect to a file '=1.0' in
+        # PowerShell and bash, and aborts the whole line in zsh (macOS)
+        deps_str = ' '.join(f"'{d}'" for d in TEST_DEPENDENCIES)
         python_path = runner['python']
         # Windows: wrap in powershell -Command, use & for calling exe with spaces in path
         # Note: Don't use --quiet so pip produces output and doesn't hit io_timeout
         venv_cmd = f'powershell -Command "cd \'{workspace}\'; & \'{python_path}\' -m venv venv; .\\venv\\Scripts\\Activate.ps1; pip install (Get-ChildItem dist\\*.whl).FullName; pip install {deps_str}"'
     else:
-        deps = ' '.join(TEST_DEPENDENCIES)
+        deps = ' '.join(shlex.quote(d) for d in TEST_DEPENDENCIES)  # see the Windows branch
         venv_cmd = f'''
 cd "{workspace}"
 {runner['python']} -m venv venv
@@ -268,11 +333,12 @@ pip install {deps}
 
     # Windows pip install may not produce regular output, so use a longer io_timeout
     io_timeout = 180 if runner_name == 'windows' else 60
-    result = await client.call_tool("ssh_cmd_run", {
-        "command": venv_cmd,
-        "runtime_timeout": 600,  # 10 minutes total
-        "io_timeout": io_timeout
-    })
+    install = await run_to_completion(client, venv_cmd, runtime_timeout=1200, io_timeout=io_timeout)
+    if install['exit_code'] not in (0, None) or install['status'] not in ('success', 'completed'):
+        print(f"  Install FAILED ({install['status']}, exit {install['exit_code']}):\n{install['output'][-2000:]}")
+        return [TestResult(runner=runner_name, target=t, passed=0, failed=0, errors=1, skipped=0,
+                           duration=0, success=False, error_msg="venv/pip install failed")
+                for t in targets]
 
     # 5. Create .env file
     print(f"  Creating .env file...")
@@ -282,6 +348,11 @@ pip install {deps}
         "content": env_content
     })
 
+    await client.call_tool("ssh_file_write", {
+        "file_path": f"{workspace}{sep}pytest.ini",
+        "content": PYTEST_INI
+    })
+
     # 6. Run tests for each target
     for target in targets:
         print(f"  Testing -> {target.upper()}...", end=" ", flush=True)
@@ -289,31 +360,26 @@ pip install {deps}
 
         if runner_name == 'windows':
             # Windows: After activating venv, use 'python' not the system Python path
-            test_cmd = f'powershell -Command "cd \'{workspace}\'; .\\venv\\Scripts\\Activate.ps1; $env:TEST_PLATFORM = \'{target}\'; python -m pytest testing_mcp/ -v --tb=line 2>&1"'
+            test_cmd = f'powershell -Command "cd \'{workspace}\'; .\\venv\\Scripts\\Activate.ps1; $env:TEST_PLATFORM = \'{target}\'; python -m pytest {tests} {PYTEST_ARGS} 2>&1"'
         else:
             # After activating venv, use 'python' not the system Python path
             test_cmd = f'''
 cd "{workspace}"
 source venv/bin/activate
-TEST_PLATFORM={target} python -m pytest testing_mcp/ -v --tb=line 2>&1
+TEST_PLATFORM={target} python -m pytest {tests} {PYTEST_ARGS} 2>&1
 '''
 
-        result = await client.call_tool("ssh_cmd_run", {
-            "command": test_cmd,
-            "runtime_timeout": 600
-        })
-
+        run = await run_to_completion(client, test_cmd, runtime_timeout=TEST_RUNTIME_LIMIT[target],
+                                      io_timeout=300)
         duration = time.time() - start_time
-        output = extract_result_text(result)
-        result_json = json.loads(output) if output else {}
-
-        # Get command output (success uses 'output', failure uses 'stdout'/'stderr')
-        if 'output' in result_json:
-            cmd_output = result_json['output']
-        else:
-            cmd_output = result_json.get('stdout', '') + result_json.get('stderr', '')
+        cmd_output = run['output']
 
         parsed = parse_pytest_output(cmd_output)
+
+        # Keep the full output: the summary only lists failing test names
+        out_file = os.path.join(RESULTS_DIR, f"{runner_name}_to_{target}.txt")
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.write(cmd_output)
 
         test_result = TestResult(
             runner=runner_name,
@@ -382,7 +448,12 @@ def print_summary(all_results: List[TestResult], total_duration: float):
             if r.error_msg:
                 print(f"  -> {r.target.upper():8} ... {r.error_msg} {status}")
             else:
-                print(f"  -> {r.target.upper():8} ... {r.passed} passed in {r.duration:.0f}s {status}")
+                counts = f"{r.passed} passed, {r.failed} failed, {r.errors} errors, {r.skipped} skipped"
+                print(f"  -> {r.target.upper():8} ... {counts} in {r.duration:.0f}s {status}")
+                # which tests failed (pytest's -rfE short summary lines)
+                for line in r.output.splitlines():
+                    if line.startswith(('FAILED ', 'ERROR ')):
+                        print(f"       {line[:220]}")
 
             if r.success:
                 passed_combinations += 1
@@ -410,6 +481,9 @@ async def main():
     parser.add_argument('--skip-build', action='store_true',
                        help='Skip wheel build, use existing')
     parser.add_argument('--wheel', help='Path to specific wheel file to use')
+    parser.add_argument('--tests', default='testing_mcp/',
+                        help='Test path(s) to run on the runners, relative to the workspace '
+                             '(default: testing_mcp/ - the whole suite)')
     args = parser.parse_args()
 
     # Determine runners and targets
@@ -444,7 +518,7 @@ async def main():
 
     async with Client(mcp) as client:
         for runner_name in runners:
-            results = await run_on_runner(client, runner_name, targets)
+            results = await run_on_runner(client, runner_name, targets, args.tests)
             all_results.extend(results)
 
         # Disconnect at end
@@ -454,6 +528,7 @@ async def main():
 
     # Print summary
     success = print_summary(all_results, total_duration)
+    print(f"Full pytest output per combination: {RESULTS_DIR}")
 
     sys.exit(0 if success else 1)
 
