@@ -55,3 +55,36 @@ async def test_file_stat_never_reports_missing_when_the_check_failed(monkeypatch
     data = json.loads(result.content[0].text)
     assert data['exists'] is None, f"a failed check must not claim the file is missing: {data}"
     assert "SFTP is not available" in data['error'], data
+
+
+# --- SFTP that sees a different filesystem than the shell (Synology DSM: SFTP '/' = shares) ---
+
+def _paths_client(shell_home):
+    stdout = SimpleNamespace(read=lambda: shell_home.encode())
+    fake = SimpleNamespace(
+        _client=SimpleNamespace(exec_command=lambda cmd, timeout=None: (None, stdout, None)),
+        _logger=SimpleNamespace(warning=lambda *a, **k: None),
+        SFTP_MISMATCH_MESSAGE=SshClient.SFTP_MISMATCH_MESSAGE)
+    return fake
+
+
+class _Sftp:
+    def __init__(self, visible):
+        self.visible = visible
+
+    def stat(self, path):
+        if path not in self.visible:
+            raise IOError(2, "No such file")
+
+
+def test_sftp_that_cannot_see_the_shell_home_is_not_usable():
+    fake = _paths_client("/volume1/homes/claude\n")
+    assert SshClient._sftp_sees_shell_paths(fake, _Sftp({"/home"})) is False
+    assert "/volume1/homes/claude" in fake._sftp_unavailable_message
+    fake.capabilities = {'sftp': False}
+    with pytest.raises(SshError, match="different filesystem than the shell"):
+        SshClient.open_sftp(fake)
+
+
+def test_normal_sftp_passes_the_path_check():
+    assert SshClient._sftp_sees_shell_paths(_paths_client("/home/test\n"), _Sftp({"/home/test"})) is True

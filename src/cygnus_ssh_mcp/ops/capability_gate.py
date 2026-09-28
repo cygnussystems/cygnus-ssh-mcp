@@ -230,9 +230,10 @@ CAPABILITY_DESCRIPTIONS = {
     'xargs_0': "xargs's -0 null-delimited input (used for batch file operations)",
     'sudo': "sudo",
     'tmp_writable': "a writable /tmp",
-    'sftp': ("an SFTP subsystem (used by ssh_file_read/write/stat, ssh_dir_list_files_basic, "
-             "file/dir transfers and line edits) - use ssh_cmd_run (cat, ls -la, wc -c, "
-             "printf > file) instead"),
+    'sftp': ("a usable SFTP subsystem - missing, or showing a different filesystem than the "
+             "shell, e.g. Synology DSM's share-only SFTP (used by ssh_file_read/write/stat, "
+             "ssh_dir_list_files_basic, file/dir transfers and line edits) - use ssh_cmd_run "
+             "(cat, ls -la, wc -c, printf > file) instead"),
 }
 
 

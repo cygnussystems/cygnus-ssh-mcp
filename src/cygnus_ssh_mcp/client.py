@@ -437,6 +437,14 @@ rm -rf "$PROBE_DIR" 2>/dev/null
         "transfer files over SFTP can't work here. Use ssh_cmd_run instead - e.g. 'cat <file>', "
         "'ls -la <dir>', 'wc -c <file>', or printf/redirection to write a file."
     )
+    SFTP_MISMATCH_MESSAGE = (
+        "SFTP is not available on this host for normal paths: its SFTP server shows a different "
+        "filesystem than the shell (e.g. Synology DSM, where SFTP only shows shared folders and "
+        "'/' is not the real root) - it can't even see the shell's home directory {home}. File "
+        "tools that use SFTP would check or write the wrong paths, so they're disabled here. Use "
+        "ssh_cmd_run instead - e.g. 'cat <file>', 'ls -la <dir>', 'wc -c <file>', or "
+        "printf/redirection to write a file."
+    )
 
     def _probe_sftp(self, timeout: float = 10.0) -> bool:
         """True if the host's SFTP subsystem negotiates. Done by hand (not open_sftp()) so a
@@ -447,8 +455,11 @@ rm -rf "$PROBE_DIR" 2>/dev/null
             channel = self._client.get_transport().open_session(timeout=timeout)
             channel.settimeout(timeout)
             channel.invoke_subsystem('sftp')
-            paramiko.SFTPClient(channel).close()
-            return True
+            sftp = paramiko.SFTPClient(channel)
+            try:
+                return self._sftp_sees_shell_paths(sftp)
+            finally:
+                sftp.close()
         except Exception as e:
             self._logger.warning(f"SFTP subsystem not available: {e!r}")
             if channel is not None:
@@ -458,11 +469,33 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                     pass
             return False
 
+    def _sftp_sees_shell_paths(self, sftp) -> bool:
+        """SFTP is only usable if it resolves paths the way the shell does. A chrooted or
+        share-based SFTP server (Synology DSM: SFTP '/' = the shared folders) made
+        ssh_file_stat call the user's own home directory and /tmp missing, and would write
+        to a different real file than the path given (2026-09-28). Test: SFTP must be able
+        to stat the shell's home directory."""
+        try:
+            _, stdout, _ = self._client.exec_command('pwd', timeout=10)
+            home = stdout.read().decode('utf-8', errors='replace').strip()
+        except Exception as e:
+            self._logger.warning(f"Couldn't read the shell's home directory for the SFTP check: {e!r}")
+            return True  # can't tell - don't disable SFTP on a hiccup
+        if not home.startswith('/'):
+            return True
+        try:
+            sftp.stat(home)
+            return True
+        except IOError:
+            self._logger.warning(f"SFTP can't see the shell's home directory {home} - SFTP disabled")
+            self._sftp_unavailable_message = self.SFTP_MISMATCH_MESSAGE.format(home=home)
+            return False
+
     def open_sftp(self):
         """Open an SFTP session - the one place every file tool goes through, so a host
         without SFTP gives one clear, actionable error instead of 'EOF during negotiation'."""
         if self.capabilities.get('sftp') is False:
-            raise SshError(self.SFTP_UNAVAILABLE_MESSAGE)
+            raise SshError(getattr(self, '_sftp_unavailable_message', None) or self.SFTP_UNAVAILABLE_MESSAGE)
         try:
             return self._client.open_sftp()
         except Exception as e:

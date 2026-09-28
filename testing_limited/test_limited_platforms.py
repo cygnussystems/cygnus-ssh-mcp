@@ -20,6 +20,8 @@ async def _make_tree(s):
 def _needs_sudo(s):
     if not s.host.has_sudo:
         pytest.skip(f"{s.host.name} has no sudo")
+    if s.host.production:
+        pytest.skip(f"{s.host.name} is a production machine - no sudo tests")
 
 
 def _needs_sftp(s):
@@ -163,6 +165,8 @@ async def test_failed_task_launch_leaves_no_launcher(session, use_sudo):
     """Launch fails because the log can't be written - or, for a sudo launch on a host
     without sudo (the original Alpine case), because sudo itself is missing."""
     s = session
+    if use_sudo and s.host.production:
+        pytest.skip(f"{s.host.name} is a production machine - no sudo tests")
     before = await _launcher_count(s)
     marker = f"{s.workdir}/should_not_exist"
     sudo_missing = use_sudo and not s.host.has_sudo

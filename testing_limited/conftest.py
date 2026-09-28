@@ -8,10 +8,14 @@ be pointed at these hosts. This suite instead covers the behaviors that broke on
 It deliberately has its own conftest - testing_mcp/conftest.py wipes the Debian test
 workspace on import, which would collide with a main-suite run on that VM.
 
+The Synology NAS is a PRODUCTION machine: its tests only work inside a uniquely named scratch
+folder in the login user's home directory, and never use sudo (production=True).
+
 Credentials: testing_mcp/.env, per host (hosts without them are skipped):
     ALPINE_SSH_HOST / _USER / _PASSWORD  [/ _PORT, _SUDO_PASSWORD (default: _PASSWORD)]
     FREEBSD_SSH_HOST / ...
     OPENWRT_SSH_HOST / ...
+    SYNOLOGY_SSH_HOST / ...
 """
 import json
 import os
@@ -44,13 +48,15 @@ class LimitedHost:
     name: str
     os_type: str      # what the server should detect
     has_sudo: bool
-    has_sftp: bool
+    has_sftp: bool    # usable SFTP (Synology's share-only SFTP doesn't count)
+    production: bool = False  # scratch only in the home dir, no sudo tests
 
 
 KNOWN_HOSTS = [
     LimitedHost('alpine', os_type='linux', has_sudo=False, has_sftp=True),
     LimitedHost('freebsd', os_type='flex', has_sudo=True, has_sftp=True),
     LimitedHost('openwrt', os_type='linux', has_sudo=False, has_sftp=False),
+    LimitedHost('synology', os_type='linux', has_sudo=True, has_sftp=False, production=True),
 ]
 
 
@@ -104,11 +110,17 @@ async def session(limited_host):
         connect_result = _json(await client.call_tool(
             "ssh_conn_connect", {"host_name": f"{creds['user']}@{creds['host']}"}))
         assert connect_result.get('status') == 'success', connect_result
-        workdir = f"/tmp/mcp_limited_{limited_host.name}_{int(time.time() * 1000)}"
+        base = "/tmp"
+        if limited_host.production:
+            probe = _json(await client.call_tool("ssh_cmd_run", {"command": "pwd"}))
+            base = probe.get('output', '').strip()
+            assert base.startswith('/') and base.count('/') >= 2, f"unexpected home dir: {probe}"
+        workdir = f"{base}/mcp_limited_{limited_host.name}_{int(time.time() * 1000)}"
         s = Session(client, limited_host, workdir, connect_result)
         await s.sh(f"rm -rf {workdir}; mkdir -p {workdir} && chmod 755 {workdir}")
         try:
             yield s
         finally:
-            await s.call("ssh_cmd_run", {"command": f"rm -rf {workdir}", "use_sudo": limited_host.has_sudo})
+            await s.call("ssh_cmd_run", {"command": f"rm -rf {workdir}",
+                                         "use_sudo": limited_host.has_sudo and not limited_host.production})
             await s.call("ssh_host_disconnect", {})

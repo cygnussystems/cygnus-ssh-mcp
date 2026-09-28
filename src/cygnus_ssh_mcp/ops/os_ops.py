@@ -393,7 +393,9 @@ class SshOsOperations_Linux(SshOsOperations):
           # printed KiB into the *_mb fields (OpenWrt: "171240 MB" for 167 MB, 2026-09-28)
           echo "MEM_TOTAL:$(awk "/^MemTotal:/{print int(\$2/1024)}" /proc/meminfo)"
           echo "MEM_FREE:$(awk "/^MemFree:/{print int(\$2/1024)}" /proc/meminfo)"
-          echo "MEM_AVAIL:$(awk "/^MemAvailable:/{print int(\$2/1024)}" /proc/meminfo)"
+          # MemAvailable only exists since kernel 3.14 (Synology DSM: 3.10) - estimate it
+          # there as free + buffers + page cache
+          echo "MEM_AVAIL:$(awk "/^MemAvailable:/{a=\$2} /^MemFree:/{f=\$2} /^Buffers:/{b=\$2} /^Cached:/{c=\$2} END{if (!a) a=f+b+c; print int(a/1024)}" /proc/meminfo)"
           echo "LOAD:$(cut -d" " -f1-3 /proc/loadavg 2>/dev/null || echo n/a)"
         '
         """
@@ -406,6 +408,11 @@ class SshOsOperations_Linux(SshOsOperations):
             echo "OS_NAME:$(grep "^NAME=" /etc/os-release | cut -d= -f2 | tr -d \")"
             echo "OS_VERSION:$(grep "^VERSION=" /etc/os-release | cut -d= -f2 | tr -d \")"
             echo "OS_RELEASE:$(grep "^VERSION_ID=" /etc/os-release | cut -d= -f2 | tr -d \")"
+          elif [ -f /etc/VERSION ] && grep -q "^productversion=" /etc/VERSION; then
+            # Synology DSM: no os-release
+            echo "OS_NAME:Synology DSM"
+            echo "OS_VERSION:$(grep "^productversion=" /etc/VERSION | cut -d= -f2 | tr -d \")"
+            echo "OS_RELEASE:$(grep "^buildnumber=" /etc/VERSION | cut -d= -f2 | tr -d \")"
           elif [ -f /etc/redhat-release ]; then
             echo "OS_NAME:$(cat /etc/redhat-release | cut -d" " -f1)"
             echo "OS_VERSION:$(cat /etc/redhat-release | cut -d" " -f3)"
