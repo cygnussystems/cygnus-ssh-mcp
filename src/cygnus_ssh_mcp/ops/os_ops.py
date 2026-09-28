@@ -193,7 +193,11 @@ class SshOsOperations(ABC):
             - os_type: Operating system type (e.g., "linux", "macos")
         """
         cmd = self._cmd_user_status()
-        return self._execute_status_command(cmd, self._user_key_map, parent_tool=parent_tool)
+        result = self._execute_status_command(cmd, self._user_key_map, parent_tool=parent_tool)
+        if result.get('user') in (None, '', 'n/a') and getattr(self.ssh_client, 'user', None):
+            # No whoami/id on the host: the account we authenticated as is the answer
+            result['user'] = self.ssh_client.user
+        return result
 
     def full_status(self, parent_tool=None):
         """
@@ -312,6 +316,10 @@ class SshOsOperations(ABC):
                     if clean_key in key_map:
                         result_key = key_map[clean_key]
                         processed_value = value.strip()  # Get the raw value first
+                        if not processed_value:
+                            # A probe that printed nothing (missing tool) is unknown, not
+                            # an empty hostname/user - leave it 'n/a'
+                            continue
 
                         # Specifically lowercase the 'os_type' field
                         if result_key == 'os_type':
@@ -381,9 +389,11 @@ class SshOsOperations_Linux(SshOsOperations):
           echo "CPU:$(grep -c ^processor /proc/cpuinfo)"
           echo "CPU_MODEL:$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | sed "s/^[ \t]*//;s/[ \t]*$//")"
           echo "CPU_MHZ:$(grep -m1 "cpu MHz" /proc/cpuinfo | cut -d: -f2 | sed "s/^[ \t]*//;s/[ \t]*$//")"
-          echo "MEM_TOTAL:$(free -m | awk "/^Mem:/{print \$2}")"
-          echo "MEM_FREE:$(free -m | awk "/^Mem:/{print \$4}")"
-          echo "MEM_AVAIL:$(free -m | awk "/^Mem:/{print \$7}")"
+          # /proc/meminfo is in kB on every Linux; BusyBox `free` ignores -m and
+          # printed KiB into the *_mb fields (OpenWrt: "171240 MB" for 167 MB, 2026-09-28)
+          echo "MEM_TOTAL:$(awk "/^MemTotal:/{print int(\$2/1024)}" /proc/meminfo)"
+          echo "MEM_FREE:$(awk "/^MemFree:/{print int(\$2/1024)}" /proc/meminfo)"
+          echo "MEM_AVAIL:$(awk "/^MemAvailable:/{print int(\$2/1024)}" /proc/meminfo)"
           echo "LOAD:$(cut -d" " -f1-3 /proc/loadavg 2>/dev/null || echo n/a)"
         '
         """
@@ -414,7 +424,8 @@ class SshOsOperations_Linux(SshOsOperations):
         """Return command to get network info using /sys/class/net and ip."""
         return r"""
         sh -c '
-          echo "HOSTNAME:$(hostname)"
+          # OpenWrt has no `hostname` binary
+          echo "HOSTNAME:$(hostname 2>/dev/null || cat /proc/sys/kernel/hostname 2>/dev/null || uname -n)"
           # Get all interfaces and their IPs
           for iface in $(ls /sys/class/net); do
             ips=$(ip -4 addr show $iface | awk "/inet /{print \$2}" | tr "\n" " ")
@@ -444,7 +455,7 @@ class SshOsOperations_Linux(SshOsOperations):
         """
         return r"""
         sh -c '
-          echo "USER:$(whoami)"
+          echo "USER:$(whoami 2>/dev/null || id -un 2>/dev/null)"
           echo "CWD:$(pwd)"
           echo "TIME:$(date +%Y-%m-%dT%H:%M:%S%z)"
           echo "OS_TYPE:$(uname -s)"
@@ -466,20 +477,26 @@ class SshOsOperations_Mac(SshOsOperations):
         return r"""
         sh -c '
           echo "CPU:$(sysctl -n hw.ncpu)"
-          echo "CPU_MODEL:$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo n/a)"
+          echo "CPU_MODEL:$(sysctl -n machdep.cpu.brand_string 2>/dev/null || sysctl -n hw.model 2>/dev/null || echo n/a)"
           echo "CPU_MHZ:$(sysctl -n hw.cpufrequency 2>/dev/null | awk "{print \$1/1000000}" || echo n/a)"
-          # Memory: hw.memsize gives bytes, convert to MB
-          mem_bytes=$(sysctl -n hw.memsize)
-          mem_mb=$((mem_bytes / 1048576))
-          echo "MEM_TOTAL:$mem_mb"
-          # Free/available memory from vm_stat (pages * page_size)
-          page_size=$(vm_stat | head -1 | awk -F"page size of " "{print \$2}" | tr -d " bytes)")
-          pages_free=$(vm_stat | awk "/Pages free:/{print \$3}" | tr -d ".")
-          pages_inactive=$(vm_stat | awk "/Pages inactive:/{print \$3}" | tr -d ".")
-          mem_free_mb=$(( (pages_free * page_size) / 1048576 ))
-          mem_avail_mb=$(( ((pages_free + pages_inactive) * page_size) / 1048576 ))
-          echo "MEM_FREE:$mem_free_mb"
-          echo "MEM_AVAIL:$mem_avail_mb"
+          # Memory in bytes: hw.memsize on macOS, hw.physmem on FreeBSD (flex) - FreeBSD
+          # has neither hw.memsize nor vm_stat, and reported 0 MB (2026-09-28)
+          mem_bytes=$(sysctl -n hw.memsize 2>/dev/null || sysctl -n hw.physmem 2>/dev/null)
+          if [ -n "$mem_bytes" ]; then echo "MEM_TOTAL:$((mem_bytes / 1048576))"; fi
+          # Free/available memory = pages * page size
+          if command -v vm_stat >/dev/null 2>&1; then
+            page_size=$(vm_stat | head -1 | awk -F"page size of " "{print \$2}" | tr -d " bytes)")
+            pages_free=$(vm_stat | awk "/Pages free:/{print \$3}" | tr -d ".")
+            pages_inactive=$(vm_stat | awk "/Pages inactive:/{print \$3}" | tr -d ".")
+          else
+            page_size=$(sysctl -n hw.pagesize 2>/dev/null)
+            pages_free=$(sysctl -n vm.stats.vm.v_free_count 2>/dev/null)
+            pages_inactive=$(sysctl -n vm.stats.vm.v_inactive_count 2>/dev/null)
+          fi
+          if [ -n "$page_size" ] && [ -n "$pages_free" ]; then
+            echo "MEM_FREE:$(( (pages_free * page_size) / 1048576 ))"
+            echo "MEM_AVAIL:$(( ((pages_free + ${pages_inactive:-0}) * page_size) / 1048576 ))"
+          fi
           # vm.loadavg is "{ 1.23 4.56 7.89 }" - strip the braces with sed, not
           # awk "{print \$2, \$3, \$4}": macOS /bin/sh brace-expands that comma
           # list inside $(...) and awk gets a mangled program
@@ -491,9 +508,10 @@ class SshOsOperations_Mac(SshOsOperations):
         """Return command to get OS info using sw_vers."""
         return r"""
         sh -c '
-          echo "OS_NAME:$(sw_vers -productName)"
-          echo "OS_VERSION:$(sw_vers -productVersion)"
-          echo "OS_RELEASE:$(sw_vers -buildVersion)"
+          # sw_vers is macOS-only; flex hosts (e.g. FreeBSD) fall back to uname/freebsd-version
+          echo "OS_NAME:$(sw_vers -productName 2>/dev/null || uname -s)"
+          echo "OS_VERSION:$(sw_vers -productVersion 2>/dev/null || freebsd-version 2>/dev/null || uname -r)"
+          echo "OS_RELEASE:$(sw_vers -buildVersion 2>/dev/null || uname -r)"
           echo "KERNEL:$(uname -r)"
           echo "ARCH:$(uname -m)"
         '
@@ -530,10 +548,11 @@ class SshOsOperations_Mac(SshOsOperations):
         """Return command to get user status using BSD date."""
         return r"""
         sh -c '
-          echo "USER:$(whoami)"
+          echo "USER:$(whoami 2>/dev/null || id -un 2>/dev/null)"
           echo "CWD:$(pwd)"
           echo "TIME:$(date -u +%Y-%m-%dT%H:%M:%S%z)"
-          echo "OS_TYPE:macos"
+          # Was hard-coded "macos" - also reported for flex hosts (FreeBSD, 2026-09-28)
+          case "$(uname -s)" in Darwin) echo "OS_TYPE:macos" ;; *) echo "OS_TYPE:$(uname -s)" ;; esac
         '
         """
 

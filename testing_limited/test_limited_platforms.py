@@ -186,3 +186,28 @@ async def test_task_launch_runs_and_cleans_up(session):
             break
     assert (await s.sh(f"cat {s.workdir}/ok.log")).strip() == "ok-task"
     assert await _launcher_count(s) == before
+
+
+# --- connect metadata (OpenWrt: empty user/hostname, KiB labelled MB; FreeBSD: "macos", 0 MB)
+
+async def test_connect_metadata_is_truthful(session):
+    s = session
+    system = s.connect_result.get('system', {})
+    user, hostname, kernel_name = (await s.sh("id -un; uname -n; uname -s")).split()
+    assert s.connect_result.get('connection', {}).get('user') == user, s.connect_result.get('connection')
+    assert system.get('user') == user and system.get('hostname') == hostname, system
+    expected_os_type = 'macos' if kernel_name == 'Darwin' else kernel_name.lower()
+    assert system.get('os_type') == expected_os_type, system
+    assert system.get('os_name') not in (None, '', 'n/a'), system
+
+    # Real memory in MB, from the host's own unit-explicit source
+    real_mb = int((await s.sh(
+        "if [ -r /proc/meminfo ]; then awk '/^MemTotal:/{print int($2/1024)}' /proc/meminfo; "
+        "else echo $(( $(sysctl -n hw.physmem) / 1048576 )); fi")).strip())
+    assert int(system.get('mem_total_mb')) == real_mb, (system.get('mem_total_mb'), real_mb)
+    for key in ('mem_free_mb', 'mem_available_mb'):
+        assert 0 < int(system.get(key)) <= real_mb, (key, system.get(key), real_mb)
+
+    await s.sh(f"rmdir {s.workdir}")  # the fixture can't clean up after the disconnect below
+    disconnect = await s.call("ssh_host_disconnect", {})
+    assert f"{user}@" in disconnect.get('message', ''), disconnect

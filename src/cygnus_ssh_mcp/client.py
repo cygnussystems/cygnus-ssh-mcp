@@ -649,8 +649,9 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                     self._connection_status['cwd'] = cwd
                 else:
                     # Linux/macOS: use bash command
+                    # OpenWrt has no whoami: fall back to id -un, then to the SSH login user
                     cmd = """
-                    echo "USER:$(whoami)"
+                    echo "USER:$(whoami 2>/dev/null || id -un 2>/dev/null)"
                     echo "CWD:$(pwd)"
                     """
                     handle = self.run(cmd, io_timeout=5,
@@ -660,7 +661,7 @@ rm -rf "$PROBE_DIR" 2>/dev/null
                     # Parse output
                     for line in output.splitlines():
                         if 'USER:' in line:
-                            self._connection_status['user'] = line.split(':', 1)[1].strip()
+                            self._connection_status['user'] = line.split(':', 1)[1].strip() or self.user
                         elif 'CWD:' in line:
                             self._connection_status['cwd'] = line.split(':', 1)[1].strip()
 
