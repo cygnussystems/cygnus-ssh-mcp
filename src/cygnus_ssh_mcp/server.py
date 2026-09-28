@@ -2597,7 +2597,7 @@ async def ssh_file_replace_line(
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
     new_line: Annotated[str, Field(description="New line to insert in place of the match")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
-    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+    force: Annotated[bool, Field(description="No longer needed (kept for compatibility): with use_sudo=true the file is read with sudo when the user can't read it. If it can't be read at all, the edit fails - it never reports success without having seen the file.")] = False
 ) -> dict:
     """
     Replace a line in a file with a new line. `match_line` must match EXACTLY ONE
@@ -2611,7 +2611,7 @@ async def ssh_file_replace_line(
     * match_line: Exact line content to match and replace (whitespace-trimmed)
     * new_line: New line to insert in place of the match
     * use_sudo: Use sudo for the operation (default: false)
-    * force: Force operation even if file can't be read (sudo only) (default: false)
+    * force: No longer needed (kept for compatibility) - use_sudo reads root-only files with sudo (default: false)
 
     RETURNS:
     On success: `{'success': True, 'lines_written': 1}` (or, in the rare edge case
@@ -2694,7 +2694,7 @@ async def ssh_file_replace_line_multi(
     match_line: Annotated[str, Field(description="Exact line content to match and replace")],
     new_lines: Annotated[list, Field(description="List of new lines to insert in place of the match")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
-    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+    force: Annotated[bool, Field(description="No longer needed (kept for compatibility): with use_sudo=true the file is read with sudo when the user can't read it. If it can't be read at all, the edit fails - it never reports success without having seen the file.")] = False
 ) -> dict:
     """
     Replace a line in a file with one or more new lines (or delete it, with an empty
@@ -2715,7 +2715,7 @@ async def ssh_file_replace_line_multi(
       - To delete the line entirely: use [] (empty list)
       - To replace with an empty line: use [""]
     * use_sudo: Use sudo for the operation (default: false)
-    * force: Force operation even if file can't be read (sudo only) (default: false)
+    * force: No longer needed (kept for compatibility) - use_sudo reads root-only files with sudo (default: false)
 
     RETURNS:
     On success: `{'success': True, 'lines_written': <len(new_lines)>}` (or, in the
@@ -2930,7 +2930,7 @@ async def ssh_file_insert_lines_after_match(
     match_line: Annotated[str, Field(description="Exact line content to match")],
     lines_to_insert: Annotated[list, Field(description="Line(s) to insert after the match")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
-    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+    force: Annotated[bool, Field(description="No longer needed (kept for compatibility): with use_sudo=true the file is read with sudo when the user can't read it. If it can't be read at all, the edit fails - it never reports success without having seen the file.")] = False
 ) -> dict:
     """
     Insert one or more new lines immediately after a matching line. `match_line`
@@ -2947,7 +2947,7 @@ async def ssh_file_insert_lines_after_match(
       - To insert a single line: use ["line to insert"]
       - To insert an empty line: use [""]
     * use_sudo: Use sudo for the operation (default: false)
-    * force: Force operation even if file can't be read (sudo only) (default: false)
+    * force: No longer needed (kept for compatibility) - use_sudo reads root-only files with sudo (default: false)
 
     RETURNS:
     On success: `{'success': True, 'lines_inserted': <len(lines_to_insert)>}` (note:
@@ -2996,7 +2996,7 @@ async def ssh_file_delete_line_by_content(
     file_path: Annotated[str, Field(description="Path to the file to modify")],
     match_line: Annotated[str, Field(description="Exact line content to match and delete")],
     use_sudo: Annotated[bool, Field(description="Use sudo for the operation")] = False,
-    force: Annotated[bool, Field(description="Force operation even if file can't be read (sudo only)")] = False
+    force: Annotated[bool, Field(description="No longer needed (kept for compatibility): with use_sudo=true the file is read with sudo when the user can't read it. If it can't be read at all, the edit fails - it never reports success without having seen the file.")] = False
 ) -> dict:
     """
     Delete a line by its exact content. `match_line` must match EXACTLY ONE line in
@@ -3097,6 +3097,7 @@ async def ssh_file_write(
             local_temp_path = temp_file.name
         
         try:
+            original_meta = None  # set below for an existing file written with sudo
             # Create parent directories first if requested (before any file operations)
             if create_dirs:
                 parent_dir = os.path.dirname(file_path)
@@ -3138,6 +3139,21 @@ async def ssh_file_write(
                             'error': f"Parent directory does not exist: {parent_dir}. Use create_dirs=True to create it."
                         }
                 
+                # An existing file's owner/group/mode, read with sudo before writing, so a
+                # sudo write can restore them - it used to chown every sudo-written file to
+                # the connected user, silently exposing root-only files (2026-09-28).
+                original_meta = None
+                if use_sudo and mcp.ssh_client.os_type != 'windows':
+                    try:
+                        meta_cmd = mcp.ssh_client.file_ops._cmd_stat_permissions(file_path)
+                        meta = mcp.ssh_client.run(meta_cmd, sudo=True, io_timeout=15,
+                                                  origin='tool_internal', parent_tool='ssh_file_write')
+                        parts = meta.last_nonblank().split()
+                        if len(parts) == 3 and all(part.isdigit() for part in parts):
+                            original_meta = parts  # [octal perms, uid, gid]
+                    except Exception:
+                        original_meta = None  # no such file yet (or no stat): a new file
+
                 if use_sudo:
                     # For sudo operations, we need to use a different approach
                     # First, create a temporary file in a location we can write to
@@ -3274,18 +3290,29 @@ async def ssh_file_write(
                 chmod_cmd = f"chmod {mode:o} {shlex.quote(file_path)}"
                 mcp.ssh_client.run(chmod_cmd, sudo=use_sudo, origin='tool_internal', parent_tool='ssh_file_write')
 
-            # If sudo was used, we may need to check ownership
-            if use_sudo:
-                # Get the current user to set ownership properly
-                whoami_result = mcp.ssh_client.run("whoami", origin='tool_internal', parent_tool='ssh_file_write')
-                current_user = whoami_result.get_full_output().strip()
-                if current_user and current_user != "root":
-                    # Set ownership to the current user if we're not root
-                    chown_cmd = f"chown {current_user} {shlex.quote(file_path)}"
-                    try:
-                        mcp.ssh_client.run(chown_cmd, sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
-                    except Exception as e:
-                        logger.warning(f"Failed to set ownership of {file_path}: {e}")
+            # Ownership after a sudo write (not applicable on Windows)
+            if use_sudo and mcp.ssh_client.os_type != 'windows':
+                if original_meta is not None:
+                    # Existing file: keep its own owner/group, and its mode unless one was given
+                    perms, uid, gid = original_meta
+                    fixups = [f"chown {uid}:{gid} {shlex.quote(file_path)}"]
+                    if mode is None:
+                        fixups.append(f"chmod {perms} {shlex.quote(file_path)}")
+                    for fixup in fixups:
+                        try:
+                            mcp.ssh_client.run(fixup, sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
+                        except Exception as e:
+                            logger.warning(f"Failed to restore ownership/mode of {file_path} ({fixup}): {e}")
+                else:
+                    # New file: owned by the connected user (existing, documented behavior)
+                    whoami_result = mcp.ssh_client.run("whoami", origin='tool_internal', parent_tool='ssh_file_write')
+                    current_user = whoami_result.get_full_output().strip()
+                    if current_user and current_user != "root":
+                        chown_cmd = f"chown {current_user} {shlex.quote(file_path)}"
+                        try:
+                            mcp.ssh_client.run(chown_cmd, sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
+                        except Exception as e:
+                            logger.warning(f"Failed to set ownership of {file_path}: {e}")
             
             # Get file size for reporting
             try:

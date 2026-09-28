@@ -22,3 +22,18 @@ Owner changed from root uid0 to `claude` uid1002 even though the requested mode 
 ## Expected/fix direction
 
 On sudo overwrite, preserve prior owner/group/mode unless explicitly changed, or reject the operation before changing content when this host cannot safely preserve them. Return explicit owner/permission change metadata if requested; never silently make a private root-owned file readable by the unprivileged account. The tester restored root:wheel/0600 via a privileged command and removed the entire scratch tree with sudo; absence verified.
+
+## Fix (2026-09-28, branch `feature/operation-progress`)
+
+- **Root cause (not FreeBSD-specific):** after every `use_sudo` write, `ssh_file_write` ran
+  `chown <connected user>` on the file, deliberately, on all Linux/macOS/flex hosts. For an
+  existing root-owned file that silently handed the file (and its contents) to the user, and the
+  temp-file-and-move write also dropped the original mode.
+- **Fix:** before a sudo write, the existing file's mode/owner/group are read with sudo (the
+  platform's own `stat -c` / `stat -f`). After writing, an **existing** file gets its own
+  owner/group back, and its mode unless `mode` was given. A **new** file keeps the previous,
+  documented behavior (owned by the connected user).
+- **Verified live** on FreeBSD, Debian and macOS: a root:0 mode-600 file stays `0:0` / 600 after a
+  sudo write (or becomes 640 when `mode: 0o640` is passed); a new file is owned by the user.
+- **Test:** `testing_mcp/test_tool__sudo_file_edits.py::test_sudo_write_keeps_existing_owner_and_mode`
+  (Linux/macOS); fails on the old code (owner became uid 1000).

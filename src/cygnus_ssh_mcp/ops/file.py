@@ -495,6 +495,28 @@ class SshFileOperations(ABC):
             self.logger.error(f"Error getting context around line in {remote_file}: {e}", exc_info=True)
             return {"match_found": False, "error": str(e)}
 
+    def _read_text_for_edit(self, remote_file: str, sudo: bool, parent_tool: Optional[str] = None) -> str:
+        """Current text of a file about to be edited: over SFTP as the connected user, or -
+        if that's denied and sudo was requested (Linux/macOS) - with 'sudo cat'. Raises
+        SshError with a clear message if the content can't be read either way."""
+        try:
+            with self.ssh_client._client.open_sftp() as sftp:
+                with sftp.file(remote_file, 'r') as f:
+                    return f.read().decode('utf-8', errors='replace')
+        except Exception as e:
+            first_error = e
+        if not sudo or self.ssh_client.os_type == 'windows':
+            raise SshError(f"Cannot read {remote_file}: {first_error}. Nothing was changed."
+                           + ("" if sudo else " If only root can read it, pass use_sudo=true."))
+        try:
+            handle = self.ssh_client.run(f"cat {shlex.quote(remote_file)}", sudo=True, io_timeout=30,
+                                         origin='tool_internal', parent_tool=parent_tool)
+        except Exception as e:
+            raise SshError(f"Cannot read {remote_file}, even with sudo: {e}. Nothing was changed.") from e
+        if handle.truncated:
+            raise SshError(f"{remote_file} is too large to edit this way. Nothing was changed.")
+        return handle.get_full_output()
+
     def replace_line_by_content(self, remote_file: str, match_line: str, new_lines: list,
                                sudo: bool = False, force: bool = False,
                                parent_tool: str = 'ssh_file_replace_line') -> dict:
@@ -522,24 +544,15 @@ class SshFileOperations(ABC):
             self.logger.warning(f"Initial stat failed for {remote_file} but sudo and force are set: {e}")
 
 
-        content = None
+        # Read the current content - with sudo when the user can't read it and use_sudo is
+        # set. If it can't be read at all, fail: never report "success / no changes needed"
+        # without having seen the file (it used to, with force=True: the edit was applied
+        # to empty text, found nothing, and returned success - 2026-09-28).
+        try:
+            content = self._read_text_for_edit(remote_file, sudo, parent_tool)
+        except SshError as e:
+            return {"success": False, "error": str(e)}
         can_check_duplicates = True
-        if not (sudo and force): 
-            try:
-                with self.ssh_client._client.open_sftp() as sftp:
-                    with sftp.file(remote_file, 'r') as f:
-                        content = f.read().decode('utf-8', errors='replace')
-            except Exception as e:
-                self.logger.error(f"Cannot read file {remote_file} to check for duplicate lines: {str(e)}")
-                return {"success": False, "error": f"Cannot read file to check for duplicate lines: {str(e)}"}
-        else: 
-            try: 
-                with self.ssh_client._client.open_sftp() as sftp:
-                    with sftp.file(remote_file, 'r') as f:
-                        content = f.read().decode('utf-8', errors='replace')
-            except Exception as e:
-                self.logger.warning(f"Could not read {remote_file} to check duplicates (sudo and force active): {e}. Proceeding without check.")
-                can_check_duplicates = False 
 
         if can_check_duplicates and content is not None:
             file_lines = content.splitlines()
@@ -641,24 +654,15 @@ class SshFileOperations(ABC):
                 return {"success": False, "error": f"Error accessing file {remote_file}: {str(e)}"}
             self.logger.warning(f"Initial stat failed for {remote_file} but sudo and force are set: {e}")
 
-        content = None
+        # Read the current content - with sudo when the user can't read it and use_sudo is
+        # set. If it can't be read at all, fail: never report "success / no changes needed"
+        # without having seen the file (it used to, with force=True: the edit was applied
+        # to empty text, found nothing, and returned success - 2026-09-28).
+        try:
+            content = self._read_text_for_edit(remote_file, sudo, parent_tool)
+        except SshError as e:
+            return {"success": False, "error": str(e)}
         can_check_duplicates = True
-        if not (sudo and force):
-            try:
-                with self.ssh_client._client.open_sftp() as sftp:
-                    with sftp.file(remote_file, 'r') as f:
-                        content = f.read().decode('utf-8', errors='replace')
-            except Exception as e:
-                self.logger.error(f"Cannot read file {remote_file} to check for duplicate lines: {str(e)}")
-                return {"success": False, "error": f"Cannot read file to check for duplicate lines: {str(e)}"}
-        else: 
-            try:
-                with self.ssh_client._client.open_sftp() as sftp:
-                    with sftp.file(remote_file, 'r') as f:
-                        content = f.read().decode('utf-8', errors='replace')
-            except Exception as e:
-                self.logger.warning(f"Could not read {remote_file} to check duplicates (sudo and force active): {e}. Proceeding without check.")
-                can_check_duplicates = False
         
         if can_check_duplicates and content is not None:
             file_lines = content.splitlines()
@@ -756,24 +760,15 @@ class SshFileOperations(ABC):
                 return {"success": False, "error": f"Error accessing file {remote_file}: {str(e)}"}
             self.logger.warning(f"Initial stat failed for {remote_file} but sudo and force are set: {e}")
 
-        content = None
+        # Read the current content - with sudo when the user can't read it and use_sudo is
+        # set. If it can't be read at all, fail: never report "success / no changes needed"
+        # without having seen the file (it used to, with force=True: the edit was applied
+        # to empty text, found nothing, and returned success - 2026-09-28).
+        try:
+            content = self._read_text_for_edit(remote_file, sudo, parent_tool)
+        except SshError as e:
+            return {"success": False, "error": str(e)}
         can_check_duplicates = True
-        if not (sudo and force):
-            try:
-                with self.ssh_client._client.open_sftp() as sftp:
-                    with sftp.file(remote_file, 'r') as f:
-                        content = f.read().decode('utf-8', errors='replace')
-            except Exception as e:
-                self.logger.error(f"Cannot read file {remote_file} to check for duplicate lines: {str(e)}")
-                return {"success": False, "error": f"Cannot read file to check for duplicate lines: {str(e)}"}
-        else: 
-            try:
-                with self.ssh_client._client.open_sftp() as sftp:
-                    with sftp.file(remote_file, 'r') as f:
-                        content = f.read().decode('utf-8', errors='replace')
-            except Exception as e:
-                self.logger.warning(f"Could not read {remote_file} to check duplicates (sudo and force active): {e}. Proceeding without check.")
-                can_check_duplicates = False
 
         if can_check_duplicates and content is not None:
             file_lines = content.splitlines()
@@ -983,11 +978,7 @@ class SshFileOperations(ABC):
                     self.logger.debug(f"Successfully downloaded original file {remote_file} for sudo op.")
                 except Exception as e:
                     self.logger.warning(f"Could not download original {remote_file} for sudo op: {e}.")
-                    if not force:
-                        raise SshError(f"Cannot read original file {remote_file} and force=False. Aborting sudo replacement.") from e
-                    else:
-                        self.logger.warning("force=True specified. Proceeding with modification assuming empty or irrelevant original content for comparison.")
-                        original_text = "" 
+                    raise SshError(f"Cannot read original file {remote_file}. Nothing was changed.") from e
 
             modified_text = modify_func(original_text) 
 
