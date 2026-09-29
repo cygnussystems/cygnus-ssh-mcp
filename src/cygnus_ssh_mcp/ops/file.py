@@ -1,4 +1,6 @@
 import os
+import ntpath
+import posixpath
 import re
 import tempfile
 import shlex
@@ -605,7 +607,7 @@ class SshFileOperations(ABC):
         # On Windows, sudo is not applicable - use the non-sudo path
         is_windows = self.ssh_client.os_type == 'windows'
         if sudo and not is_windows:
-            remote_temp_path = f"/tmp/replace_line_{os.path.basename(remote_file)}_{int(time.time())}"
+            remote_temp_path = f"/tmp/replace_line_{posixpath.basename(remote_file)}_{int(time.time())}"
             try:
                 op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func,
                                                        sudo=sudo, force=force,
@@ -714,7 +716,7 @@ class SshFileOperations(ABC):
         # On Windows, sudo is not applicable - use the non-sudo path
         is_windows = self.ssh_client.os_type == 'windows'
         if sudo and not is_windows:
-            remote_temp_path = f"/tmp/insert_after_{os.path.basename(remote_file)}_{int(time.time())}"
+            remote_temp_path = f"/tmp/insert_after_{posixpath.basename(remote_file)}_{int(time.time())}"
             try:
                 op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func,
                                                        sudo=sudo, force=force,
@@ -819,7 +821,7 @@ class SshFileOperations(ABC):
         # On Windows, sudo is not applicable - use the non-sudo path
         is_windows = self.ssh_client.os_type == 'windows'
         if sudo and not is_windows:
-            remote_temp_path = f"/tmp/delete_line_{os.path.basename(remote_file)}_{int(time.time())}"
+            remote_temp_path = f"/tmp/delete_line_{posixpath.basename(remote_file)}_{int(time.time())}"
             try:
                 op_result = self._replace_content_sudo(remote_file, remote_temp_path, modify_func,
                                                        sudo=sudo, force=force,
@@ -872,7 +874,7 @@ class SshFileOperations(ABC):
         actual_destination = destination_path
         if append_timestamp:
             timestamp = time.strftime("%Y%m%dT%H%M%S")
-            base, ext = os.path.splitext(destination_path)
+            base, ext = posixpath.splitext(destination_path)  # remote POSIX path
             actual_destination = f"{base}.{timestamp}{ext}"
         
         self.logger.info(f"Copying file from {source_path} to {actual_destination} (sudo={sudo})")
@@ -1225,7 +1227,7 @@ class SshFileOperations_Win(SshFileOperations):
         if append_timestamp:
             import time as time_module
             timestamp = time_module.strftime("%Y%m%dT%H%M%S")
-            base, ext = os.path.splitext(destination_path)
+            base, ext = ntpath.splitext(destination_path)  # remote Windows path, on any client
             actual_destination = f"{base}.{timestamp}{ext}"
 
         self.logger.info(f"Copying file from {source_path} to {actual_destination} (sudo={sudo})")

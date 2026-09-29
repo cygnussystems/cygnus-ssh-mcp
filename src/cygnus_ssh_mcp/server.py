@@ -1,6 +1,8 @@
 import logging
 import sys
 import os
+import ntpath
+import posixpath
 import argparse
 import asyncio
 import tempfile
@@ -443,6 +445,15 @@ def _with_dict_result(func, wrapper):
         new_ret = Union[ret, dict]
         wrapper.__signature__ = sig.replace(return_annotation=new_ret)
         wrapper.__annotations__ = {**getattr(func, '__annotations__', {}), 'return': new_ret}
+
+
+def _remote_dirname(path: str) -> str:
+    """Parent directory of a REMOTE path, split by the target's rules - not the local
+    machine's. os.path.dirname on a macOS/Linux client returned '' for 'C:\\a\\b.txt'
+    (only '/' separates there), so ssh_file_write never created a Windows file's parent
+    directories (found by the cross-platform matrix, macOS runner -> Windows, 2026-09-29)."""
+    is_windows = mcp.ssh_client is not None and mcp.ssh_client.os_type == 'windows'
+    return (ntpath if is_windows else posixpath).dirname(path)
 
 
 def operation_tool(func):
@@ -3121,7 +3132,7 @@ async def ssh_file_write(
             original_meta = None  # set below for an existing file written with sudo
             # Create parent directories first if requested (before any file operations)
             if create_dirs:
-                parent_dir = os.path.dirname(file_path)
+                parent_dir = _remote_dirname(file_path)
                 if parent_dir:
                     try:
                         # Create all parent directories recursively
@@ -3148,7 +3159,7 @@ async def ssh_file_write(
             try:
                 # Check if parent directory exists when create_dirs is False
                 if not create_dirs:
-                    parent_dir = os.path.dirname(file_path)
+                    parent_dir = _remote_dirname(file_path)
                     try:
                         with mcp.ssh_client.open_sftp() as sftp:
                             sftp.stat(parent_dir)
@@ -3181,10 +3192,10 @@ async def ssh_file_write(
                     is_windows = mcp.ssh_client.os_type == 'windows'
                     if is_windows:
                         # Windows: use Windows temp directory
-                        base_name = os.path.basename(file_path).replace('\\', '_').replace(':', '_')
+                        base_name = ntpath.basename(file_path).replace(':', '_')
                         remote_temp_path = f"C:\\Windows\\Temp\\ssh_file_write_{base_name}_{int(time.time())}"
                     else:
-                        remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
+                        remote_temp_path = f"/tmp/ssh_file_write_{posixpath.basename(file_path)}_{int(time.time())}"
 
                     # Upload to the temporary location first
                     mcp.ssh_client.put(local_temp_path, remote_temp_path)
@@ -3257,7 +3268,7 @@ async def ssh_file_write(
                             # For sudo, we need to use the sudo approach
                             is_windows = mcp.ssh_client.os_type == 'windows'
                             if is_windows:
-                                base_name = os.path.basename(file_path).replace('\\', '_').replace(':', '_')
+                                base_name = ntpath.basename(file_path).replace(':', '_')
                                 remote_temp_path = f"C:\\Windows\\Temp\\ssh_file_write_{base_name}_{int(time.time())}"
                                 mcp.ssh_client.put(local_temp_path, remote_temp_path)
                                 copy_cmd = f"Copy-Item -Path '{remote_temp_path}' -Destination '{file_path}' -Force"
@@ -3265,7 +3276,7 @@ async def ssh_file_write(
                                 mcp.ssh_client.run(powershell_encoded_command(f"Remove-Item -Path '{remote_temp_path}' -Force -ErrorAction SilentlyContinue"),
                                                     origin='tool_internal', parent_tool='ssh_file_write')
                             else:
-                                remote_temp_path = f"/tmp/ssh_file_write_{os.path.basename(file_path)}_{int(time.time())}"
+                                remote_temp_path = f"/tmp/ssh_file_write_{posixpath.basename(file_path)}_{int(time.time())}"
                                 mcp.ssh_client.put(local_temp_path, remote_temp_path)
                                 cat_cmd = f"cat {shlex.quote(remote_temp_path)} > {shlex.quote(file_path)}"
                                 mcp.ssh_client.run(f"sh -c {shlex.quote(cat_cmd)}", sudo=True, origin='tool_internal', parent_tool='ssh_file_write')
@@ -3277,7 +3288,7 @@ async def ssh_file_write(
                     # This is likely because the parent directory doesn't exist yet
                     # We already tried to create it, but let's try again with a more direct approach
                     logger.warning(f"Directory creation may have failed, retrying with direct command")
-                    parent_dir = os.path.dirname(file_path)
+                    parent_dir = _remote_dirname(file_path)
                     if parent_dir:
                         is_windows = mcp.ssh_client.os_type == 'windows'
                         if is_windows:

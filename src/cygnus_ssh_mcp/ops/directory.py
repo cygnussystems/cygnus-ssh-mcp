@@ -1,4 +1,5 @@
 import os
+import posixpath
 import re
 import shlex
 import logging
@@ -503,8 +504,9 @@ class SshDirectoryOperations(ABC):
         try:
             # Get directory name without trailing slash
             source_dir = source_path.rstrip('/')
-            parent_dir = os.path.dirname(source_dir)
-            base_name = os.path.basename(source_dir)
+            # remote POSIX path (Windows has its own implementation) - never the local rules
+            parent_dir = posixpath.dirname(source_dir)
+            base_name = posixpath.basename(source_dir)
 
             tar_started = True
             # Create archive based on format
