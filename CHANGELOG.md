@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.6.1 - 2026-09-29
+
+Two fixes found by running the test suite from every client platform (Windows, macOS, Linux)
+against every target, rather than from a Windows client only.
+
+### Fixed
+
+- **A result is no longer lost when the client gives up on a request.** If a tool finished
+  after the client had already timed out on the request (but within the server's wait
+  cap), the result went nowhere, and `ssh_cmd_check_status` could no longer find the
+  operation. Finished operations now stay collectable (the last 50). The ones that were
+  returned normally don't clutter `ssh_cmd_history`.
+- **Windows targets when the server runs on macOS or Linux.** Remote paths were split by
+  the local machine's rules, which don't know `\` as a separator. As a result,
+  `ssh_file_write` with `create_dirs` failed ("SFTP put failed: No such file"). Remote paths
+  are now always handled by the target's rules. This covers parent directories, temporary
+  file names, `append_timestamp` copies and archive sources.
+
+### Testing
+
+- The cross-platform test matrix (`testing_matrix/`) works again with 1.6.0's long-operation
+  hand-off, and all three runner machines are verified.
+
 ## 1.6.0 - 2026-09-28
 
 The theme of this release: any MCP client, with any model, should get correct answers
