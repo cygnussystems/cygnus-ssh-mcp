@@ -91,9 +91,17 @@ Each runner machine needs:
 
 | Runner | Python | Status |
 |--------|--------|--------|
-| Linux (192.168.1.27) | Python 3.11 | Ready |
-| Windows (192.168.1.9) | Unknown | Needs setup/verification (replaces the old .28 win-test VM, which no longer exists) |
-| macOS (192.168.1.109, `MACBOOK-2015`) | Python 3.13.15 (`/usr/local/bin/python3`) | Installed 2026-09-25, not yet verified as a runner. Its password comes from `MACOS_SSH_PASSWORD` in `testing_mcp/.env` |
+| Linux (192.168.1.27) | Python 3.11 (`python3`) | Verified 2026-09-29 |
+| Windows (192.168.1.9, `win-server-2016`) | Python 3.12.10 at `C:\Program Files\Python312` (installed 2026-09-29, all users, on PATH) | Verified 2026-09-29 |
+| macOS (192.168.1.109, `MACBOOK-2015`) | Python 3.13.15 (`/usr/local/bin/python3`; login shell is zsh) | Verified 2026-09-29. Its password comes from `MACOS_SSH_PASSWORD` in `testing_mcp/.env` |
+
+**Same-machine combinations** (a runner testing itself, e.g. Linux -> Linux) put pytest, the
+MCP server and every remote command on one small VM - timing-sensitive tests can then fail
+from load alone. Prefer cross-machine combinations; a Linux client can also be simulated from
+WSL on the orchestrator PC.
+
+Useful options: `--tests <path>` runs a subset on the runners; each combination's full pytest
+output is saved to `%TEMP%\mcp_ssh_matrix_results\<runner>_to_<target>.txt`.
 
 ## Files
 
